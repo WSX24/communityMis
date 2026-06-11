@@ -33,6 +33,47 @@ textarea:focus-visible {
   text-decoration-thickness: 2px;
 }
 
+.auth-runtime-message {
+  margin-top: var(--space-sm, 8px);
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.auth-runtime-message[data-state="error"] {
+  border-color: var(--danger-light, #fecaca);
+  background: color-mix(in oklch, var(--danger-light, #fecaca) 48%, var(--surface));
+  color: var(--danger);
+}
+
+.auth-runtime-message[data-state="success"] {
+  border-color: color-mix(in oklch, var(--success) 28%, var(--border));
+  background: color-mix(in oklch, var(--success) 10%, var(--surface));
+  color: var(--success);
+}
+
+.auth-runtime-message--global {
+  margin: var(--space-lg);
+}
+
+button.settings-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+}
+
+button.settings-item:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .route-boundary {
   display: none !important;
 }
