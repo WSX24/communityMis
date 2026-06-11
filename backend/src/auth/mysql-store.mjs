@@ -30,7 +30,9 @@ export function createMysqlAuthStore(options = {}) {
     findServiceRequestById,
     createServiceRequest,
     acceptServiceRequest,
+    listServiceOrders,
     findServiceOrderById,
+    confirmServiceOrder,
     listReviewsForTargetId,
     createSession,
     findSession,
@@ -428,29 +430,117 @@ SELECT JSON_OBJECT(
     return findServiceOrderById(result.orderId);
   }
 
+  async function listServiceOrders() {
+    const sql = `
+SELECT COALESCE(JSON_ARRAYAGG(${serviceOrderJsonObjectSql("q")}), JSON_ARRAY())
+FROM (
+  SELECT
+    so.\`order_id\`,
+    so.\`request_id\`,
+    so.\`provider_id\`,
+    so.\`status\`,
+    so.\`payer_confirmed\`,
+    so.\`provider_confirmed\`,
+    CAST(so.\`coin_amount\` AS DOUBLE) AS \`coin_amount\`,
+    so.\`created_at\`,
+    so.\`updated_at\`,
+    so.\`completed_at\`
+  FROM \`service_order\` so
+  ORDER BY so.\`created_at\` DESC, so.\`order_id\` DESC
+) q;
+`;
+    const rows = await mysqlJson(sql, { optional: true });
+    return Array.isArray(rows) ? rows.map(normalizeServiceOrder).filter(Boolean) : [];
+  }
+
   async function findServiceOrderById(orderId) {
     const id = Number(orderId);
     if (!Number.isInteger(id) || id <= 0) {
       return null;
     }
     const sql = `
-SELECT JSON_OBJECT(
-  'orderId', so.\`order_id\`,
-  'requestId', so.\`request_id\`,
-  'providerId', so.\`provider_id\`,
-  'status', so.\`status\`,
-  'payerConfirmed', so.\`payer_confirmed\`,
-  'providerConfirmed', so.\`provider_confirmed\`,
-  'coinAmount', CAST(so.\`coin_amount\` AS DOUBLE),
-  'createdAt', DATE_FORMAT(so.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
-  'updatedAt', DATE_FORMAT(so.\`updated_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
-  'completedAt', IF(so.\`completed_at\` IS NULL, NULL, DATE_FORMAT(so.\`completed_at\`, '%Y-%m-%dT%H:%i:%s.000Z'))
-)
+SELECT ${serviceOrderJsonObjectSql("so")}
 FROM \`service_order\` so
 WHERE so.\`order_id\` = ${id}
 LIMIT 1;
 `;
     return normalizeServiceOrder(await mysqlJson(sql, { optional: true }));
+  }
+
+  async function confirmServiceOrder(input) {
+    const orderId = Number(input.orderId);
+    const actorId = Number(input.actorId);
+    const actorRole = String(input.actorRole ?? "");
+    const confirmColumn = actorRole === "payer" ? "payer_confirmed" : actorRole === "provider" ? "provider_confirmed" : null;
+    if (!confirmColumn) {
+      throw storeError("ORDER_FORBIDDEN", "Actor is not part of this order.");
+    }
+
+    const sql = `
+START TRANSACTION;
+SET @order_id = ${orderId};
+SET @actor_id = ${actorId};
+SET @actor_role = ${sqlString(actorRole)};
+SET @order_found = 0;
+SET @authorized = 0;
+SET @status_allowed = 0;
+SELECT
+  @order_found := 1,
+  @authorized := IF(
+    (@actor_role = 'payer' AND sr.\`publisher_id\` = @actor_id)
+      OR (@actor_role = 'provider' AND so.\`provider_id\` = @actor_id),
+    1,
+    0
+  ),
+  @status_allowed := IF(so.\`status\` IN ('accepted', 'payer_confirmed', 'both_confirmed'), 1, 0)
+FROM \`service_order\` so
+JOIN \`service_request\` sr ON sr.\`request_id\` = so.\`request_id\`
+WHERE so.\`order_id\` = @order_id
+FOR UPDATE;
+UPDATE \`service_order\`
+SET
+  \`${confirmColumn}\` = 1,
+  \`status\` = CASE
+    WHEN \`payer_confirmed\` = 1 AND \`provider_confirmed\` = 1 THEN 'both_confirmed'
+    WHEN \`payer_confirmed\` = 1 THEN 'payer_confirmed'
+    ELSE 'accepted'
+  END,
+  \`updated_at\` = CURRENT_TIMESTAMP
+WHERE \`order_id\` = @order_id
+  AND @authorized = 1
+  AND @status_allowed = 1
+LIMIT 1;
+UPDATE \`service_order\`
+SET
+  \`status\` = CASE
+    WHEN \`payer_confirmed\` = 1 AND \`provider_confirmed\` = 1 THEN 'both_confirmed'
+    WHEN \`payer_confirmed\` = 1 THEN 'payer_confirmed'
+    ELSE 'accepted'
+  END,
+  \`updated_at\` = CURRENT_TIMESTAMP
+WHERE \`order_id\` = @order_id
+  AND @authorized = 1
+  AND @status_allowed = 1
+LIMIT 1;
+COMMIT;
+SELECT JSON_OBJECT(
+  'orderFound', @order_found,
+  'authorized', @authorized,
+  'statusAllowed', @status_allowed,
+  'orderId', @order_id
+);
+`;
+    const result = await mysqlJson(sql);
+    if (Number(result?.orderFound ?? 0) !== 1) {
+      throw storeError("ORDER_NOT_FOUND", "Service order was not found.");
+    }
+    if (Number(result?.authorized ?? 0) !== 1) {
+      throw storeError("ORDER_FORBIDDEN", "Actor is not part of this order.");
+    }
+    if (Number(result?.statusAllowed ?? 0) !== 1) {
+      throw storeError("ORDER_STATUS_NOT_CONFIRMABLE", "Only accepted orders can be confirmed.");
+    }
+    return findServiceOrderById(result.orderId);
   }
 
   async function listReviewsForTargetId(userId) {
@@ -616,6 +706,21 @@ function walletJsonObjectSql(alias) {
     'version', ${alias}.\`version\`,
     'createdAt', DATE_FORMAT(${alias}.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
     'updatedAt', DATE_FORMAT(${alias}.\`updated_at\`, '%Y-%m-%dT%H:%i:%s.000Z')
+  )`;
+}
+
+function serviceOrderJsonObjectSql(alias) {
+  return `JSON_OBJECT(
+    'orderId', ${alias}.\`order_id\`,
+    'requestId', ${alias}.\`request_id\`,
+    'providerId', ${alias}.\`provider_id\`,
+    'status', ${alias}.\`status\`,
+    'payerConfirmed', ${alias}.\`payer_confirmed\`,
+    'providerConfirmed', ${alias}.\`provider_confirmed\`,
+    'coinAmount', CAST(${alias}.\`coin_amount\` AS DOUBLE),
+    'createdAt', DATE_FORMAT(${alias}.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
+    'updatedAt', DATE_FORMAT(${alias}.\`updated_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
+    'completedAt', IF(${alias}.\`completed_at\` IS NULL, NULL, DATE_FORMAT(${alias}.\`completed_at\`, '%Y-%m-%dT%H:%i:%s.000Z'))
   )`;
 }
 

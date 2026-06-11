@@ -4,10 +4,15 @@ import { HttpError, methodNotAllowed, readJsonBody, sendJson } from "../http.mjs
 const REQUEST_DETAIL_RE = /^\/api\/requests\/([^/]+)$/;
 const REQUEST_ACCEPT_RE = /^\/api\/requests\/([^/]+)\/accept$/;
 const ORDER_DETAIL_RE = /^\/api\/orders\/([^/]+)$/;
+const ORDER_CONFIRM_RE = /^\/api\/orders\/([^/]+)\/confirm$/;
 const PUBLIC_REQUEST_STATUSES = new Set(["open", "accepted", "completed"]);
 const ORDER_STATUSES = new Set(["accepted", "payer_confirmed", "both_confirmed", "completed", "disputed"]);
+const ORDER_CONFIRMABLE_STATUSES = new Set(["accepted", "payer_confirmed", "both_confirmed"]);
 const STATUS_FILTERS = new Set(["open", "accepted", "completed", "cancelled", "all"]);
+const ORDER_STATUS_FILTERS = new Set(["accepted", "payer_confirmed", "both_confirmed", "completed", "disputed", "active", "settlement_ready", "all"]);
+const ORDER_ROLE_FILTERS = new Set(["all", "posted", "accepted", "publisher", "provider"]);
 const SORTS = new Set(["latest", "oldest", "coin_desc", "coin_asc", "credit_desc", "credit_asc", "hours_desc", "hours_asc"]);
+const ORDER_SORTS = new Set(["latest", "oldest", "coin_desc", "coin_asc"]);
 const REQUEST_BODY_MAX_BYTES = 64 * 1024;
 const LOCAL_SENSITIVE_RULES = [
   { word: "私下交易", level: "block", reason: "平台交易需通过邻帮完成，不能引导私下交易。" },
@@ -67,6 +72,17 @@ export async function handleRequestRoutes({ request, response, url, authService 
     return true;
   }
 
+  if (url.pathname === "/api/orders") {
+    allowOnly(request, response, ["GET"]);
+    const context = await authService.authenticateRequest(request);
+    authService.requireRole(context, ["user"]);
+    sendJson(response, 200, await orderListPayload(authService.store, url.searchParams, {
+      viewerId: context.user.userId,
+      viewerRole: context.user.role
+    }));
+    return true;
+  }
+
   const acceptMatch = url.pathname.match(REQUEST_ACCEPT_RE);
   if (acceptMatch) {
     allowOnly(request, response, ["POST"]);
@@ -104,9 +120,48 @@ export async function handleRequestRoutes({ request, response, url, authService 
   if (orderMatch) {
     allowOnly(request, response, ["GET"]);
     const context = await authService.authenticateRequest(request);
-    authService.requireRole(context, ["user"]);
     sendJson(response, 200, await orderDetailPayload(authService.store, orderMatch[1], {
-      viewerId: context.user.userId
+      viewerId: context.user.userId,
+      viewerRole: context.user.role
+    }));
+    return true;
+  }
+
+  const confirmMatch = url.pathname.match(ORDER_CONFIRM_RE);
+  if (confirmMatch) {
+    allowOnly(request, response, ["POST"]);
+    const context = await authService.authenticateRequest(request);
+    authService.requireRole(context, ["user"]);
+    const orderId = parseOrderId(confirmMatch[1]);
+    const existing = await findVisibleOrderForViewer(authService.store, orderId, {
+      viewerId: context.user.userId,
+      viewerRole: context.user.role
+    });
+    const actorRole = orderActorRole(existing, context.user.userId);
+    if (!actorRole) {
+      throw new HttpError(403, "ORDER_FORBIDDEN", "You do not have permission to confirm this order.");
+    }
+    if (!ORDER_CONFIRMABLE_STATUSES.has(existing.order.status)) {
+      throw new HttpError(409, "ORDER_STATUS_NOT_CONFIRMABLE", "Only accepted orders can be confirmed.");
+    }
+    if (typeof authService.store.confirmServiceOrder !== "function") {
+      throw new HttpError(500, "ORDER_STORE_UNAVAILABLE", "Order confirmation is not available.");
+    }
+
+    let confirmedOrder;
+    try {
+      confirmedOrder = await authService.store.confirmServiceOrder({
+        orderId,
+        actorId: context.user.userId,
+        actorRole
+      });
+    } catch (error) {
+      throw confirmError(error);
+    }
+
+    sendJson(response, 200, await orderDetailPayload(authService.store, confirmedOrder.orderId, {
+      viewerId: context.user.userId,
+      viewerRole: context.user.role
     }));
     return true;
   }
@@ -305,6 +360,36 @@ async function requestListPayload(store, searchParams) {
   };
 }
 
+async function orderListPayload(store, searchParams, options = {}) {
+  if (typeof store.listServiceOrders !== "function") {
+    throw new HttpError(500, "ORDER_STORE_UNAVAILABLE", "Order listing is not available.");
+  }
+
+  const query = normalizeOrderQuery(searchParams);
+  const categories = await safeStoreCall(store, "listCategories", []);
+  const categoryMap = new Map(categories.map((category) => [category.categoryId, category]));
+  const orders = await store.listServiceOrders();
+  const enriched = [];
+
+  for (const order of orders) {
+    const item = await enrichOrder(store, order, categoryMap, options);
+    if (item && matchesOrderQuery(item, query)) {
+      enriched.push(item);
+    }
+  }
+
+  enriched.sort((left, right) => compareOrders(left, right, query.sort));
+  const total = enriched.length;
+  const offset = (query.page - 1) * query.pageSize;
+  const pageItems = enriched.slice(offset, offset + query.pageSize);
+
+  return {
+    orders: pageItems,
+    pagination: paginationDto(query.page, query.pageSize, total),
+    filters: orderFilterDto(query)
+  };
+}
+
 async function requestDetailPayload(store, rawRequestId) {
   const requestId = parseRequestId(rawRequestId);
   const categories = await safeStoreCall(store, "listCategories", []);
@@ -348,7 +433,12 @@ async function orderDetailPayload(store, rawOrderId, options = {}) {
 
   if (options.viewerId !== undefined && options.viewerId !== null) {
     const viewerId = Number(options.viewerId);
-    if (![enrichedRequest.publisherId, order.providerId].includes(viewerId)) {
+    if (!canViewOrder({
+      publisherId: enrichedRequest.publisherId,
+      providerId: order.providerId,
+      viewerId,
+      viewerRole: options.viewerRole
+    })) {
       throw new HttpError(403, "ORDER_FORBIDDEN", "You do not have permission to view this order.");
     }
   }
@@ -358,9 +448,46 @@ async function orderDetailPayload(store, rawOrderId, options = {}) {
       order,
       request: enrichedRequest,
       provider,
-      providerCredit: await creditSummary(store, provider.userId)
+      providerCredit: await creditSummary(store, provider.userId),
+      viewerId: options.viewerId
     })
   };
+}
+
+async function findVisibleOrderForViewer(store, rawOrderId, options = {}) {
+  return orderDetailPayload(store, rawOrderId, options);
+}
+
+async function enrichOrder(store, order, categoryMap, options = {}) {
+  if (!order || !ORDER_STATUSES.has(String(order.status ?? ""))) {
+    return null;
+  }
+
+  const request = typeof store.findServiceRequestById === "function"
+    ? await store.findServiceRequestById(order.requestId)
+    : (await safeStoreCall(store, "listServiceRequests", [])).find((item) => item.requestId === order.requestId);
+  const enrichedRequest = request ? await enrichRequest(store, request, categoryMap) : null;
+  const provider = await store.findUserById(order.providerId);
+
+  if (!enrichedRequest || !provider || provider.status !== ACTIVE_STATUS) {
+    return null;
+  }
+  if (!canViewOrder({
+    publisherId: enrichedRequest.publisherId,
+    providerId: order.providerId,
+    viewerId: options.viewerId,
+    viewerRole: options.viewerRole
+  })) {
+    return null;
+  }
+
+  return serviceOrderDto({
+    order,
+    request: enrichedRequest,
+    provider,
+    providerCredit: await creditSummary(store, provider.userId),
+    viewerId: options.viewerId
+  });
 }
 
 async function enrichRequest(store, request, categoryMap) {
@@ -410,6 +537,39 @@ function matchesRequestQuery(item, query) {
     return false;
   }
   if (query.maxCredit !== null && item.credit.averageRating > query.maxCredit) {
+    return false;
+  }
+  return true;
+}
+
+function matchesOrderQuery(item, query) {
+  if (query.role === "posted" || query.role === "publisher") {
+    if (item.myRole !== "posted") {
+      return false;
+    }
+  }
+  if (query.role === "accepted" || query.role === "provider") {
+    if (item.myRole !== "accepted") {
+      return false;
+    }
+  }
+  if (query.status !== "all") {
+    if (query.status === "active") {
+      if (!["accepted", "payer_confirmed"].includes(item.status)) {
+        return false;
+      }
+    } else if (query.status === "settlement_ready") {
+      if (item.status !== "both_confirmed") {
+        return false;
+      }
+    } else if (item.status !== query.status) {
+      return false;
+    }
+  }
+  if (query.createdFrom !== null && createdTime(item) < query.createdFrom) {
+    return false;
+  }
+  if (query.createdTo !== null && createdTime(item) > query.createdTo) {
     return false;
   }
   return true;
@@ -505,7 +665,9 @@ function requestDetailDto(item) {
 }
 
 function serviceOrderDto(item) {
-  const { order, request, provider, providerCredit } = item;
+  const { order, request, provider, providerCredit, viewerId } = item;
+  const myRole = orderMyRole(request.publisherId, order.providerId, viewerId);
+  const confirmation = orderConfirmationState(order);
   return {
     orderId: order.orderId,
     requestId: order.requestId,
@@ -513,6 +675,10 @@ function serviceOrderDto(item) {
     coinAmount: order.coinAmount,
     payerConfirmed: Boolean(order.payerConfirmed),
     providerConfirmed: Boolean(order.providerConfirmed),
+    confirmation,
+    myRole,
+    canConfirm: Boolean(myRole) && ORDER_CONFIRMABLE_STATUSES.has(order.status) && !confirmation[myRole === "posted" ? "payerConfirmed" : "providerConfirmed"],
+    settlementReady: order.status === "both_confirmed",
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
     completedAt: order.completedAt,
@@ -525,6 +691,15 @@ function serviceOrderDto(item) {
       ...publicPublisherDto(provider),
       credit: providerCredit
     }
+  };
+}
+
+function orderConfirmationState(order) {
+  return {
+    payerConfirmed: Boolean(order.payerConfirmed),
+    providerConfirmed: Boolean(order.providerConfirmed),
+    bothConfirmed: Boolean(order.payerConfirmed) && Boolean(order.providerConfirmed),
+    settlementReady: order.status === "both_confirmed"
   };
 }
 
@@ -595,6 +770,33 @@ function normalizeRequestQuery(searchParams) {
   };
 }
 
+function normalizeOrderQuery(searchParams) {
+  const role = optionalLower(searchParams.get("role") ?? searchParams.get("type")) ?? "all";
+  if (!ORDER_ROLE_FILTERS.has(role)) {
+    throw new HttpError(400, "INVALID_ORDER_ROLE", "Unsupported order role filter.");
+  }
+
+  const status = optionalLower(searchParams.get("status")) ?? "all";
+  if (!ORDER_STATUS_FILTERS.has(status)) {
+    throw new HttpError(400, "INVALID_ORDER_STATUS", "Unsupported order status filter.");
+  }
+
+  const sort = optionalLower(searchParams.get("sort")) ?? "latest";
+  if (!ORDER_SORTS.has(sort)) {
+    throw new HttpError(400, "INVALID_ORDER_SORT", "Unsupported order sort value.");
+  }
+
+  return {
+    role,
+    status,
+    createdFrom: parseDateFilter(searchParams.get("createdFrom") ?? searchParams.get("from"), "INVALID_CREATED_FROM"),
+    createdTo: parseDateFilter(searchParams.get("createdTo") ?? searchParams.get("to"), "INVALID_CREATED_TO", true),
+    page: parsePositiveInt(searchParams.get("page") ?? "1", "INVALID_PAGE", 1, 1000),
+    pageSize: parsePositiveInt(searchParams.get("pageSize") ?? searchParams.get("limit") ?? "20", "INVALID_PAGE_SIZE", 1, 50),
+    sort
+  };
+}
+
 function filterDto(query) {
   return {
     keyword: query.keyword,
@@ -606,6 +808,18 @@ function filterDto(query) {
     createdTo: query.createdTo === null ? null : new Date(query.createdTo).toISOString(),
     minCredit: query.minCredit,
     maxCredit: query.maxCredit,
+    page: query.page,
+    pageSize: query.pageSize,
+    sort: query.sort
+  };
+}
+
+function orderFilterDto(query) {
+  return {
+    role: query.role,
+    status: query.status,
+    createdFrom: query.createdFrom === null ? null : new Date(query.createdFrom).toISOString(),
+    createdTo: query.createdTo === null ? null : new Date(query.createdTo).toISOString(),
     page: query.page,
     pageSize: query.pageSize,
     sort: query.sort
@@ -660,6 +874,19 @@ function compareRequests(left, right, sort) {
     return left.estimatedHours - right.estimatedHours || createdTime(right) - createdTime(left);
   }
   return createdTime(right) - createdTime(left) || right.requestId - left.requestId;
+}
+
+function compareOrders(left, right, sort) {
+  if (sort === "oldest") {
+    return createdTime(left) - createdTime(right) || left.orderId - right.orderId;
+  }
+  if (sort === "coin_desc") {
+    return right.coinAmount - left.coinAmount || createdTime(right) - createdTime(left);
+  }
+  if (sort === "coin_asc") {
+    return left.coinAmount - right.coinAmount || createdTime(right) - createdTime(left);
+  }
+  return createdTime(right) - createdTime(left) || right.orderId - left.orderId;
 }
 
 function paginationDto(page, pageSize, total) {
@@ -749,6 +976,46 @@ function parseOrderId(raw) {
   return Number(raw);
 }
 
+function canViewOrder({ publisherId, providerId, viewerId, viewerRole }) {
+  if (viewerId === undefined || viewerId === null) {
+    return false;
+  }
+  if (["admin", "super_admin"].includes(String(viewerRole ?? ""))) {
+    return true;
+  }
+  const id = Number(viewerId);
+  return [Number(publisherId), Number(providerId)].includes(id);
+}
+
+function orderActorRole(payload, actorId) {
+  const order = payload?.order;
+  if (!order) {
+    return null;
+  }
+  const id = Number(actorId);
+  if (Number(order.publisher?.userId) === id) {
+    return "payer";
+  }
+  if (Number(order.provider?.userId) === id) {
+    return "provider";
+  }
+  return null;
+}
+
+function orderMyRole(publisherId, providerId, viewerId) {
+  if (viewerId === undefined || viewerId === null) {
+    return null;
+  }
+  const id = Number(viewerId);
+  if (Number(publisherId) === id) {
+    return "posted";
+  }
+  if (Number(providerId) === id) {
+    return "accepted";
+  }
+  return null;
+}
+
 function createdTime(item) {
   const time = new Date(item.createdAt).getTime();
   return Number.isFinite(time) ? time : 0;
@@ -795,6 +1062,19 @@ function acceptError(error) {
   }
   if (error?.code === "PROVIDER_NOT_FOUND") {
     return new HttpError(403, "FORBIDDEN", "Current user cannot accept this request.");
+  }
+  return error;
+}
+
+function confirmError(error) {
+  if (error?.code === "ORDER_NOT_FOUND") {
+    return new HttpError(404, "ORDER_NOT_FOUND", "Service order was not found.");
+  }
+  if (error?.code === "ORDER_FORBIDDEN") {
+    return new HttpError(403, "ORDER_FORBIDDEN", "You do not have permission to confirm this order.");
+  }
+  if (error?.code === "ORDER_STATUS_NOT_CONFIRMABLE") {
+    return new HttpError(409, "ORDER_STATUS_NOT_CONFIRMABLE", "Only accepted orders can be confirmed.");
   }
   return error;
 }

@@ -74,7 +74,12 @@ export function createApiClient(options = {}) {
       })
     },
     orders: {
-      detail: (token, orderId) => request(`/api/orders/${encodeURIComponent(orderId)}`, { token })
+      list: (token, params = {}) => request(withQuery("/api/orders", params), { token }),
+      detail: (token, orderId) => request(`/api/orders/${encodeURIComponent(orderId)}`, { token }),
+      confirm: (token, orderId) => request(`/api/orders/${encodeURIComponent(orderId)}/confirm`, {
+        method: "POST",
+        token
+      })
     },
     auth: {
       register: (payload) => request("/api/auth/register", {

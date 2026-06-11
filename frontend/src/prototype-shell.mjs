@@ -42,6 +42,14 @@ const ORDER_STATUS_TEXT = new Map([
   ["completed", "已完成"],
   ["disputed", "争议中"]
 ]);
+const ORDER_STATUS_CLASS = new Map([
+  ["accepted", "status-accepted"],
+  ["payer_confirmed", "status-settling"],
+  ["both_confirmed", "status-settling"],
+  ["completed", "status-done"],
+  ["disputed", "status-disputed"]
+]);
+const ORDER_PAGE_SIZE = 20;
 
 window.NeighborApp = {
   route,
@@ -292,6 +300,10 @@ async function hydrateCurrentRoute(session) {
     }
     if (route.id === "order-detail") {
       await hydrateOrderDetailRoute(session);
+      return;
+    }
+    if (route.id === "orders") {
+      await hydrateOrdersRoute(session);
       return;
     }
     if (route.id === "ai-results") {
@@ -1049,6 +1061,257 @@ function requestAcceptActionHtml(state) {
   return `<button class="action-btn request-accept-btn" type="button" disabled>${checkIcon()}已不可接</button>`;
 }
 
+async function hydrateOrdersRoute(session) {
+  const userSession = session ?? auth.readSession("user");
+  if (!userSession?.token) {
+    return;
+  }
+  installOrderListControls(userSession);
+  await loadOrders(readOrderQuery(), userSession);
+}
+
+function installOrderListControls(userSession) {
+  if (document.body.dataset.ordersBound === "true") {
+    return;
+  }
+  document.body.dataset.ordersBound = "true";
+
+  document.querySelectorAll("#orders-tabs button[data-panel]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      updateOrderQuery({ role: orderRoleFromPanel(button.dataset.panel), page: 1 }, userSession);
+    }, true);
+  });
+
+  window.addEventListener("popstate", () => {
+    loadOrders(readOrderQuery(), userSession);
+  });
+}
+
+async function loadOrders(state, userSession) {
+  applyOrderControls(state);
+  renderOrdersState("loading", "正在加载订单，请稍候。");
+  try {
+    const payload = await api.orders.list(userSession.token, orderApiParams(state));
+    renderOrdersList(payload, state, userSession);
+  } catch (error) {
+    renderOrdersState("error", orderErrorMessage(error), {
+      actionText: "重试",
+      onAction: () => loadOrders(readOrderQuery(), userSession)
+    });
+  }
+}
+
+function readOrderQuery() {
+  const params = new URLSearchParams(window.location.search);
+  const role = params.get("role") || params.get("type") || "all";
+  const status = params.get("status") || "all";
+  return {
+    role: ["all", "posted", "accepted"].includes(role) ? role : "all",
+    status,
+    createdFrom: params.get("createdFrom") || params.get("from") || "",
+    createdTo: params.get("createdTo") || params.get("to") || "",
+    page: positiveInteger(params.get("page"), 1),
+    pageSize: positiveInteger(params.get("pageSize"), ORDER_PAGE_SIZE),
+    sort: params.get("sort") || "latest"
+  };
+}
+
+function updateOrderQuery(patch, userSession) {
+  const next = {
+    ...readOrderQuery(),
+    ...patch
+  };
+  const params = new URLSearchParams();
+  if (next.role && next.role !== "all") {
+    params.set("role", next.role);
+  }
+  if (next.status && next.status !== "all") {
+    params.set("status", next.status);
+  }
+  if (next.createdFrom) {
+    params.set("createdFrom", next.createdFrom);
+  }
+  if (next.createdTo) {
+    params.set("createdTo", next.createdTo);
+  }
+  if (next.sort && next.sort !== "latest") {
+    params.set("sort", next.sort);
+  }
+  if (next.page > 1) {
+    params.set("page", String(next.page));
+  }
+  if (next.pageSize !== ORDER_PAGE_SIZE) {
+    params.set("pageSize", String(next.pageSize));
+  }
+  const target = `${window.location.pathname}${params.toString() ? `?${params}` : ""}`;
+  window.history.pushState({}, "", target);
+  loadOrders(readOrderQuery(), userSession);
+}
+
+function orderApiParams(state) {
+  return {
+    role: state.role,
+    status: state.status,
+    createdFrom: state.createdFrom,
+    createdTo: state.createdTo,
+    page: state.page,
+    pageSize: state.pageSize,
+    sort: state.sort
+  };
+}
+
+function applyOrderControls(state) {
+  const panel = orderPanelFromRole(state.role);
+  document.querySelectorAll("#orders-tabs button[data-panel]").forEach((button) => {
+    button.classList.toggle("active", (button.dataset.panel || "all") === panel);
+  });
+  document.querySelectorAll(".tab-panel").forEach((item) => {
+    item.classList.toggle("active", item.id === `panel-${panel}`);
+  });
+}
+
+function renderOrdersList(payload, state, userSession) {
+  const orders = Array.isArray(payload.orders) ? payload.orders : [];
+  renderOrderStats(orders, payload.pagination?.total ?? orders.length);
+  renderOrderPanels(orders, state, userSession);
+}
+
+function renderOrderStats(orders, total) {
+  const activeCount = orders.filter((order) => ["accepted", "payer_confirmed"].includes(order.status)).length;
+  const doneCount = orders.filter((order) => order.status === "completed").length;
+  const disputedCount = orders.filter((order) => order.status === "disputed").length;
+  setElementText("#stat-pending", String(activeCount));
+  setElementText("#stat-done", String(doneCount));
+  setElementText("#stat-disputed", String(disputedCount));
+  document.querySelector(".orders-title")?.setAttribute("title", `当前筛选共 ${total} 笔订单`);
+}
+
+function renderOrderPanels(orders, state, userSession) {
+  const panels = [
+    ["all", orders],
+    ["posted", state.role === "accepted" ? [] : orders.filter((order) => order.myRole === "posted")],
+    ["accepted", state.role === "posted" ? [] : orders.filter((order) => order.myRole === "accepted")]
+  ];
+
+  for (const [panel, items] of panels) {
+    const element = document.getElementById(`panel-${panel}`);
+    if (!element) {
+      continue;
+    }
+    renderOrderPanel(element, items, userSession);
+  }
+}
+
+function renderOrderPanel(panel, orders, userSession) {
+  if (orders.length === 0) {
+    panel.innerHTML = orderEmptyHtml();
+    return;
+  }
+  panel.innerHTML = orders.map(orderCardHtml).join("");
+  panel.querySelectorAll(".order-card[data-order-id]").forEach((card) => {
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("a") || event.target.closest("button")) {
+        return;
+      }
+      navigateTo(`/orders/${encodeURIComponent(card.dataset.orderId)}`);
+    });
+  });
+  panel.querySelectorAll("[data-order-confirm]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      await confirmOrderFromButton(button, userSession, () => loadOrders(readOrderQuery(), userSession));
+    });
+  });
+}
+
+function renderOrdersState(kind, message, options = {}) {
+  const panels = ["all", "posted", "accepted"]
+    .map((panel) => document.getElementById(`panel-${panel}`))
+    .filter(Boolean);
+  const title = kind === "loading" ? "加载中" : kind === "error" ? "加载失败" : "空结果";
+  for (const panel of panels) {
+    panel.innerHTML = `
+      <div class="orders-empty" data-state="${escapeHtml(kind)}">
+        <p><strong>${title}</strong></p>
+        <p>${escapeHtml(message)}</p>
+        ${options.actionText ? `<button class="btn btn--outline" type="button" data-runtime-action>${escapeHtml(options.actionText)}</button>` : ""}
+      </div>
+    `;
+    panel.querySelector("[data-runtime-action]")?.addEventListener("click", options.onAction);
+  }
+}
+
+function orderCardHtml(order) {
+  const request = order.request ?? {};
+  const counterparty = order.myRole === "posted" ? order.provider : order.publisher;
+  const roleTag = order.myRole === "posted" ? "发布" : "接单";
+  const roleText = order.myRole === "posted" ? "服务方" : "需求方";
+  const statusClass = ORDER_STATUS_CLASS.get(order.status) ?? "status-accepted";
+  return `
+    <div class="order-card" data-order-id="${escapeHtml(order.orderId)}" tabindex="0" role="link" aria-label="查看${escapeHtml(request.title || "订单")}详情">
+      <div class="oc-top">
+        <span class="oc-title">${escapeHtml(request.title || "邻里互助订单")}</span>
+        <span class="status-pill ${escapeHtml(statusClass)}"><span class="sp-dot"></span>${escapeHtml(ORDER_STATUS_TEXT.get(order.status) ?? order.status ?? "待确认")}</span>
+      </div>
+      <div class="oc-id">#ORD-${escapeHtml(order.orderId)}</div>
+      <div class="oc-people">
+        <span class="order-role-chip" data-role="${escapeHtml(order.myRole || "other")}">${escapeHtml(roleTag)}</span>
+        <span>${escapeHtml(roleText)}：${escapeHtml(displayName(counterparty))}</span>
+      </div>
+      <div class="oc-meta">
+        <div class="oc-meta-left"><span>${escapeHtml(formatDateTime(order.createdAt))}</span><span>${escapeHtml(orderConfirmText(order))}</span></div>
+        <span class="oc-amount">⏂ ${escapeHtml(formatAmount(order.coinAmount))}</span>
+      </div>
+      ${orderListActionHtml(order)}
+    </div>
+  `;
+}
+
+function orderListActionHtml(order) {
+  if (order.canConfirm) {
+    return `<div class="order-actions"><button class="btn btn--primary btn--sm" type="button" data-order-confirm="${escapeHtml(order.orderId)}">确认完成</button></div>`;
+  }
+  if (order.status === "both_confirmed") {
+    return `<div class="order-actions"><span class="badge badge--success">待阶段 11 结算</span></div>`;
+  }
+  if (order.status === "completed") {
+    return `<div class="order-actions"><a class="btn btn--outline btn--sm" href="/reviews/new?order=${encodeURIComponent(order.orderId)}">去评价</a></div>`;
+  }
+  return "";
+}
+
+function orderEmptyHtml() {
+  return `
+    <div class="orders-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      <p>暂无订单</p>
+    </div>
+  `;
+}
+
+function orderPanelFromRole(role) {
+  if (role === "posted" || role === "publisher") {
+    return "posted";
+  }
+  if (role === "accepted" || role === "provider") {
+    return "accepted";
+  }
+  return "all";
+}
+
+function orderRoleFromPanel(panel) {
+  if (panel === "posted") {
+    return "posted";
+  }
+  if (panel === "accepted") {
+    return "accepted";
+  }
+  return "all";
+}
+
 async function hydrateOrderDetailRoute(session) {
   const orderId = routeOrderId();
   const userSession = session ?? auth.readSession("user");
@@ -1058,7 +1321,7 @@ async function hydrateOrderDetailRoute(session) {
   renderOrderDetailLoading();
   try {
     const payload = await api.orders.detail(userSession.token, orderId);
-    applyOrderDetail(payload.order);
+    applyOrderDetail(payload.order, userSession);
   } catch (error) {
     renderOrderDetailError(orderErrorMessage(error));
   }
@@ -1085,10 +1348,11 @@ function renderOrderDetailError(message) {
   }
 }
 
-function applyOrderDetail(order) {
+function applyOrderDetail(order, userSession) {
   const request = order.request ?? {};
   const publisher = order.publisher ?? {};
   const provider = order.provider ?? {};
+  const statusClass = ORDER_STATUS_CLASS.get(order.status) ?? "status-accepted";
   setElementText(".detail-title", "订单详情");
 
   const body = document.querySelector(".detail-body");
@@ -1101,8 +1365,8 @@ function applyOrderDetail(order) {
       <div class="order-no">#ORD-${escapeHtml(order.orderId)}</div>
       <div class="order-title">${escapeHtml(request.title || "邻里互助订单")}</div>
       <div style="display:flex;align-items:center;gap:var(--space-md);flex-wrap:wrap;">
-        <span class="status-pill status-active"><span class="sp-dot"></span>${escapeHtml(ORDER_STATUS_TEXT.get(order.status) ?? order.status ?? "待确认")}</span>
-        <span class="badge badge--success">需求已接单</span>
+        <span class="status-pill ${escapeHtml(statusClass)}"><span class="sp-dot"></span>${escapeHtml(ORDER_STATUS_TEXT.get(order.status) ?? order.status ?? "待确认")}</span>
+        <span class="badge badge--success">${escapeHtml(order.settlementReady ? "待阶段 11 结算" : "履约中")}</span>
       </div>
       <div class="info-row">
         <div class="info-cell"><dt>时间币金额</dt><dd class="amount">⏂ ${escapeHtml(formatAmount(order.coinAmount))}</dd></div>
@@ -1113,46 +1377,46 @@ function applyOrderDetail(order) {
     </div>
 
     <div class="party-row">
-      ${orderPartyCard("需求方", publisher)}
-      ${orderPartyCard("服务方", provider)}
+      ${orderPartyCard("需求方", publisher, order.payerConfirmed)}
+      ${orderPartyCard("服务方", provider, order.providerConfirmed)}
     </div>
 
     <div class="timeline">
       <h3>订单进度</h3>
-      <div class="tl-step done">
-        <div class="tl-node-wrap">
-          <div class="tl-node">${checkIcon("16")}</div>
-          <div class="tl-line"></div>
-        </div>
-        <div class="tl-content">
-          <div class="tl-step-title">需求发布</div>
-          <div class="tl-step-desc">${escapeHtml(displayName(publisher))} 发布了「${escapeHtml(request.title || "邻里互助需求")}」</div>
-          <div class="tl-step-time">${escapeHtml(formatDateTime(request.createdAt))}</div>
-        </div>
-      </div>
-      <div class="tl-step active">
-        <div class="tl-node-wrap">
-          <div class="tl-node">${checkIcon("16")}</div>
-        </div>
-        <div class="tl-content">
-          <div class="tl-step-title">服务接单</div>
-          <div class="tl-step-desc">${escapeHtml(displayName(provider))} 已接单，订单金额为 ⏂${escapeHtml(formatAmount(order.coinAmount))}</div>
-          <div class="tl-step-time">${escapeHtml(formatDateTime(order.createdAt))}</div>
-        </div>
-      </div>
+      ${orderTimelineHtml(order, request, publisher, provider)}
     </div>
 
     <div class="action-bar">
       <h3>订单操作</h3>
       <div class="btn-row">
+        ${orderDetailConfirmActionHtml(order)}
         <a class="btn btn--outline" href="/posts/${encodeURIComponent(order.requestId)}">查看需求</a>
         <a class="btn btn--outline" href="/messages">联系对方</a>
       </div>
     </div>
+
+    <div class="ai-summary-card">
+      <div class="ai-header">
+        <span style="font-weight:600;font-size:15px;">订单摘要</span>
+        <span class="ai-badge">阶段 10</span>
+      </div>
+      <div class="ai-content">
+        <p><strong>服务事项：</strong>${escapeHtml(request.description || request.descriptionSummary || "双方按需求详情完成服务。")}</p>
+        <p style="margin-top:8px;"><strong>确认状态：</strong>${escapeHtml(orderConfirmText(order))}</p>
+        <p style="margin-top:8px;"><strong>结算入口：</strong>${escapeHtml(order.settlementReady ? "双方已确认，等待阶段 11 执行时间币结算。" : "需双方都确认完成后才进入结算。")}</p>
+      </div>
+    </div>
   `;
+  document.getElementById("confirm-order")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    await confirmOrderFromButton(event.currentTarget, userSession, async (confirmedOrder) => {
+      applyOrderDetail(confirmedOrder, userSession);
+      showGlobalMessage("确认状态已更新。", "success");
+    });
+  });
 }
 
-function orderPartyCard(role, user) {
+function orderPartyCard(role, user, confirmed = false) {
   const credit = user.credit ?? {};
   return `
     <div class="party-card">
@@ -1160,9 +1424,71 @@ function orderPartyCard(role, user) {
       <div class="avatar lg" style="background:${avatarColor(user.userId)};display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:24px;font-weight:700;width:56px;height:56px;">${escapeHtml(firstCharacter(displayName(user)))}</div>
       <div style="font-weight:600;margin-top:var(--space-sm);">${escapeHtml(displayName(user))}</div>
       <div style="font-size:12px;color:var(--reward-gold);margin-top:2px;">${escapeHtml(credit.reviewCount > 0 ? `${starsText(credit.averageRating)} ${formatRating(credit.averageRating)}` : "暂无评价")}</div>
-      <a class="party-confirm confirmed" href="/users/${encodeURIComponent(user.userId)}">${checkIcon("14")} 查看主页</a>
+      <div class="party-confirm ${confirmed ? "confirmed" : "unconfirmed"}">${confirmed ? checkIcon("14") : ""} ${confirmed ? "已确认" : "待确认"}</div>
+      <a style="display:inline-block;margin-top:8px;font-size:12px;color:var(--accent);" href="/users/${encodeURIComponent(user.userId)}">查看主页</a>
     </div>
   `;
+}
+
+function orderTimelineHtml(order, request, publisher, provider) {
+  const payerDone = Boolean(order.payerConfirmed);
+  const providerDone = Boolean(order.providerConfirmed);
+  const bothDone = payerDone && providerDone;
+  return `
+    ${timelineStepHtml("done", "需求发布", `${displayName(publisher)} 发布了「${request.title || "邻里互助需求"}」`, formatDateTime(request.createdAt), true)}
+    ${timelineStepHtml("done", "服务接单", `${displayName(provider)} 已接单，订单金额为 ⏂${formatAmount(order.coinAmount)}`, formatDateTime(order.createdAt), true)}
+    ${timelineStepHtml(payerDone ? "done" : "active", "需求方确认", payerDone ? `${displayName(publisher)} 已确认服务完成` : "等待需求方确认服务完成", payerDone ? formatDateTime(order.updatedAt) : "待确认", true)}
+    ${timelineStepHtml(providerDone ? "done" : (payerDone ? "active" : "pending"), "服务方确认", providerDone ? `${displayName(provider)} 已确认服务完成` : "等待服务方确认履约完成", providerDone ? formatDateTime(order.updatedAt) : "待确认", true)}
+    ${timelineStepHtml(bothDone ? "active" : "pending", "结算入口", bothDone ? "双方已确认，阶段 11 将在此执行扣币、入账和流水写入" : "双方确认后进入结算", bothDone ? "待结算" : "未开放", false)}
+  `;
+}
+
+function timelineStepHtml(state, title, description, time, hasLine) {
+  return `
+    <div class="tl-step ${escapeHtml(state)}">
+      <div class="tl-node-wrap">
+        <div class="tl-node">${state === "pending" ? "" : checkIcon("16")}</div>
+        ${hasLine ? '<div class="tl-line"></div>' : ""}
+      </div>
+      <div class="tl-content">
+        <div class="tl-step-title">${escapeHtml(title)}</div>
+        <div class="tl-step-desc">${escapeHtml(description)}</div>
+        <div class="tl-step-time">${escapeHtml(time)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function orderDetailConfirmActionHtml(order) {
+  if (order.canConfirm) {
+    return `<button class="btn btn--primary" id="confirm-order" type="button" data-order-confirm="${escapeHtml(order.orderId)}">确认完成</button>`;
+  }
+  if (order.myRole && ["accepted", "payer_confirmed", "both_confirmed"].includes(order.status)) {
+    return `<button class="btn btn--outline" type="button" disabled>已确认完成</button>`;
+  }
+  return "";
+}
+
+async function confirmOrderFromButton(button, userSession, onConfirmed) {
+  const orderId = button?.dataset.orderConfirm;
+  if (!orderId || !userSession?.token) {
+    return;
+  }
+  const restore = setLoading(button, "确认中...");
+  try {
+    const result = await api.orders.confirm(userSession.token, orderId);
+    await onConfirmed?.(result.order);
+  } catch (error) {
+    showGlobalMessage(orderErrorMessage(error), "error");
+  } finally {
+    restore();
+  }
+}
+
+function orderConfirmText(order) {
+  const payer = order.payerConfirmed ? "需求方已确认" : "需求方未确认";
+  const provider = order.providerConfirmed ? "服务方已确认" : "服务方未确认";
+  return `${payer} · ${provider}`;
 }
 
 function hydrateAiResultsRoute() {
@@ -1641,6 +1967,9 @@ function orderErrorMessage(error) {
   }
   if (code === "ORDER_FORBIDDEN") {
     return "只有订单相关的需求方和服务方可以查看订单详情。";
+  }
+  if (code === "ORDER_STATUS_NOT_CONFIRMABLE") {
+    return "当前订单状态不能确认完成。";
   }
   if (error?.status === 0 || error instanceof TypeError) {
     return "无法连接订单服务，请确认后端服务已启动。";

@@ -280,6 +280,82 @@ body[data-route-id="order-detail"] .party-card {
   overflow-wrap: anywhere;
 }
 
+body[data-route-id="order-detail"] .status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+body[data-route-id="order-detail"] .status-pill .sp-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+}
+
+body[data-route-id="order-detail"] .status-accepted {
+  background: oklch(94% 0.04 200);
+  color: oklch(50% 0.12 200);
+}
+
+body[data-route-id="order-detail"] .status-accepted .sp-dot {
+  background: oklch(50% 0.12 200);
+}
+
+body[data-route-id="order-detail"] .status-settling {
+  background: oklch(93% 0.03 175);
+  color: oklch(48% 0.12 175);
+}
+
+body[data-route-id="order-detail"] .status-settling .sp-dot {
+  background: oklch(48% 0.12 175);
+}
+
+body[data-route-id="order-detail"] .status-done {
+  background: var(--success-light);
+  color: var(--success);
+}
+
+body[data-route-id="order-detail"] .status-done .sp-dot {
+  background: var(--success);
+}
+
+body[data-route-id="order-detail"] .status-disputed {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+body[data-route-id="order-detail"] .status-disputed .sp-dot {
+  background: var(--danger);
+}
+
+body[data-route-id="orders"] .order-role-chip {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+body[data-route-id="orders"] .order-role-chip[data-role="accepted"] {
+  background: var(--secondary-light);
+  color: var(--secondary);
+}
+
+body[data-route-id="orders"] .order-actions {
+  margin-top: var(--space-md);
+  text-align: right;
+}
+
+body[data-route-id="orders"] .orders-empty strong {
+  color: var(--fg);
+}
+
 @media (max-width: 390px) {
   .page,
   .feed-content,

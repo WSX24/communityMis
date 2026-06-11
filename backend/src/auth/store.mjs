@@ -57,6 +57,7 @@ export function createMemoryAuthStore(options = {}) {
     acceptServiceRequest,
     listServiceOrders,
     findServiceOrderById,
+    confirmServiceOrder,
     listNotificationsForUserId,
     listReviewsForTargetId,
     createSession,
@@ -290,6 +291,52 @@ export function createMemoryAuthStore(options = {}) {
   function findServiceOrderById(orderId) {
     const order = serviceOrders.get(Number(orderId));
     return order ? clone(order) : null;
+  }
+
+  function confirmServiceOrder(input) {
+    const orderId = Number(input.orderId);
+    const actorId = Number(input.actorId);
+    const actorRole = String(input.actorRole ?? "");
+    const order = serviceOrders.get(orderId);
+
+    if (!order) {
+      throw storeError("ORDER_NOT_FOUND", "Service order was not found.");
+    }
+
+    const request = serviceRequests.get(order.requestId);
+    if (!request || request.visible === false) {
+      throw storeError("ORDER_NOT_FOUND", "Service order was not found.");
+    }
+    if (actorRole === "payer" && request.publisherId !== actorId) {
+      throw storeError("ORDER_FORBIDDEN", "Only the payer can set payer confirmation.");
+    }
+    if (actorRole === "provider" && order.providerId !== actorId) {
+      throw storeError("ORDER_FORBIDDEN", "Only the provider can set provider confirmation.");
+    }
+    if (!["payer", "provider"].includes(actorRole)) {
+      throw storeError("ORDER_FORBIDDEN", "Actor is not part of this order.");
+    }
+    if (!["accepted", "payer_confirmed", "both_confirmed"].includes(order.status)) {
+      throw storeError("ORDER_STATUS_NOT_CONFIRMABLE", "Only accepted orders can be confirmed.");
+    }
+
+    const now = new Date().toISOString();
+    if (actorRole === "payer") {
+      order.payerConfirmed = true;
+    }
+    if (actorRole === "provider") {
+      order.providerConfirmed = true;
+    }
+    if (order.payerConfirmed && order.providerConfirmed) {
+      order.status = "both_confirmed";
+    } else if (order.payerConfirmed) {
+      order.status = "payer_confirmed";
+    } else {
+      order.status = "accepted";
+    }
+    order.updatedAt = now;
+
+    return clone(order);
   }
 
   function listNotificationsForUserId(userId) {
