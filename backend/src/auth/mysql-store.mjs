@@ -29,6 +29,8 @@ export function createMysqlAuthStore(options = {}) {
     listServiceRequests,
     findServiceRequestById,
     createServiceRequest,
+    acceptServiceRequest,
+    findServiceOrderById,
     listReviewsForTargetId,
     createSession,
     findSession,
@@ -340,6 +342,117 @@ LIMIT 1;
     return withRequestExtras(created);
   }
 
+  async function acceptServiceRequest(input) {
+    const requestId = Number(input.requestId);
+    const providerId = Number(input.providerId);
+    const sql = `
+START TRANSACTION;
+SET @request_id = ${requestId};
+SET @provider_id = ${providerId};
+SET @publisher_id = NULL;
+SET @request_status = NULL;
+SELECT
+  @publisher_id := sr.\`publisher_id\`,
+  @request_status := sr.\`status\`
+FROM \`service_request\` sr
+WHERE sr.\`request_id\` = @request_id
+FOR UPDATE;
+UPDATE \`service_request\`
+SET \`status\` = 'accepted'
+WHERE \`request_id\` = @request_id
+  AND \`status\` = 'open'
+  AND \`publisher_id\` <> @provider_id
+LIMIT 1;
+SET @updated_rows = ROW_COUNT();
+INSERT INTO \`service_order\` (
+  \`request_id\`,
+  \`provider_id\`,
+  \`status\`,
+  \`payer_confirmed\`,
+  \`provider_confirmed\`,
+  \`coin_amount\`
+)
+SELECT
+  sr.\`request_id\`,
+  @provider_id,
+  'accepted',
+  0,
+  0,
+  sr.\`coin_amount\`
+FROM \`service_request\` sr
+WHERE sr.\`request_id\` = @request_id
+  AND @updated_rows = 1;
+SET @created_order_id = IF(@updated_rows = 1, LAST_INSERT_ID(), NULL);
+INSERT INTO \`notification\` (
+  \`user_id\`,
+  \`type\`,
+  \`title\`,
+  \`content\`,
+  \`business_type\`,
+  \`business_id\`
+)
+SELECT
+  sr.\`publisher_id\`,
+  'order',
+  '需求已被接单',
+  CONCAT(provider.\`username\`, ' 已接单：', sr.\`title\`, '。'),
+  'order',
+  @created_order_id
+FROM \`service_request\` sr
+JOIN \`user\` provider ON provider.\`user_id\` = @provider_id
+WHERE sr.\`request_id\` = @request_id
+  AND @updated_rows = 1;
+COMMIT;
+SELECT JSON_OBJECT(
+  'updatedRows', @updated_rows,
+  'requestId', @request_id,
+  'publisherId', @publisher_id,
+  'requestStatus', @request_status,
+  'orderId', @created_order_id
+);
+`;
+    let result;
+    try {
+      result = await mysqlJson(sql);
+    } catch (error) {
+      if (error.code === "DUPLICATE_ENTRY") {
+        throw storeError("REQUEST_ALREADY_ACCEPTED", "This request already has an order.");
+      }
+      throw error;
+    }
+
+    if (Number(result?.updatedRows ?? 0) !== 1) {
+      throwAcceptFailure(result, providerId);
+    }
+
+    return findServiceOrderById(result.orderId);
+  }
+
+  async function findServiceOrderById(orderId) {
+    const id = Number(orderId);
+    if (!Number.isInteger(id) || id <= 0) {
+      return null;
+    }
+    const sql = `
+SELECT JSON_OBJECT(
+  'orderId', so.\`order_id\`,
+  'requestId', so.\`request_id\`,
+  'providerId', so.\`provider_id\`,
+  'status', so.\`status\`,
+  'payerConfirmed', so.\`payer_confirmed\`,
+  'providerConfirmed', so.\`provider_confirmed\`,
+  'coinAmount', CAST(so.\`coin_amount\` AS DOUBLE),
+  'createdAt', DATE_FORMAT(so.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
+  'updatedAt', DATE_FORMAT(so.\`updated_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
+  'completedAt', IF(so.\`completed_at\` IS NULL, NULL, DATE_FORMAT(so.\`completed_at\`, '%Y-%m-%dT%H:%i:%s.000Z'))
+)
+FROM \`service_order\` so
+WHERE so.\`order_id\` = ${id}
+LIMIT 1;
+`;
+    return normalizeServiceOrder(await mysqlJson(sql, { optional: true }));
+  }
+
   async function listReviewsForTargetId(userId) {
     const sql = `
 SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(
@@ -428,8 +541,10 @@ FROM (
     const result = await runMysql(sql, ["--batch", "--raw", "--skip-column-names"]);
     if (result.code !== 0) {
       if (/Duplicate entry/i.test(result.stderr)) {
-        const error = new Error("Username already exists.");
-        error.code = "DUPLICATE_USERNAME";
+        const duplicateUsername = /uk_user_username/i.test(result.stderr);
+        const error = new Error(duplicateUsername ? "Username already exists." : "Duplicate entry.");
+        error.code = duplicateUsername ? "DUPLICATE_USERNAME" : "DUPLICATE_ENTRY";
+        error.stderr = result.stderr;
         throw error;
       }
       throw new Error(`mysql exited with code ${result.code}: ${result.stderr.trim()}`);
@@ -554,6 +669,24 @@ function normalizeServiceRequest(input) {
     createdAt: input.createdAt ?? null,
     updatedAt: input.updatedAt ?? input.createdAt ?? null,
     category: normalizeCategory(input.category)
+  };
+}
+
+function normalizeServiceOrder(input) {
+  if (!input) {
+    return null;
+  }
+  return {
+    orderId: Number(input.orderId),
+    requestId: Number(input.requestId),
+    providerId: Number(input.providerId),
+    status: String(input.status ?? "accepted"),
+    payerConfirmed: Boolean(input.payerConfirmed ?? input.payer_confirmed ?? false),
+    providerConfirmed: Boolean(input.providerConfirmed ?? input.provider_confirmed ?? false),
+    coinAmount: Number(input.coinAmount ?? input.coin_amount ?? 0),
+    createdAt: input.createdAt ?? null,
+    updatedAt: input.updatedAt ?? input.createdAt ?? null,
+    completedAt: input.completedAt ?? input.completed_at ?? null
   };
 }
 
@@ -729,4 +862,23 @@ function sqlNullableString(value) {
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function throwAcceptFailure(result, providerId) {
+  if (!result?.publisherId) {
+    throw storeError("REQUEST_NOT_FOUND", "Service request was not found.");
+  }
+  if (Number(result.publisherId) === Number(providerId)) {
+    throw storeError("SELF_ACCEPT_NOT_ALLOWED", "Publisher cannot accept their own request.");
+  }
+  if (result.requestStatus !== "open") {
+    throw storeError("REQUEST_NOT_OPEN", "Only open requests can be accepted.");
+  }
+  throw storeError("REQUEST_ALREADY_ACCEPTED", "This request already has an order.");
+}
+
+function storeError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
 }

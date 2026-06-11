@@ -2,7 +2,10 @@ import { ACTIVE_STATUS } from "../auth/store.mjs";
 import { HttpError, methodNotAllowed, readJsonBody, sendJson } from "../http.mjs";
 
 const REQUEST_DETAIL_RE = /^\/api\/requests\/([^/]+)$/;
+const REQUEST_ACCEPT_RE = /^\/api\/requests\/([^/]+)\/accept$/;
+const ORDER_DETAIL_RE = /^\/api\/orders\/([^/]+)$/;
 const PUBLIC_REQUEST_STATUSES = new Set(["open", "accepted", "completed"]);
+const ORDER_STATUSES = new Set(["accepted", "payer_confirmed", "both_confirmed", "completed", "disputed"]);
 const STATUS_FILTERS = new Set(["open", "accepted", "completed", "cancelled", "all"]);
 const SORTS = new Set(["latest", "oldest", "coin_desc", "coin_asc", "credit_desc", "credit_asc", "hours_desc", "hours_asc"]);
 const REQUEST_BODY_MAX_BYTES = 64 * 1024;
@@ -64,10 +67,47 @@ export async function handleRequestRoutes({ request, response, url, authService 
     return true;
   }
 
+  const acceptMatch = url.pathname.match(REQUEST_ACCEPT_RE);
+  if (acceptMatch) {
+    allowOnly(request, response, ["POST"]);
+    const context = await authService.authenticateRequest(request);
+    authService.requireRole(context, ["user"]);
+    const requestId = parseRequestId(acceptMatch[1]);
+    if (typeof authService.store.acceptServiceRequest !== "function") {
+      throw new HttpError(500, "REQUEST_STORE_UNAVAILABLE", "Request accepting is not available.");
+    }
+
+    let order;
+    try {
+      order = await authService.store.acceptServiceRequest({
+        requestId,
+        providerId: context.user.userId
+      });
+    } catch (error) {
+      throw acceptError(error);
+    }
+
+    sendJson(response, 201, await orderDetailPayload(authService.store, order.orderId, {
+      viewerId: context.user.userId
+    }));
+    return true;
+  }
+
   const detailMatch = url.pathname.match(REQUEST_DETAIL_RE);
   if (detailMatch) {
     allowOnly(request, response, ["GET"]);
     sendJson(response, 200, await requestDetailPayload(authService.store, detailMatch[1]));
+    return true;
+  }
+
+  const orderMatch = url.pathname.match(ORDER_DETAIL_RE);
+  if (orderMatch) {
+    allowOnly(request, response, ["GET"]);
+    const context = await authService.authenticateRequest(request);
+    authService.requireRole(context, ["user"]);
+    sendJson(response, 200, await orderDetailPayload(authService.store, orderMatch[1], {
+      viewerId: context.user.userId
+    }));
     return true;
   }
 
@@ -283,6 +323,46 @@ async function requestDetailPayload(store, rawRequestId) {
   };
 }
 
+async function orderDetailPayload(store, rawOrderId, options = {}) {
+  const orderId = parseOrderId(rawOrderId);
+  if (typeof store.findServiceOrderById !== "function") {
+    throw new HttpError(500, "ORDER_STORE_UNAVAILABLE", "Order lookup is not available.");
+  }
+
+  const order = await store.findServiceOrderById(orderId);
+  if (!order || !ORDER_STATUSES.has(String(order.status ?? ""))) {
+    throw new HttpError(404, "ORDER_NOT_FOUND", "Service order was not found.");
+  }
+
+  const categories = await safeStoreCall(store, "listCategories", []);
+  const categoryMap = new Map(categories.map((category) => [category.categoryId, category]));
+  const request = typeof store.findServiceRequestById === "function"
+    ? await store.findServiceRequestById(order.requestId)
+    : (await safeStoreCall(store, "listServiceRequests", [])).find((item) => item.requestId === order.requestId);
+  const enrichedRequest = request ? await enrichRequest(store, request, categoryMap) : null;
+  const provider = await store.findUserById(order.providerId);
+
+  if (!enrichedRequest || !provider || provider.status !== ACTIVE_STATUS) {
+    throw new HttpError(404, "ORDER_NOT_FOUND", "Service order was not found.");
+  }
+
+  if (options.viewerId !== undefined && options.viewerId !== null) {
+    const viewerId = Number(options.viewerId);
+    if (![enrichedRequest.publisherId, order.providerId].includes(viewerId)) {
+      throw new HttpError(403, "ORDER_FORBIDDEN", "You do not have permission to view this order.");
+    }
+  }
+
+  return {
+    order: serviceOrderDto({
+      order,
+      request: enrichedRequest,
+      provider,
+      providerCredit: await creditSummary(store, provider.userId)
+    })
+  };
+}
+
 async function enrichRequest(store, request, categoryMap) {
   const status = String(request.status ?? "");
   if (request.visible === false || !PUBLIC_REQUEST_STATUSES.has(status)) {
@@ -420,6 +500,30 @@ function requestDetailDto(item) {
     publisher: {
       ...publicPublisherDto(item.publisher),
       credit: item.credit
+    }
+  };
+}
+
+function serviceOrderDto(item) {
+  const { order, request, provider, providerCredit } = item;
+  return {
+    orderId: order.orderId,
+    requestId: order.requestId,
+    status: order.status,
+    coinAmount: order.coinAmount,
+    payerConfirmed: Boolean(order.payerConfirmed),
+    providerConfirmed: Boolean(order.providerConfirmed),
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt,
+    completedAt: order.completedAt,
+    request: requestDetailDto(request),
+    publisher: {
+      ...publicPublisherDto(request.publisher),
+      credit: request.credit
+    },
+    provider: {
+      ...publicPublisherDto(provider),
+      credit: providerCredit
     }
   };
 }
@@ -638,6 +742,13 @@ function parseRequestId(raw) {
   return Number(raw);
 }
 
+function parseOrderId(raw) {
+  if (!/^\d+$/.test(String(raw))) {
+    throw new HttpError(404, "ORDER_NOT_FOUND", "Service order was not found.");
+  }
+  return Number(raw);
+}
+
 function createdTime(item) {
   const time = new Date(item.createdAt).getTime();
   return Number.isFinite(time) ? time : 0;
@@ -670,6 +781,22 @@ function round1(value) {
 
 async function safeStoreCall(store, method, fallback) {
   return typeof store[method] === "function" ? await store[method]() : fallback;
+}
+
+function acceptError(error) {
+  if (error?.code === "REQUEST_NOT_FOUND") {
+    return new HttpError(404, "REQUEST_NOT_FOUND", "Service request was not found.");
+  }
+  if (error?.code === "SELF_ACCEPT_NOT_ALLOWED") {
+    return new HttpError(409, "SELF_ACCEPT_NOT_ALLOWED", "You cannot accept your own request.");
+  }
+  if (error?.code === "REQUEST_NOT_OPEN" || error?.code === "REQUEST_ALREADY_ACCEPTED") {
+    return new HttpError(409, "REQUEST_NOT_OPEN", "This request is no longer open for accepting.");
+  }
+  if (error?.code === "PROVIDER_NOT_FOUND") {
+    return new HttpError(403, "FORBIDDEN", "Current user cannot accept this request.");
+  }
+  return error;
 }
 
 function allowOnly(request, response, methods) {

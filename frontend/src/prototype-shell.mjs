@@ -35,6 +35,13 @@ const REQUEST_STATUS_TEXT = new Map([
   ["accepted", "已接单"],
   ["completed", "已完成"]
 ]);
+const ORDER_STATUS_TEXT = new Map([
+  ["accepted", "已接单"],
+  ["payer_confirmed", "需求方已确认"],
+  ["both_confirmed", "双方已确认"],
+  ["completed", "已完成"],
+  ["disputed", "争议中"]
+]);
 
 window.NeighborApp = {
   route,
@@ -280,7 +287,11 @@ async function hydrateCurrentRoute(session) {
       return;
     }
     if (route.id === "post-detail") {
-      await hydratePostDetailRoute();
+      await hydratePostDetailRoute(session);
+      return;
+    }
+    if (route.id === "order-detail") {
+      await hydrateOrderDetailRoute(session);
       return;
     }
     if (route.id === "ai-results") {
@@ -879,23 +890,24 @@ function bindTaskCards() {
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      button.textContent = "已申请";
-      button.classList.remove("btn--primary");
-      button.classList.add("btn--secondary");
-      button.disabled = true;
+      const requestId = button.closest(".task-card[data-request-id]")?.dataset.requestId;
+      if (requestId) {
+        navigateTo(`/posts/${encodeURIComponent(requestId)}?intent=accept`);
+      }
     });
   });
 }
 
-async function hydratePostDetailRoute() {
+async function hydratePostDetailRoute(session) {
   const requestId = routeRequestId();
   if (!requestId) {
     return;
   }
+  const userSession = session ?? auth.readSession("user");
   renderRequestDetailLoading();
   try {
     const payload = await api.requests.detail(requestId);
-    applyRequestDetail(payload.request);
+    applyRequestDetail(payload.request, userSession);
   } catch (error) {
     renderRequestDetailError(taskErrorMessage(error));
   }
@@ -924,10 +936,11 @@ function renderRequestDetailError(message) {
   document.querySelector(".comment-input-bar")?.setAttribute("hidden", "");
 }
 
-function applyRequestDetail(item) {
+function applyRequestDetail(item, userSession = null) {
   const publisher = item.publisher ?? {};
   const credit = publisher.credit ?? {};
   const publisherPath = `/users/${encodeURIComponent(publisher.userId ?? "demo")}`;
+  const acceptState = requestAcceptState(item, userSession);
   setElementText(".detail-header h2", "需求详情");
   document.querySelector(".detail-header .back-btn")?.setAttribute("href", "/tasks");
 
@@ -963,6 +976,7 @@ function applyRequestDetail(item) {
       </div>
 
       <div class="post-actions-row">
+        ${requestAcceptActionHtml(acceptState)}
         <a class="action-btn" href="/messages">${messageIcon()}私信询问</a>
         <button class="action-btn" id="copy-request-link" type="button">${shareIcon()}复制链接</button>
         <a class="action-btn" href="/tasks">${searchIcon()}更多任务</a>
@@ -983,6 +997,27 @@ function applyRequestDetail(item) {
     </div>
   `;
   document.querySelector(".comment-input-bar")?.setAttribute("hidden", "");
+  document.getElementById("accept-request")?.addEventListener("click", async () => {
+    if (!userSession?.token) {
+      navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    if (!window.confirm(`确认接单「${item.title}」？接单后会创建订单并通知发布者。`)) {
+      return;
+    }
+    const button = document.getElementById("accept-request");
+    const restore = setLoading(button, "接单中...");
+    try {
+      const result = await api.requests.accept(userSession.token, item.requestId);
+      navigateTo(`/orders/${encodeURIComponent(result.order.orderId)}`);
+    } catch (error) {
+      restore();
+      showGlobalMessage(acceptErrorMessage(error), "error");
+    }
+  });
+  if (new URLSearchParams(window.location.search).get("intent") === "accept") {
+    document.getElementById("accept-request")?.focus();
+  }
   document.getElementById("copy-request-link")?.addEventListener("click", async () => {
     try {
       await navigator.clipboard?.writeText(window.location.href);
@@ -991,6 +1026,143 @@ function applyRequestDetail(item) {
       showGlobalMessage("当前浏览器不支持自动复制，请手动复制地址栏链接。", "error");
     }
   });
+}
+
+function requestAcceptState(item, userSession) {
+  if (item.status !== "open") {
+    return "closed";
+  }
+  const currentUserId = Number(userSession?.user?.userId);
+  if (currentUserId && Number(item.publisher?.userId) === currentUserId) {
+    return "self";
+  }
+  return "available";
+}
+
+function requestAcceptActionHtml(state) {
+  if (state === "available") {
+    return `<button class="action-btn request-accept-btn" id="accept-request" type="button">${checkIcon()}确认接单</button>`;
+  }
+  if (state === "self") {
+    return `<button class="action-btn request-accept-btn" type="button" disabled>${checkIcon()}不能自接单</button>`;
+  }
+  return `<button class="action-btn request-accept-btn" type="button" disabled>${checkIcon()}已不可接</button>`;
+}
+
+async function hydrateOrderDetailRoute(session) {
+  const orderId = routeOrderId();
+  const userSession = session ?? auth.readSession("user");
+  if (!orderId || !userSession?.token) {
+    return;
+  }
+  renderOrderDetailLoading();
+  try {
+    const payload = await api.orders.detail(userSession.token, orderId);
+    applyOrderDetail(payload.order);
+  } catch (error) {
+    renderOrderDetailError(orderErrorMessage(error));
+  }
+}
+
+function renderOrderDetailLoading() {
+  const body = document.querySelector(".detail-body");
+  if (body) {
+    body.innerHTML = `<div class="task-runtime-state"><strong>加载中</strong><p>正在读取订单详情。</p></div>`;
+  }
+}
+
+function renderOrderDetailError(message) {
+  const body = document.querySelector(".detail-body");
+  setElementText(".detail-title", "订单详情");
+  if (body) {
+    body.innerHTML = `
+      <div class="task-runtime-state" data-state="error">
+        <strong>订单加载失败</strong>
+        <p>${escapeHtml(message)}</p>
+        <a class="btn btn--outline" href="/tasks">返回任务大厅</a>
+      </div>
+    `;
+  }
+}
+
+function applyOrderDetail(order) {
+  const request = order.request ?? {};
+  const publisher = order.publisher ?? {};
+  const provider = order.provider ?? {};
+  setElementText(".detail-title", "订单详情");
+
+  const body = document.querySelector(".detail-body");
+  if (!body) {
+    return;
+  }
+
+  body.innerHTML = `
+    <div class="info-card">
+      <div class="order-no">#ORD-${escapeHtml(order.orderId)}</div>
+      <div class="order-title">${escapeHtml(request.title || "邻里互助订单")}</div>
+      <div style="display:flex;align-items:center;gap:var(--space-md);flex-wrap:wrap;">
+        <span class="status-pill status-active"><span class="sp-dot"></span>${escapeHtml(ORDER_STATUS_TEXT.get(order.status) ?? order.status ?? "待确认")}</span>
+        <span class="badge badge--success">需求已接单</span>
+      </div>
+      <div class="info-row">
+        <div class="info-cell"><dt>时间币金额</dt><dd class="amount">⏂ ${escapeHtml(formatAmount(order.coinAmount))}</dd></div>
+        <div class="info-cell"><dt>预计服务时间</dt><dd>${escapeHtml(formatHours(request.estimatedHours))}</dd></div>
+        <div class="info-cell"><dt>创建时间</dt><dd>${escapeHtml(formatDateTime(order.createdAt))}</dd></div>
+        <div class="info-cell"><dt>订单状态</dt><dd>${escapeHtml(ORDER_STATUS_TEXT.get(order.status) ?? order.status ?? "待确认")}</dd></div>
+      </div>
+    </div>
+
+    <div class="party-row">
+      ${orderPartyCard("需求方", publisher)}
+      ${orderPartyCard("服务方", provider)}
+    </div>
+
+    <div class="timeline">
+      <h3>订单进度</h3>
+      <div class="tl-step done">
+        <div class="tl-node-wrap">
+          <div class="tl-node">${checkIcon("16")}</div>
+          <div class="tl-line"></div>
+        </div>
+        <div class="tl-content">
+          <div class="tl-step-title">需求发布</div>
+          <div class="tl-step-desc">${escapeHtml(displayName(publisher))} 发布了「${escapeHtml(request.title || "邻里互助需求")}」</div>
+          <div class="tl-step-time">${escapeHtml(formatDateTime(request.createdAt))}</div>
+        </div>
+      </div>
+      <div class="tl-step active">
+        <div class="tl-node-wrap">
+          <div class="tl-node">${checkIcon("16")}</div>
+        </div>
+        <div class="tl-content">
+          <div class="tl-step-title">服务接单</div>
+          <div class="tl-step-desc">${escapeHtml(displayName(provider))} 已接单，订单金额为 ⏂${escapeHtml(formatAmount(order.coinAmount))}</div>
+          <div class="tl-step-time">${escapeHtml(formatDateTime(order.createdAt))}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="action-bar">
+      <h3>订单操作</h3>
+      <div class="btn-row">
+        <a class="btn btn--outline" href="/posts/${encodeURIComponent(order.requestId)}">查看需求</a>
+        <a class="btn btn--outline" href="/messages">联系对方</a>
+      </div>
+    </div>
+  `;
+}
+
+function orderPartyCard(role, user) {
+  const credit = user.credit ?? {};
+  return `
+    <div class="party-card">
+      <div class="party-role">${escapeHtml(role)}</div>
+      <div class="avatar lg" style="background:${avatarColor(user.userId)};display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:24px;font-weight:700;width:56px;height:56px;">${escapeHtml(firstCharacter(displayName(user)))}</div>
+      <div style="font-weight:600;margin-top:var(--space-sm);">${escapeHtml(displayName(user))}</div>
+      <div style="font-size:12px;color:var(--reward-gold);margin-top:2px;">${escapeHtml(credit.reviewCount > 0 ? `${starsText(credit.averageRating)} ${formatRating(credit.averageRating)}` : "暂无评价")}</div>
+      <a class="party-confirm confirmed" href="/users/${encodeURIComponent(user.userId)}">${checkIcon("14")} 查看主页</a>
+    </div>
+  `;
 }
 
 function hydrateAiResultsRoute() {
@@ -1425,6 +1597,12 @@ function routeRequestId() {
   return raw && /^\d+$/.test(raw) ? raw : null;
 }
 
+function routeOrderId() {
+  const match = window.location.pathname.match(/^\/orders\/([^/]+)$/);
+  const raw = match?.[1];
+  return raw && /^\d+$/.test(raw) ? raw : null;
+}
+
 function taskErrorMessage(error) {
   const code = error?.payload?.error?.code;
   if (code === "REQUEST_NOT_FOUND") {
@@ -1437,6 +1615,37 @@ function taskErrorMessage(error) {
     return "无法连接任务服务，请确认后端服务已启动。";
   }
   return error?.message || "任务数据加载失败，请稍后重试。";
+}
+
+function acceptErrorMessage(error) {
+  const code = error?.payload?.error?.code;
+  if (code === "SELF_ACCEPT_NOT_ALLOWED") {
+    return "不能接自己发布的需求。";
+  }
+  if (code === "REQUEST_NOT_OPEN") {
+    return "这条需求已被接单或不再开放。";
+  }
+  if (code === "REQUEST_NOT_FOUND") {
+    return "这条需求不存在，或已经不再公开展示。";
+  }
+  if (error?.status === 0 || error instanceof TypeError) {
+    return "无法连接接单服务，请确认后端服务已启动。";
+  }
+  return error?.message || "接单失败，请稍后重试。";
+}
+
+function orderErrorMessage(error) {
+  const code = error?.payload?.error?.code;
+  if (code === "ORDER_NOT_FOUND") {
+    return "这笔订单不存在，或你没有可查看的订单记录。";
+  }
+  if (code === "ORDER_FORBIDDEN") {
+    return "只有订单相关的需求方和服务方可以查看订单详情。";
+  }
+  if (error?.status === 0 || error instanceof TypeError) {
+    return "无法连接订单服务，请确认后端服务已启动。";
+  }
+  return error?.message || "订单数据加载失败，请稍后重试。";
 }
 
 function publishErrorMessage(error, context = "") {
@@ -1609,6 +1818,10 @@ function shareIcon() {
 
 function searchIcon() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
+}
+
+function checkIcon(size = "20") {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
 }
 
 function escapeHtml(value) {

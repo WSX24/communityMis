@@ -13,10 +13,14 @@ export function createMemoryAuthStore(options = {}) {
   const settings = new Map();
   const categories = new Map();
   const serviceRequests = new Map();
+  const serviceOrders = new Map();
+  const notifications = new Map();
   const reviews = [];
   let nextUserId = options.nextUserId ?? 10000;
   let nextWalletId = options.nextWalletId ?? 20000;
   let nextRequestId = options.nextRequestId ?? 30000;
+  let nextOrderId = options.nextOrderId ?? 40000;
+  let nextNotificationId = options.nextNotificationId ?? 50000;
 
   for (const seedUser of options.seedUsers ?? defaultSeedUsers()) {
     insertSeedUser(seedUser);
@@ -26,6 +30,12 @@ export function createMemoryAuthStore(options = {}) {
   }
   for (const seedRequest of options.seedRequests ?? defaultSeedServiceRequests()) {
     insertSeedRequest(seedRequest);
+  }
+  for (const seedOrder of options.seedOrders ?? (options.seedRequests === undefined ? defaultSeedServiceOrders() : [])) {
+    insertSeedOrder(seedOrder);
+  }
+  for (const seedNotification of options.seedNotifications ?? (options.seedRequests === undefined ? defaultSeedNotifications() : [])) {
+    insertSeedNotification(seedNotification);
   }
   for (const seedReview of options.seedReviews ?? defaultSeedReviews()) {
     reviews.push(normalizeReview(seedReview));
@@ -44,6 +54,10 @@ export function createMemoryAuthStore(options = {}) {
     listServiceRequests,
     findServiceRequestById,
     createServiceRequest,
+    acceptServiceRequest,
+    listServiceOrders,
+    findServiceOrderById,
+    listNotificationsForUserId,
     listReviewsForTargetId,
     createSession,
     findSession,
@@ -203,6 +217,89 @@ export function createMemoryAuthStore(options = {}) {
     return clone(withCategory(request));
   }
 
+  function acceptServiceRequest(input) {
+    const requestId = Number(input.requestId);
+    const providerId = Number(input.providerId);
+    const request = serviceRequests.get(requestId);
+
+    if (!request || request.visible === false) {
+      throw storeError("REQUEST_NOT_FOUND", "Service request was not found.");
+    }
+
+    const publisher = users.get(request.publisherId);
+    if (!publisher || publisher.status !== ACTIVE_STATUS) {
+      throw storeError("REQUEST_NOT_FOUND", "Service request was not found.");
+    }
+
+    const provider = users.get(providerId);
+    if (!provider || provider.status !== ACTIVE_STATUS || provider.role !== "user") {
+      throw storeError("PROVIDER_NOT_FOUND", "Provider user was not found.");
+    }
+
+    if (request.publisherId === providerId) {
+      throw storeError("SELF_ACCEPT_NOT_ALLOWED", "Publisher cannot accept their own request.");
+    }
+    if (request.status !== "open") {
+      throw storeError("REQUEST_NOT_OPEN", "Only open requests can be accepted.");
+    }
+    if (Array.from(serviceOrders.values()).some((order) => order.requestId === requestId)) {
+      throw storeError("REQUEST_ALREADY_ACCEPTED", "This request already has an order.");
+    }
+
+    const now = new Date().toISOString();
+    request.status = "accepted";
+    request.updatedAt = now;
+
+    const order = normalizeServiceOrder({
+      orderId: nextOrderId,
+      requestId,
+      providerId,
+      status: "accepted",
+      payerConfirmed: false,
+      providerConfirmed: false,
+      coinAmount: request.coinAmount,
+      createdAt: now,
+      updatedAt: now
+    });
+    serviceOrders.set(order.orderId, order);
+    nextOrderId += 1;
+
+    const notification = normalizeNotification({
+      notificationId: nextNotificationId,
+      userId: request.publisherId,
+      type: "order",
+      title: "需求已被接单",
+      content: `${provider.displayName ?? provider.username} 已接单：${request.title}。`,
+      businessType: "order",
+      businessId: order.orderId,
+      readAt: null,
+      createdAt: now
+    });
+    notifications.set(notification.notificationId, notification);
+    nextNotificationId += 1;
+
+    return clone(order);
+  }
+
+  function listServiceOrders() {
+    return Array.from(serviceOrders.values())
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() || right.orderId - left.orderId)
+      .map(clone);
+  }
+
+  function findServiceOrderById(orderId) {
+    const order = serviceOrders.get(Number(orderId));
+    return order ? clone(order) : null;
+  }
+
+  function listNotificationsForUserId(userId) {
+    const id = Number(userId);
+    return Array.from(notifications.values())
+      .filter((notification) => notification.userId === id)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .map(clone);
+  }
+
   function listReviewsForTargetId(userId) {
     const id = Number(userId);
     return reviews
@@ -280,6 +377,24 @@ export function createMemoryAuthStore(options = {}) {
     });
     serviceRequests.set(request.requestId, request);
     nextRequestId = Math.max(nextRequestId, request.requestId + 1);
+  }
+
+  function insertSeedOrder(seedOrder) {
+    const order = normalizeServiceOrder({
+      ...seedOrder,
+      orderId: seedOrder.orderId ?? nextOrderId
+    });
+    serviceOrders.set(order.orderId, order);
+    nextOrderId = Math.max(nextOrderId, order.orderId + 1);
+  }
+
+  function insertSeedNotification(seedNotification) {
+    const notification = normalizeNotification({
+      ...seedNotification,
+      notificationId: seedNotification.notificationId ?? nextNotificationId
+    });
+    notifications.set(notification.notificationId, notification);
+    nextNotificationId = Math.max(nextNotificationId, notification.notificationId + 1);
   }
 
   function withCategory(request) {
@@ -486,6 +601,74 @@ export function defaultSeedServiceRequests() {
   ];
 }
 
+export function defaultSeedServiceOrders() {
+  return [
+    {
+      orderId: 3001,
+      requestId: 2002,
+      providerId: 1002,
+      status: "accepted",
+      payerConfirmed: false,
+      providerConfirmed: false,
+      coinAmount: 30,
+      createdAt: "2026-06-03T15:20:00.000Z",
+      updatedAt: "2026-06-03T15:20:00.000Z",
+      completedAt: null
+    },
+    {
+      orderId: 3002,
+      requestId: 2003,
+      providerId: 1002,
+      status: "completed",
+      payerConfirmed: true,
+      providerConfirmed: true,
+      coinAmount: 18,
+      createdAt: "2026-06-02T10:30:00.000Z",
+      updatedAt: "2026-06-02T12:10:00.000Z",
+      completedAt: "2026-06-02T12:10:00.000Z"
+    },
+    {
+      orderId: 3003,
+      requestId: 2005,
+      providerId: 1003,
+      status: "disputed",
+      payerConfirmed: false,
+      providerConfirmed: true,
+      coinAmount: 40,
+      createdAt: "2026-05-28T10:00:00.000Z",
+      updatedAt: "2026-05-28T10:00:00.000Z",
+      completedAt: null
+    }
+  ];
+}
+
+export function defaultSeedNotifications() {
+  return [
+    {
+      notificationId: 7001,
+      userId: 1001,
+      type: "order",
+      title: "需求已被接单",
+      content: "user_b 已接单：帮忙组装书柜。",
+      businessType: "order",
+      businessId: 3001,
+      readAt: null,
+      createdAt: "2026-06-03T15:21:00.000Z"
+    },
+    {
+      notificationId: 7002,
+      userId: 1002,
+      type: "wallet",
+      title: "时间币已入账",
+      content: "帮李阿姨代购日用品订单已完成，收入 18.00 时间币。",
+      businessType: "order",
+      businessId: 3002,
+      readAt: "2026-06-02T13:30:00.000Z",
+      createdAt: "2026-06-02T12:11:00.000Z"
+    }
+  ];
+}
+
 export function defaultSeedReviews() {
   return [
     {
@@ -583,6 +766,36 @@ function normalizeServiceRequest(input) {
     visible: input.visible !== false && input.visible !== 0,
     createdAt: input.createdAt ?? now,
     updatedAt: input.updatedAt ?? input.createdAt ?? now
+  };
+}
+
+function normalizeServiceOrder(input) {
+  const now = new Date().toISOString();
+  return {
+    orderId: Number(input.orderId),
+    requestId: Number(input.requestId),
+    providerId: Number(input.providerId),
+    status: String(input.status ?? "accepted"),
+    payerConfirmed: Boolean(input.payerConfirmed ?? input.payer_confirmed ?? false),
+    providerConfirmed: Boolean(input.providerConfirmed ?? input.provider_confirmed ?? false),
+    coinAmount: Number(input.coinAmount ?? input.coin_amount ?? 0),
+    createdAt: input.createdAt ?? now,
+    updatedAt: input.updatedAt ?? input.createdAt ?? now,
+    completedAt: input.completedAt ?? input.completed_at ?? null
+  };
+}
+
+function normalizeNotification(input) {
+  return {
+    notificationId: Number(input.notificationId),
+    userId: Number(input.userId),
+    type: String(input.type ?? "system"),
+    title: String(input.title ?? "").trim(),
+    content: String(input.content ?? "").trim(),
+    businessType: normalizeOptionalString(input.businessType ?? input.business_type),
+    businessId: input.businessId === undefined || input.businessId === null ? null : Number(input.businessId),
+    readAt: input.readAt ?? input.read_at ?? null,
+    createdAt: input.createdAt ?? new Date().toISOString()
   };
 }
 
@@ -705,4 +918,10 @@ function hasOwn(input, key) {
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function storeError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
 }

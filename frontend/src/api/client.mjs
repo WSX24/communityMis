@@ -67,7 +67,14 @@ export function createApiClient(options = {}) {
         method: "POST",
         token,
         body: payload
+      }),
+      accept: (token, requestId) => request(`/api/requests/${encodeURIComponent(requestId)}/accept`, {
+        method: "POST",
+        token
       })
+    },
+    orders: {
+      detail: (token, orderId) => request(`/api/orders/${encodeURIComponent(orderId)}`, { token })
     },
     auth: {
       register: (payload) => request("/api/auth/register", {

@@ -265,6 +265,21 @@ body[data-route-id="post-detail"] .post-actions-row .action-btn svg {
   height: 20px;
 }
 
+.request-accept-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+body[data-route-id="order-detail"] .detail-body {
+  min-width: 0;
+}
+
+body[data-route-id="order-detail"] .order-title,
+body[data-route-id="order-detail"] .tl-step-desc,
+body[data-route-id="order-detail"] .party-card {
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 390px) {
   .page,
   .feed-content,
