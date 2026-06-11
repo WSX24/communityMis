@@ -130,17 +130,15 @@ async function checkOrderStateMachineApi() {
     record(
       providerConfirm.order?.payerConfirmed === true
         && providerConfirm.order?.providerConfirmed === true
-        && providerConfirm.order?.status === "both_confirmed"
-        && providerConfirm.order?.settlementReady === true,
-      "both confirmations move the order to settlement-ready state"
+        && providerConfirm.order?.status === "completed"
+        && Boolean(providerConfirm.order?.completedAt),
+      "both confirmations settle and complete the order"
     );
 
-    const duplicateConfirm = await api.orders.confirm(providerLogin.token, 10301);
+    const duplicateConfirm = await requestJson(baseUrl, "POST", "/api/orders/10301/confirm", null, providerLogin.token);
     record(
-      duplicateConfirm.order?.status === "both_confirmed"
-        && duplicateConfirm.order?.payerConfirmed === true
-        && duplicateConfirm.order?.providerConfirmed === true,
-      "duplicate confirmation is idempotent for business state"
+      duplicateConfirm.status === 409 && duplicateConfirm.body.error?.code === "ORDER_STATUS_NOT_CONFIRMABLE",
+      "duplicate confirmation after completion is rejected without reopening the order"
     );
 
     const providerOnlyDuplicate = await api.orders.confirm(providerLogin.token, 10305);

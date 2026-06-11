@@ -83,6 +83,31 @@ export async function handleRequestRoutes({ request, response, url, authService 
     return true;
   }
 
+  if (url.pathname === "/api/transactions") {
+    allowOnly(request, response, ["GET"]);
+    const context = await authService.authenticateRequest(request);
+    authService.requireRole(context, ["user", "admin", "super_admin"]);
+    if (typeof authService.store.listTransactionLogs !== "function") {
+      throw new HttpError(500, "TRANSACTION_STORE_UNAVAILABLE", "Transaction listing is not available.");
+    }
+
+    const orderIdRaw = url.searchParams.get("orderId") ?? url.searchParams.get("order_id");
+    if (!orderIdRaw) {
+      throw new HttpError(400, "ORDER_ID_REQUIRED", "orderId query parameter is required.");
+    }
+    const orderId = parseOrderId(orderIdRaw);
+    await findVisibleOrderForViewer(authService.store, orderId, {
+      viewerId: context.user.userId,
+      viewerRole: context.user.role
+    });
+
+    const transactions = await authService.store.listTransactionLogs({ orderId });
+    sendJson(response, 200, {
+      transactions: transactions.map(transactionDto)
+    });
+    return true;
+  }
+
   const acceptMatch = url.pathname.match(REQUEST_ACCEPT_RE);
   if (acceptMatch) {
     allowOnly(request, response, ["POST"]);
@@ -740,6 +765,19 @@ function publicPublisherDto(user) {
   };
 }
 
+function transactionDto(item) {
+  return {
+    logId: item.logId,
+    userId: item.userId,
+    orderId: item.orderId,
+    type: item.type,
+    amount: item.amount,
+    balanceAfter: item.balanceAfter,
+    remark: item.remark ?? null,
+    createdAt: item.createdAt
+  };
+}
+
 function normalizeRequestQuery(searchParams) {
   const status = optionalLower(searchParams.get("status")) ?? "open";
   if (!STATUS_FILTERS.has(status)) {
@@ -1075,6 +1113,12 @@ function confirmError(error) {
   }
   if (error?.code === "ORDER_STATUS_NOT_CONFIRMABLE") {
     return new HttpError(409, "ORDER_STATUS_NOT_CONFIRMABLE", "Only accepted orders can be confirmed.");
+  }
+  if (error?.code === "INSUFFICIENT_BALANCE") {
+    return new HttpError(409, "INSUFFICIENT_BALANCE", "Payer wallet balance is insufficient.");
+  }
+  if (error?.code === "ORDER_WALLET_NOT_FOUND") {
+    return new HttpError(409, "ORDER_WALLET_NOT_FOUND", "Order wallet was not found.");
   }
   return error;
 }

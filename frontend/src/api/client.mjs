@@ -81,6 +81,9 @@ export function createApiClient(options = {}) {
         token
       })
     },
+    transactions: {
+      list: (token, params = {}) => request(withQuery("/api/transactions", params), { token })
+    },
     auth: {
       register: (payload) => request("/api/auth/register", {
         method: "POST",

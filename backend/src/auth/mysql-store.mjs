@@ -33,6 +33,7 @@ export function createMysqlAuthStore(options = {}) {
     listServiceOrders,
     findServiceOrderById,
     confirmServiceOrder,
+    listTransactionLogs,
     listReviewsForTargetId,
     createSession,
     findSession,
@@ -471,21 +472,55 @@ LIMIT 1;
     const orderId = Number(input.orderId);
     const actorId = Number(input.actorId);
     const actorRole = String(input.actorRole ?? "");
-    const confirmColumn = actorRole === "payer" ? "payer_confirmed" : actorRole === "provider" ? "provider_confirmed" : null;
-    if (!confirmColumn) {
+    if (!["payer", "provider"].includes(actorRole)) {
       throw storeError("ORDER_FORBIDDEN", "Actor is not part of this order.");
     }
 
+    return transferCoins({ orderId, actorId, actorRole });
+  }
+
+  async function transferCoins(input) {
+    const { orderId, actorId, actorRole } = input;
     const sql = `
 START TRANSACTION;
+SET @settled_at = CURRENT_TIMESTAMP;
 SET @order_id = ${orderId};
 SET @actor_id = ${actorId};
 SET @actor_role = ${sqlString(actorRole)};
 SET @order_found = 0;
 SET @authorized = 0;
 SET @status_allowed = 0;
+SET @request_id = NULL;
+SET @payer_id = NULL;
+SET @provider_id = NULL;
+SET @coin_amount = NULL;
+SET @current_payer_confirmed = 0;
+SET @current_provider_confirmed = 0;
+SET @next_payer_confirmed = 0;
+SET @next_provider_confirmed = 0;
+SET @should_settle = 0;
+SET @settled = 0;
+SET @wallets_found = 1;
+SET @insufficient_balance = 0;
+SET @first_wallet_user_id = NULL;
+SET @second_wallet_user_id = NULL;
+SET @first_wallet_balance = NULL;
+SET @second_wallet_balance = NULL;
+SET @payer_balance_before = NULL;
+SET @provider_balance_before = NULL;
+SET @payer_balance_after = NULL;
+SET @provider_balance_after = NULL;
+SET @payer_wallet_updated = 0;
+SET @provider_wallet_updated = 0;
+SET @order_updated = 0;
 SELECT
   @order_found := 1,
+  @request_id := so.\`request_id\`,
+  @payer_id := sr.\`publisher_id\`,
+  @provider_id := so.\`provider_id\`,
+  @coin_amount := so.\`coin_amount\`,
+  @current_payer_confirmed := so.\`payer_confirmed\`,
+  @current_provider_confirmed := so.\`provider_confirmed\`,
   @authorized := IF(
     (@actor_role = 'payer' AND sr.\`publisher_id\` = @actor_id)
       OR (@actor_role = 'provider' AND so.\`provider_id\` = @actor_id),
@@ -497,36 +532,130 @@ FROM \`service_order\` so
 JOIN \`service_request\` sr ON sr.\`request_id\` = so.\`request_id\`
 WHERE so.\`order_id\` = @order_id
 FOR UPDATE;
+SET @next_payer_confirmed = IF(@actor_role = 'payer', 1, COALESCE(@current_payer_confirmed, 0));
+SET @next_provider_confirmed = IF(@actor_role = 'provider', 1, COALESCE(@current_provider_confirmed, 0));
+SET @should_settle = IF(@authorized = 1 AND @status_allowed = 1 AND @next_payer_confirmed = 1 AND @next_provider_confirmed = 1, 1, 0);
+SET @first_wallet_user_id = LEAST(@payer_id, @provider_id);
+SET @second_wallet_user_id = GREATEST(@payer_id, @provider_id);
+SELECT @first_wallet_balance := CAST(w.\`balance\` AS DECIMAL(10,2))
+FROM \`wallet\` w
+WHERE @should_settle = 1
+  AND w.\`user_id\` = @first_wallet_user_id
+FOR UPDATE;
+SELECT @second_wallet_balance := CAST(w.\`balance\` AS DECIMAL(10,2))
+FROM \`wallet\` w
+WHERE @should_settle = 1
+  AND w.\`user_id\` = @second_wallet_user_id
+FOR UPDATE;
+SET @payer_balance_before = IF(@payer_id = @first_wallet_user_id, @first_wallet_balance, @second_wallet_balance);
+SET @provider_balance_before = IF(@provider_id = @first_wallet_user_id, @first_wallet_balance, @second_wallet_balance);
+SET @wallets_found = IF(@should_settle = 0 OR (@payer_balance_before IS NOT NULL AND @provider_balance_before IS NOT NULL), 1, 0);
+SET @insufficient_balance = IF(@should_settle = 1 AND @wallets_found = 1 AND @payer_balance_before < @coin_amount, 1, 0);
+SET @payer_balance_after = ROUND(@payer_balance_before - @coin_amount, 2);
+SET @provider_balance_after = ROUND(@provider_balance_before + @coin_amount, 2);
+UPDATE \`wallet\`
+SET
+  \`balance\` = @payer_balance_after,
+  \`version\` = \`version\` + 1,
+  \`updated_at\` = @settled_at
+WHERE \`user_id\` = @payer_id
+  AND @should_settle = 1
+  AND @wallets_found = 1
+  AND @insufficient_balance = 0
+  AND \`balance\` >= @coin_amount
+LIMIT 1;
+SET @payer_wallet_updated = ROW_COUNT();
+UPDATE \`wallet\`
+SET
+  \`balance\` = @provider_balance_after,
+  \`version\` = \`version\` + 1,
+  \`updated_at\` = @settled_at
+WHERE \`user_id\` = @provider_id
+  AND @payer_wallet_updated = 1
+LIMIT 1;
+SET @provider_wallet_updated = ROW_COUNT();
+SET @settled = IF(@should_settle = 1 AND @payer_wallet_updated = 1 AND @provider_wallet_updated = 1, 1, 0);
+INSERT INTO \`transaction_log\` (
+  \`user_id\`,
+  \`order_id\`,
+  \`type\`,
+  \`amount\`,
+  \`balance_after\`,
+  \`remark\`,
+  \`created_at\`
+)
+SELECT
+  @payer_id,
+  @order_id,
+  'expense',
+  @coin_amount,
+  @payer_balance_after,
+  '订单完成，需求方支出时间币',
+  @settled_at
+WHERE @settled = 1;
+INSERT INTO \`transaction_log\` (
+  \`user_id\`,
+  \`order_id\`,
+  \`type\`,
+  \`amount\`,
+  \`balance_after\`,
+  \`remark\`,
+  \`created_at\`
+)
+SELECT
+  @provider_id,
+  @order_id,
+  'income',
+  @coin_amount,
+  @provider_balance_after,
+  '订单完成，服务方收入时间币',
+  @settled_at
+WHERE @settled = 1;
 UPDATE \`service_order\`
 SET
-  \`${confirmColumn}\` = 1,
+  \`payer_confirmed\` = @next_payer_confirmed,
+  \`provider_confirmed\` = @next_provider_confirmed,
   \`status\` = CASE
-    WHEN \`payer_confirmed\` = 1 AND \`provider_confirmed\` = 1 THEN 'both_confirmed'
-    WHEN \`payer_confirmed\` = 1 THEN 'payer_confirmed'
+    WHEN @settled = 1 THEN 'completed'
+    WHEN @next_payer_confirmed = 1 THEN 'payer_confirmed'
     ELSE 'accepted'
   END,
-  \`updated_at\` = CURRENT_TIMESTAMP
+  \`completed_at\` = CASE WHEN @settled = 1 THEN @settled_at ELSE \`completed_at\` END,
+  \`updated_at\` = @settled_at
 WHERE \`order_id\` = @order_id
   AND @authorized = 1
   AND @status_allowed = 1
+  AND (@should_settle = 0 OR @settled = 1)
 LIMIT 1;
-UPDATE \`service_order\`
+SET @order_updated = ROW_COUNT();
+UPDATE \`service_request\`
 SET
-  \`status\` = CASE
-    WHEN \`payer_confirmed\` = 1 AND \`provider_confirmed\` = 1 THEN 'both_confirmed'
-    WHEN \`payer_confirmed\` = 1 THEN 'payer_confirmed'
-    ELSE 'accepted'
-  END,
-  \`updated_at\` = CURRENT_TIMESTAMP
-WHERE \`order_id\` = @order_id
-  AND @authorized = 1
-  AND @status_allowed = 1
+  \`status\` = 'completed',
+  \`updated_at\` = @settled_at
+WHERE \`request_id\` = @request_id
+  AND @settled = 1
 LIMIT 1;
-COMMIT;
+SET @rollback_required = IF(
+  @order_found <> 1
+    OR @authorized <> 1
+    OR @status_allowed <> 1
+    OR (@should_settle = 1 AND @settled <> 1)
+    OR (@settled = 1 AND @order_updated <> 1),
+  1,
+  0
+);
+SET @transaction_sql = IF(@rollback_required = 1, 'ROLLBACK', 'COMMIT');
+PREPARE transaction_statement FROM @transaction_sql;
+EXECUTE transaction_statement;
+DEALLOCATE PREPARE transaction_statement;
 SELECT JSON_OBJECT(
   'orderFound', @order_found,
   'authorized', @authorized,
   'statusAllowed', @status_allowed,
+  'shouldSettle', @should_settle,
+  'settled', @settled,
+  'walletsFound', @wallets_found,
+  'insufficientBalance', @insufficient_balance,
   'orderId', @order_id
 );
 `;
@@ -540,7 +669,48 @@ SELECT JSON_OBJECT(
     if (Number(result?.statusAllowed ?? 0) !== 1) {
       throw storeError("ORDER_STATUS_NOT_CONFIRMABLE", "Only accepted orders can be confirmed.");
     }
+    if (Number(result?.walletsFound ?? 1) !== 1) {
+      throw storeError("ORDER_WALLET_NOT_FOUND", "Order wallet was not found.");
+    }
+    if (Number(result?.insufficientBalance ?? 0) === 1) {
+      throw storeError("INSUFFICIENT_BALANCE", "Payer wallet balance is insufficient.");
+    }
+    if (Number(result?.shouldSettle ?? 0) === 1 && Number(result?.settled ?? 0) !== 1) {
+      throw storeError("ORDER_SETTLEMENT_FAILED", "Order settlement could not be completed.");
+    }
     return findServiceOrderById(result.orderId);
+  }
+
+  async function listTransactionLogs(query = {}) {
+    const conditions = [];
+    if (query.orderId !== undefined && query.orderId !== null) {
+      conditions.push(`tl.\`order_id\` = ${Number(query.orderId)}`);
+    }
+    if (query.userId !== undefined && query.userId !== null) {
+      conditions.push(`tl.\`user_id\` = ${Number(query.userId)}`);
+    }
+    const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const limit = Math.min(200, Math.max(1, Number(query.limit ?? 100) || 100));
+    const sql = `
+SELECT COALESCE(JSON_ARRAYAGG(${transactionLogJsonObjectSql("q")}), JSON_ARRAY())
+FROM (
+  SELECT
+    tl.\`log_id\`,
+    tl.\`user_id\`,
+    tl.\`order_id\`,
+    tl.\`type\`,
+    CAST(tl.\`amount\` AS DOUBLE) AS \`amount\`,
+    CAST(tl.\`balance_after\` AS DOUBLE) AS \`balance_after\`,
+    tl.\`remark\`,
+    tl.\`created_at\`
+  FROM \`transaction_log\` tl
+  ${whereSql}
+  ORDER BY tl.\`created_at\` DESC, tl.\`log_id\` DESC
+  LIMIT ${limit}
+) q;
+`;
+    const rows = await mysqlJson(sql, { optional: true });
+    return Array.isArray(rows) ? rows.map(normalizeTransactionLog) : [];
   }
 
   async function listReviewsForTargetId(userId) {
@@ -724,6 +894,19 @@ function serviceOrderJsonObjectSql(alias) {
   )`;
 }
 
+function transactionLogJsonObjectSql(alias) {
+  return `JSON_OBJECT(
+    'logId', ${alias}.\`log_id\`,
+    'userId', ${alias}.\`user_id\`,
+    'orderId', ${alias}.\`order_id\`,
+    'type', ${alias}.\`type\`,
+    'amount', CAST(${alias}.\`amount\` AS DOUBLE),
+    'balanceAfter', IF(${alias}.\`balance_after\` IS NULL, NULL, CAST(${alias}.\`balance_after\` AS DOUBLE)),
+    'remark', ${alias}.\`remark\`,
+    'createdAt', DATE_FORMAT(${alias}.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z')
+  )`;
+}
+
 function normalizeUser(user) {
   if (!user) {
     return null;
@@ -792,6 +975,19 @@ function normalizeServiceOrder(input) {
     createdAt: input.createdAt ?? null,
     updatedAt: input.updatedAt ?? input.createdAt ?? null,
     completedAt: input.completedAt ?? input.completed_at ?? null
+  };
+}
+
+function normalizeTransactionLog(input) {
+  return {
+    logId: Number(input.logId),
+    userId: input.userId === undefined || input.userId === null ? null : Number(input.userId),
+    orderId: input.orderId === undefined || input.orderId === null ? null : Number(input.orderId),
+    type: String(input.type ?? ""),
+    amount: Number(input.amount ?? 0),
+    balanceAfter: input.balanceAfter === undefined || input.balanceAfter === null ? null : Number(input.balanceAfter),
+    remark: normalizeOptionalString(input.remark),
+    createdAt: input.createdAt ?? input.created_at ?? null
   };
 }
 

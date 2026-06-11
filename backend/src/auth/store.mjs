@@ -14,12 +14,14 @@ export function createMemoryAuthStore(options = {}) {
   const categories = new Map();
   const serviceRequests = new Map();
   const serviceOrders = new Map();
+  const transactionLogs = new Map();
   const notifications = new Map();
   const reviews = [];
   let nextUserId = options.nextUserId ?? 10000;
   let nextWalletId = options.nextWalletId ?? 20000;
   let nextRequestId = options.nextRequestId ?? 30000;
   let nextOrderId = options.nextOrderId ?? 40000;
+  let nextTransactionLogId = options.nextTransactionLogId ?? 45000;
   let nextNotificationId = options.nextNotificationId ?? 50000;
 
   for (const seedUser of options.seedUsers ?? defaultSeedUsers()) {
@@ -33,6 +35,9 @@ export function createMemoryAuthStore(options = {}) {
   }
   for (const seedOrder of options.seedOrders ?? (options.seedRequests === undefined ? defaultSeedServiceOrders() : [])) {
     insertSeedOrder(seedOrder);
+  }
+  for (const seedTransaction of options.seedTransactions ?? (options.seedRequests === undefined ? defaultSeedTransactionLogs() : [])) {
+    insertSeedTransactionLog(seedTransaction);
   }
   for (const seedNotification of options.seedNotifications ?? (options.seedRequests === undefined ? defaultSeedNotifications() : [])) {
     insertSeedNotification(seedNotification);
@@ -58,6 +63,7 @@ export function createMemoryAuthStore(options = {}) {
     listServiceOrders,
     findServiceOrderById,
     confirmServiceOrder,
+    listTransactionLogs,
     listNotificationsForUserId,
     listReviewsForTargetId,
     createSession,
@@ -321,22 +327,110 @@ export function createMemoryAuthStore(options = {}) {
     }
 
     const now = new Date().toISOString();
-    if (actorRole === "payer") {
-      order.payerConfirmed = true;
+    const nextPayerConfirmed = actorRole === "payer" ? true : order.payerConfirmed;
+    const nextProviderConfirmed = actorRole === "provider" ? true : order.providerConfirmed;
+    const shouldSettle = nextPayerConfirmed && nextProviderConfirmed;
+
+    const previousOrder = clone(order);
+    const previousRequest = clone(request);
+    const payerWallet = wallets.get(request.publisherId);
+    const providerWallet = wallets.get(order.providerId);
+    const previousPayerWallet = payerWallet ? clone(payerWallet) : null;
+    const previousProviderWallet = providerWallet ? clone(providerWallet) : null;
+    const previousNextTransactionLogId = nextTransactionLogId;
+    const createdLogIds = [];
+
+    try {
+      if (shouldSettle) {
+        transferCoins({
+          orderId: order.orderId,
+          payerId: request.publisherId,
+          providerId: order.providerId,
+          amount: order.coinAmount,
+          now,
+          createdLogIds
+        });
+      }
+
+      order.payerConfirmed = nextPayerConfirmed;
+      order.providerConfirmed = nextProviderConfirmed;
+      if (shouldSettle) {
+        order.status = "completed";
+        order.completedAt = now;
+        request.status = "completed";
+        request.updatedAt = now;
+      } else if (order.payerConfirmed) {
+        order.status = "payer_confirmed";
+      } else {
+        order.status = "accepted";
+      }
+      order.updatedAt = now;
+    } catch (error) {
+      serviceOrders.set(order.orderId, previousOrder);
+      serviceRequests.set(request.requestId, previousRequest);
+      if (previousPayerWallet) {
+        wallets.set(previousPayerWallet.userId, previousPayerWallet);
+      }
+      if (previousProviderWallet) {
+        wallets.set(previousProviderWallet.userId, previousProviderWallet);
+      }
+      for (const logId of createdLogIds) {
+        transactionLogs.delete(logId);
+      }
+      nextTransactionLogId = previousNextTransactionLogId;
+      throw error;
     }
-    if (actorRole === "provider") {
-      order.providerConfirmed = true;
-    }
-    if (order.payerConfirmed && order.providerConfirmed) {
-      order.status = "both_confirmed";
-    } else if (order.payerConfirmed) {
-      order.status = "payer_confirmed";
-    } else {
-      order.status = "accepted";
-    }
-    order.updatedAt = now;
 
     return clone(order);
+  }
+
+  function transferCoins(input) {
+    const amount = roundMoney(input.amount);
+    const payerWallet = wallets.get(Number(input.payerId));
+    const providerWallet = wallets.get(Number(input.providerId));
+
+    if (!payerWallet || !providerWallet) {
+      throw storeError("ORDER_WALLET_NOT_FOUND", "Order wallet was not found.");
+    }
+    if (payerWallet.balance < amount) {
+      throw storeError("INSUFFICIENT_BALANCE", "Payer wallet balance is insufficient.");
+    }
+
+    payerWallet.balance = roundMoney(payerWallet.balance - amount);
+    payerWallet.version += 1;
+    payerWallet.updatedAt = input.now;
+    providerWallet.balance = roundMoney(providerWallet.balance + amount);
+    providerWallet.version += 1;
+    providerWallet.updatedAt = input.now;
+
+    input.createdLogIds.push(insertTransactionLog({
+      userId: input.payerId,
+      orderId: input.orderId,
+      type: "expense",
+      amount,
+      balanceAfter: payerWallet.balance,
+      remark: "订单完成，需求方支出时间币",
+      createdAt: input.now
+    }).logId);
+    input.createdLogIds.push(insertTransactionLog({
+      userId: input.providerId,
+      orderId: input.orderId,
+      type: "income",
+      amount,
+      balanceAfter: providerWallet.balance,
+      remark: "订单完成，服务方收入时间币",
+      createdAt: input.now
+    }).logId);
+  }
+
+  function listTransactionLogs(query = {}) {
+    const orderId = query.orderId === undefined || query.orderId === null ? null : Number(query.orderId);
+    const userId = query.userId === undefined || query.userId === null ? null : Number(query.userId);
+    return Array.from(transactionLogs.values())
+      .filter((log) => orderId === null || log.orderId === orderId)
+      .filter((log) => userId === null || log.userId === userId)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() || right.logId - left.logId)
+      .map(clone);
   }
 
   function listNotificationsForUserId(userId) {
@@ -433,6 +527,25 @@ export function createMemoryAuthStore(options = {}) {
     });
     serviceOrders.set(order.orderId, order);
     nextOrderId = Math.max(nextOrderId, order.orderId + 1);
+  }
+
+  function insertSeedTransactionLog(seedTransaction) {
+    const transaction = normalizeTransactionLog({
+      ...seedTransaction,
+      logId: seedTransaction.logId ?? nextTransactionLogId
+    });
+    transactionLogs.set(transaction.logId, transaction);
+    nextTransactionLogId = Math.max(nextTransactionLogId, transaction.logId + 1);
+  }
+
+  function insertTransactionLog(input) {
+    const transaction = normalizeTransactionLog({
+      ...input,
+      logId: nextTransactionLogId
+    });
+    transactionLogs.set(transaction.logId, transaction);
+    nextTransactionLogId += 1;
+    return transaction;
   }
 
   function insertSeedNotification(seedNotification) {
@@ -716,6 +829,51 @@ export function defaultSeedNotifications() {
   ];
 }
 
+export function defaultSeedTransactionLogs() {
+  return [
+    {
+      logId: 4001,
+      userId: 1001,
+      orderId: 3002,
+      type: "expense",
+      amount: 18,
+      balanceAfter: 102,
+      remark: "订单完成，需求方支出时间币",
+      createdAt: "2026-06-02T12:10:00.000Z"
+    },
+    {
+      logId: 4002,
+      userId: 1002,
+      orderId: 3002,
+      type: "income",
+      amount: 18,
+      balanceAfter: 68.5,
+      remark: "订单完成，服务方收入时间币",
+      createdAt: "2026-06-02T12:10:01.000Z"
+    },
+    {
+      logId: 4003,
+      userId: 1001,
+      orderId: 3003,
+      type: "freeze",
+      amount: 40,
+      balanceAfter: 120,
+      remark: "纠纷处理中，相关时间币保持冻结",
+      createdAt: "2026-05-28T10:05:00.000Z"
+    },
+    {
+      logId: 4004,
+      userId: null,
+      orderId: 3002,
+      type: "system_fee",
+      amount: 0.9,
+      balanceAfter: null,
+      remark: "演示平台抽成流水",
+      createdAt: "2026-06-02T12:10:02.000Z"
+    }
+  ];
+}
+
 export function defaultSeedReviews() {
   return [
     {
@@ -829,6 +987,19 @@ function normalizeServiceOrder(input) {
     createdAt: input.createdAt ?? now,
     updatedAt: input.updatedAt ?? input.createdAt ?? now,
     completedAt: input.completedAt ?? input.completed_at ?? null
+  };
+}
+
+function normalizeTransactionLog(input) {
+  return {
+    logId: Number(input.logId),
+    userId: input.userId === undefined || input.userId === null ? null : Number(input.userId),
+    orderId: input.orderId === undefined || input.orderId === null ? null : Number(input.orderId),
+    type: String(input.type ?? "expense"),
+    amount: roundMoney(input.amount ?? 0),
+    balanceAfter: input.balanceAfter === undefined || input.balanceAfter === null ? null : roundMoney(input.balanceAfter),
+    remark: normalizeOptionalString(input.remark),
+    createdAt: input.createdAt ?? new Date().toISOString()
   };
 }
 
@@ -965,6 +1136,10 @@ function hasOwn(input, key) {
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function roundMoney(value) {
+  return Math.round(Number(value) * 100) / 100;
 }
 
 function storeError(code, message) {
