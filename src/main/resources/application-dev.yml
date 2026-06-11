@@ -1,0 +1,38 @@
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 已替换为你的远程服务器数据库地址和数据库名
+    url: jdbc:mysql://8.140.17.231:3306/communityMis?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: aaa  # 远程数据库用户名
+    password: 123456  # 远程数据库密码
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      # 远程数据库额外优化配置
+      idle-timeout: 600000  # 连接空闲超时时间(10分钟)
+      max-lifetime: 1800000  # 连接最大生命周期(30分钟)
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+logging:
+  level:
+    com.commis.communitymis: debug  # 注意：这里要和你实际的包名一致
+    org.springframework.security: debug
+    com.zaxxer.hikari: debug  # 开启Hikari连接池日志，方便排查连接问题
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/**/*.xml
+  type-aliases-package: com.commis.communitymis.entity  # 同样要和实际包名一致
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
