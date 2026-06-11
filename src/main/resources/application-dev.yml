@@ -13,6 +13,19 @@ spring:
       idle-timeout: 600000  # 连接空闲超时时间(10分钟)
       max-lifetime: 1800000  # 连接最大生命周期(30分钟)
 
+  # 邮件配置（使用QQ邮箱SMTP发送验证码）
+  mail:
+    host: smtp.qq.com
+    port: 587
+    username: 2149561658@qq.com        # QQ邮箱地址
+    password: xseggviroxfkecgj         # QQ邮箱SMTP授权码
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
 server:
   port: 8080
   servlet:

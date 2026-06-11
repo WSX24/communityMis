@@ -23,21 +23,28 @@ public class Result<T> {
     private T data;
 
     /**
-     * 成功响应（带数据）
+     * 成功响应（带数据，自定义消息）
      */
-    public static <T> Result<T> success(T data) {
+    public static <T> Result<T> success(String message, T data) {
         Result<T> result = new Result<>();
         result.setCode(200);
-        result.setMessage("操作成功");
+        result.setMessage(message);
         result.setData(data);
         return result;
+    }
+
+    /**
+     * 成功响应（带数据，默认消息）
+     */
+    public static <T> Result<T> success(T data) {
+        return success("操作成功", data);
     }
 
     /**
      * 成功响应（无数据）
      */
     public static <T> Result<T> success() {
-        return success(null);
+        return success("操作成功", null);
     }
 
     /**
