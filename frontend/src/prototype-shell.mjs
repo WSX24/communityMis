@@ -27,7 +27,7 @@ const guardResult = await runRouteGuard();
 if (guardResult.status !== "redirected") {
   installAuthForms();
   installLogoutHandlers();
-  hydrateCurrentRoute(guardResult.session);
+  await hydrateCurrentRoute(guardResult.session);
 }
 
 async function runRouteGuard() {
@@ -230,50 +230,559 @@ function bindAdminLoginForm() {
 }
 
 function installLogoutHandlers() {
-  const logoutButton = document.getElementById("logout-button");
-  if (!logoutButton) {
+  const logoutButtons = [
+    document.getElementById("logout-button"),
+    document.getElementById("confirm-logout")
+  ].filter(Boolean);
+  for (const logoutButton of logoutButtons) {
+    logoutButton.addEventListener("click", interceptSubmit(async () => {
+      const restore = setLoading(logoutButton, "退出中...");
+      try {
+        await auth.logoutUser();
+        navigateTo("/login");
+      } catch (error) {
+        restore();
+        showInlineMessage(logoutButton, authErrorMessage(error), "error");
+      }
+    }), true);
+  }
+}
+
+async function hydrateCurrentRoute(session) {
+  try {
+    if (route.id === "profile") {
+      await hydrateProfileRoute(session);
+      return;
+    }
+    if (route.id === "settings") {
+      await hydrateSettingsRoute(session);
+      return;
+    }
+    if (route.id === "user-public") {
+      await hydratePublicProfileRoute(session);
+      return;
+    }
+    if (route.id === "credit") {
+      await hydrateCreditRoute(session);
+    }
+  } catch (error) {
+    showGlobalMessage(authErrorMessage(error), "error");
+  }
+}
+
+async function hydrateProfileRoute(session) {
+  const payload = await loadCurrentProfile(session);
+  if (!payload) {
     return;
   }
-  logoutButton.addEventListener("click", interceptSubmit(async () => {
-    const restore = setLoading(logoutButton, "退出中...");
+  applyProfileSummary(payload);
+}
+
+async function hydrateSettingsRoute(session) {
+  const payload = await loadCurrentProfile(session);
+  if (!payload) {
+    return;
+  }
+  const settingsPayload = await api.settings.me(payload.session.token);
+  applySettingsSummary(payload);
+  installProfileEditor(payload);
+  installSettingsToggles(payload.session.token, settingsPayload.settings);
+}
+
+async function hydratePublicProfileRoute(session) {
+  const userSession = session ?? auth.readSession("user");
+  const userId = routeUserId(userSession);
+  if (!userId) {
+    return;
+  }
+  const payload = await api.users.public(userId, userSession?.token);
+  applyPublicProfile(payload);
+}
+
+async function hydrateCreditRoute(session) {
+  const userSession = session ?? auth.readSession("user");
+  const userId = creditUserId(userSession);
+  if (!userId) {
+    return;
+  }
+  const payload = await api.users.credit(userId, userSession?.token);
+  applyCreditDetail(payload);
+}
+
+async function loadCurrentProfile(session) {
+  const userSession = session ?? auth.readSession("user");
+  if (!userSession?.token) {
+    return null;
+  }
+  const payload = await api.users.me(userSession.token);
+  const nextSession = {
+    ...userSession,
+    user: payload.user ?? userSession.user
+  };
+  auth.saveSession("user", nextSession);
+  return {
+    ...payload,
+    session: nextSession
+  };
+}
+
+function applyProfileSummary(payload) {
+  const { user, wallet, credit } = payload;
+  const draft = auth.readProfileDraft(user);
+  setElementText(".profile-name", displayName(user));
+  setElementText(".profile-bio", user.bio || draft?.bio || profileDetails(user, draft));
+  setElementText(".avatar.lg", firstCharacter(displayName(user)));
+  setElementText(".credit-badge", credit.reviewCount > 0 ? `信誉 ${formatRating(credit.averageRating)}` : "暂无评价");
+  setElementText(".wallet-balance", `⏂ ${formatAmount(wallet?.balance ?? 0)}`);
+
+  const stats = document.querySelectorAll(".stats-row .stat-item .num");
+  if (stats[0]) {
+    stats[0].textContent = String((user.skillTags ?? []).length);
+  }
+  if (stats[1]) {
+    stats[1].textContent = String((user.serviceCategories ?? []).length);
+  }
+  if (stats[2]) {
+    stats[2].textContent = String(credit.asProvider ?? 0);
+  }
+}
+
+function applySettingsSummary(payload) {
+  const { user, credit } = payload;
+  setElementText(".account-preview .acct-name", displayName(user));
+  setElementText(".account-preview .acct-detail", [
+    user.phone ? maskPhone(user.phone) : "",
+    credit.reviewCount > 0 ? `信誉 ${formatRating(credit.averageRating)}` : "暂无评价",
+    joinedText(user.createdAt)
+  ].filter(Boolean).join(" · "));
+  setElementText(".account-preview .avatar.lg", firstCharacter(displayName(user)));
+}
+
+function installProfileEditor(payload) {
+  const preview = document.querySelector(".account-preview");
+  if (!preview) {
+    return;
+  }
+
+  if (!document.getElementById("profile-edit-form")) {
+    preview.insertAdjacentHTML("afterend", `
+      <form class="profile-edit-card" id="profile-edit-form">
+        <div class="runtime-field-grid">
+          <label class="runtime-field">
+            <span>昵称</span>
+            <input id="profile-display-name" type="text" maxlength="50" autocomplete="name">
+          </label>
+          <label class="runtime-field">
+            <span>手机号</span>
+            <input id="profile-phone" type="tel" maxlength="20" autocomplete="tel">
+          </label>
+        </div>
+        <label class="runtime-field">
+          <span>简介</span>
+          <textarea id="profile-bio" rows="3" maxlength="300"></textarea>
+        </label>
+        <label class="runtime-field">
+          <span>技能标签</span>
+          <input id="profile-skill-tags" type="text" maxlength="200">
+        </label>
+        <label class="runtime-field">
+          <span>可服务类别</span>
+          <input id="profile-service-categories" type="text" maxlength="200">
+        </label>
+        <button class="btn btn--primary btn--full" id="profile-save" type="submit">保存资料</button>
+      </form>
+    `);
+  }
+
+  fillProfileEditor(payload.user);
+  const form = document.getElementById("profile-edit-form");
+  const button = document.getElementById("profile-save");
+  if (!form || !button || form.dataset.bound === "true") {
+    return;
+  }
+  form.dataset.bound = "true";
+  form.addEventListener("submit", interceptSubmit(async () => {
+    const restore = setLoading(button, "保存中...");
     try {
-      await auth.logoutUser();
-      navigateTo("/login");
+      const result = await auth.updateUserProfile(readProfileEditor(), payload.session);
+      const nextPayload = {
+        ...payload,
+        user: result.user,
+        credit: result.credit,
+        wallet: result.wallet
+      };
+      applySettingsSummary(nextPayload);
+      fillProfileEditor(result.user);
+      showInlineMessage(button, "资料已保存，公开主页会同步展示。", "success");
     } catch (error) {
+      showInlineMessage(button, authErrorMessage(error), "error");
+    } finally {
       restore();
-      showInlineMessage(logoutButton, authErrorMessage(error), "error");
     }
   }), true);
 }
 
-function hydrateCurrentRoute(session) {
-  if (route.id !== "profile") {
-    return;
-  }
-  const userSession = session ?? auth.readSession("user");
-  const user = userSession?.user;
-  if (!user) {
-    return;
+function fillProfileEditor(user) {
+  setInputValue("profile-display-name", displayName(user));
+  setInputValue("profile-phone", user.phone ?? "");
+  setInputValue("profile-bio", user.bio ?? "");
+  setInputValue("profile-skill-tags", (user.skillTags ?? []).join("，"));
+  setInputValue("profile-service-categories", (user.serviceCategories ?? []).join("，"));
+}
+
+function readProfileEditor() {
+  return {
+    displayName: document.getElementById("profile-display-name")?.value.trim() ?? "",
+    phone: document.getElementById("profile-phone")?.value.trim() ?? "",
+    bio: document.getElementById("profile-bio")?.value.trim() ?? "",
+    skillTags: splitTags(document.getElementById("profile-skill-tags")?.value ?? ""),
+    serviceCategories: splitTags(document.getElementById("profile-service-categories")?.value ?? "")
+  };
+}
+
+function installSettingsToggles(token, settings) {
+  const toggles = Array.from(document.querySelectorAll(".settings-content .toggle input"));
+  const fields = [
+    ["notifications", "newMessages"],
+    ["notifications", "interactions"],
+    ["notifications", "orderStatus"],
+    ["notifications", "announcements"],
+    ["privacy", "showCommunity"],
+    ["privacy", "searchable"]
+  ];
+  fields.forEach(([group, key], index) => {
+    if (toggles[index]) {
+      toggles[index].checked = Boolean(settings?.[group]?.[key]);
+    }
+  });
+
+  toggles.forEach((input) => {
+    if (input.dataset.settingsBound === "true") {
+      return;
+    }
+    input.dataset.settingsBound = "true";
+    input.addEventListener("change", async () => {
+      try {
+        await api.settings.updateMe(token, settingsFromToggles(toggles, fields));
+      } catch (error) {
+        input.checked = !input.checked;
+        showGlobalMessage(authErrorMessage(error), "error");
+      }
+    });
+  });
+}
+
+function settingsFromToggles(toggles, fields) {
+  const output = {
+    notifications: {},
+    privacy: {}
+  };
+  fields.forEach(([group, key], index) => {
+    if (toggles[index]) {
+      output[group][key] = toggles[index].checked;
+    }
+  });
+  return output;
+}
+
+function applyPublicProfile(payload) {
+  const { user, credit } = payload;
+  setElementText(".public-avatar", firstCharacter(displayName(user)));
+  setElementText(".public-name", displayName(user));
+  setElementText(".public-bio", user.bio || `${displayName(user)} 已加入邻帮，可通过平台完成沟通和时间币结算。`);
+  setElementText(".score-number", formatRating(credit.averageRating));
+  setElementText(".score-label", `信用评分 · ${credit.reviewCount} 条评价`);
+
+  const metaPills = document.querySelectorAll(".hero-meta .meta-pill");
+  replacePillText(metaPills[0], (user.serviceCategories ?? []).slice(0, 2).join(" / ") || "邻帮认证用户");
+  replacePillText(metaPills[1], credit.reviewCount > 0 ? `${credit.positiveRate}% 好评率` : "暂无公开评价");
+  replacePillText(metaPills[2], `完成评价 ${credit.reviewCount} 条`);
+
+  const fills = document.querySelectorAll(".hero-score .bar-fill");
+  for (const [index, rating] of [5, 4, 3].entries()) {
+    const item = credit.ratingDistribution.find((entry) => entry.rating === rating);
+    if (fills[index]) {
+      fills[index].style.width = `${item?.percent ?? 0}%`;
+    }
   }
 
-  const draft = auth.readProfileDraft(user);
-  const profileName = document.querySelector(".profile-name");
-  const profileBio = document.querySelector(".profile-bio");
-  const avatar = document.querySelector(".avatar.lg");
-  if (profileName) {
-    profileName.textContent = user.username;
+  renderServiceCards(document.querySelector(".service-list"), user);
+  renderPublicReviews(document.querySelector(".timeline"), credit.reviews);
+  renderSkillCloud(document.querySelector(".skill-cloud"), user.skillTags);
+}
+
+function applyCreditDetail(payload) {
+  const { credit } = payload;
+  setElementText(".score-num", formatRating(credit.averageRating));
+  setElementText(".score-label", credit.level);
+  setElementText(".score-desc", credit.description);
+  setElementText(".level-badge", credit.level);
+  const progress = document.querySelector(".score-ring circle[stroke-linecap]");
+  if (progress) {
+    progress.style.strokeDashoffset = String(389.6 * (1 - Math.min(credit.averageRating, 5) / 5));
   }
-  if (avatar) {
-    avatar.textContent = String(user.username || "邻").slice(0, 1).toUpperCase();
+
+  const stats = document.querySelectorAll(".credit-stats .stat-item .num");
+  if (stats[0]) {
+    stats[0].textContent = String(credit.reviewCount);
   }
-  if (profileBio) {
-    const details = [
-      draft?.building,
-      user.phone ? maskPhone(user.phone) : "",
-      Array.isArray(user.skillTags) && user.skillTags.length > 0 ? user.skillTags.slice(0, 3).join(" / ") : ""
-    ].filter(Boolean);
-    profileBio.textContent = draft?.bio || details.join(" · ") || "邻帮认证用户";
+  if (stats[1]) {
+    stats[1].textContent = `${credit.positiveRate}%`;
   }
+  if (stats[2]) {
+    stats[2].textContent = String(credit.asProvider);
+  }
+  if (stats[3]) {
+    stats[3].textContent = String(credit.asRequester);
+  }
+
+  document.querySelectorAll(".dist-item").forEach((row) => {
+    const rating = Number(row.querySelector(".dist-star")?.textContent.match(/\d/)?.[0]);
+    const item = credit.ratingDistribution.find((entry) => entry.rating === rating);
+    const bar = row.querySelector(".dist-bar");
+    const count = row.querySelector(".dist-count");
+    if (bar) {
+      bar.style.width = `${item?.percent ?? 0}%`;
+    }
+    if (count) {
+      count.textContent = String(item?.count ?? 0);
+    }
+  });
+
+  renderCreditReviews(document.getElementById("review-cards"), credit.reviews);
+  const note = document.querySelector(".review-list > div:last-child p");
+  if (note) {
+    note.textContent = `— 显示全部 ${credit.reviewCount} 条评价 —`;
+  }
+  ensureCreditRules(credit.rules);
+}
+
+function renderServiceCards(container, user) {
+  if (!container) {
+    return;
+  }
+  const items = (user.serviceCategories?.length ? user.serviceCategories : user.skillTags ?? []).slice(0, 4);
+  if (items.length === 0) {
+    container.innerHTML = `<article class="service-card"><div><h3>暂未填写可接服务</h3><p>服务者完善资料后，这里会展示可服务类别和技能说明。</p></div><span class="reward-chip">待确认</span></article>`;
+    return;
+  }
+  container.innerHTML = items.map((item, index) => `
+    <article class="service-card">
+      <div>
+        <h3>${escapeHtml(item)}</h3>
+        <p>${escapeHtml(serviceDescription(item, user.skillTags ?? []))}</p>
+      </div>
+      <span class="reward-chip">${index + 5}.0 ⏂ / 次</span>
+    </article>
+  `).join("");
+}
+
+function renderPublicReviews(container, reviews) {
+  if (!container) {
+    return;
+  }
+  if (!Array.isArray(reviews) || reviews.length === 0) {
+    container.innerHTML = `<article class="review-item"><p class="review-text">暂无公开评价。完成订单并收到评价后会展示在这里。</p></article>`;
+    return;
+  }
+  container.innerHTML = reviews.slice(0, 3).map((review) => `
+    <article class="review-item">
+      <div class="review-top">
+        <div class="reviewer"><span class="avatar sm" style="display:grid;place-items:center;background:oklch(65% 0.08 175);color:#fff;font-weight:800;">${escapeHtml(firstCharacter(reviewerName(review)))}</span>${escapeHtml(reviewerName(review))}</div>
+        <span class="rating">${starsText(review.rating)}</span>
+      </div>
+      <p class="review-text">${escapeHtml(review.comment || "用户未填写文字评价。")}</p>
+      <p class="review-meta">订单：${escapeHtml(review.orderTitle || "邻帮互助订单")} · ${escapeHtml(reviewTime(review.createdAt))}</p>
+    </article>
+  `).join("");
+}
+
+function renderSkillCloud(container, skillTags) {
+  if (!container) {
+    return;
+  }
+  const tags = Array.isArray(skillTags) && skillTags.length > 0 ? skillTags : ["邻帮用户"];
+  const classes = ["badge--accent", "badge--success", "badge--warning", "badge--reward"];
+  container.innerHTML = tags.slice(0, 12)
+    .map((tag, index) => `<span class="badge ${classes[index % classes.length]}">${escapeHtml(tag)}</span>`)
+    .join("");
+}
+
+function renderCreditReviews(container, reviews) {
+  if (!container) {
+    return;
+  }
+  if (!Array.isArray(reviews) || reviews.length === 0) {
+    container.innerHTML = `<div class="review-card" data-rating="0"><p class="review-comment">暂无评价记录。完成订单并收到评价后会在这里展示。</p></div>`;
+    return;
+  }
+  container.innerHTML = reviews.map((review) => `
+    <div class="review-card" data-rating="${Number(review.rating) || 0}">
+      <div class="review-top">
+        <div class="review-avatar" style="background:oklch(65% 0.08 175);">${escapeHtml(firstCharacter(reviewerName(review)))}</div>
+        <div style="flex:1;">
+          <div class="review-name">${escapeHtml(reviewerName(review))}</div>
+          <div class="review-time">${escapeHtml(reviewTime(review.createdAt))} · 订单「${escapeHtml(review.orderTitle || "邻帮互助订单")}」</div>
+        </div>
+      </div>
+      <div class="review-stars">${starsHtml(review.rating)}</div>
+      <p class="review-comment">${escapeHtml(review.comment || "用户未填写文字评价。")}</p>
+      <div class="review-tags">${(review.tags ?? []).slice(0, 4).map((tag) => `<span class="review-tag">${escapeHtml(tag)}</span>`).join("")}</div>
+    </div>
+  `).join("");
+}
+
+function ensureCreditRules(rules) {
+  if (!Array.isArray(rules) || rules.length === 0 || document.getElementById("credit-rule-note")) {
+    return;
+  }
+  const reviewList = document.querySelector(".review-list");
+  if (!reviewList) {
+    return;
+  }
+  const note = document.createElement("div");
+  note.id = "credit-rule-note";
+  note.className = "credit-rule-note";
+  note.innerHTML = `<strong>信用规则</strong>${rules.map((item) => `<p>${escapeHtml(item)}</p>`).join("")}`;
+  reviewList.append(note);
+}
+
+function serviceDescription(category, skillTags) {
+  const skills = skillTags.slice(0, 3).join("、");
+  return skills
+    ? `可结合 ${skills} 等技能提供帮助，接单前双方确认时间、地点和范围。`
+    : `${category} 服务会在接单前确认时间、地点和完成标准。`;
+}
+
+function setElementText(selector, value) {
+  const element = document.querySelector(selector);
+  if (element) {
+    element.textContent = value;
+  }
+}
+
+function setInputValue(id, value) {
+  const element = document.getElementById(id);
+  if (element) {
+    element.value = value;
+  }
+}
+
+function replacePillText(element, text) {
+  if (!element) {
+    return;
+  }
+  const icon = element.querySelector("svg")?.cloneNode(true);
+  element.textContent = "";
+  if (icon) {
+    element.append(icon);
+  }
+  element.append(document.createTextNode(text));
+}
+
+function displayName(user) {
+  return user?.displayName || user?.username || "邻帮用户";
+}
+
+function profileDetails(user, draft = null) {
+  return [
+    draft?.building,
+    user.phone ? maskPhone(user.phone) : "",
+    Array.isArray(user.skillTags) && user.skillTags.length > 0 ? user.skillTags.slice(0, 3).join(" / ") : ""
+  ].filter(Boolean).join(" · ") || "邻帮认证用户";
+}
+
+function firstCharacter(value) {
+  return String(value || "邻").trim().slice(0, 1).toUpperCase();
+}
+
+function formatRating(value) {
+  return Number(value || 0).toFixed(1);
+}
+
+function formatAmount(value) {
+  return Number(value || 0).toFixed(2);
+}
+
+function joinedText(createdAt) {
+  if (!createdAt) {
+    return "";
+  }
+  const created = new Date(createdAt);
+  if (Number.isNaN(created.getTime())) {
+    return "";
+  }
+  const months = Math.max(1, Math.round((Date.now() - created.getTime()) / (30 * 24 * 60 * 60 * 1000)));
+  return `已加入 ${months} 个月`;
+}
+
+function splitTags(value) {
+  return String(value)
+    .split(/[，,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function routeUserId(session) {
+  const match = window.location.pathname.match(/^\/users\/([^/]+)$/);
+  const raw = match?.[1];
+  if (raw && /^\d+$/.test(raw)) {
+    return raw;
+  }
+  return session?.user?.userId ?? null;
+}
+
+function creditUserId(session) {
+  const fromQuery = new URLSearchParams(window.location.search).get("userId");
+  if (fromQuery && /^\d+$/.test(fromQuery)) {
+    return fromQuery;
+  }
+  return session?.user?.userId ?? null;
+}
+
+function reviewerName(review) {
+  return review?.reviewer?.displayName || review?.reviewer?.username || "邻居";
+}
+
+function reviewTime(createdAt) {
+  if (!createdAt) {
+    return "刚刚";
+  }
+  const time = new Date(createdAt).getTime();
+  if (Number.isNaN(time)) {
+    return "刚刚";
+  }
+  const diffDays = Math.max(0, Math.round((Date.now() - time) / (24 * 60 * 60 * 1000)));
+  if (diffDays <= 0) {
+    return "今天";
+  }
+  if (diffDays === 1) {
+    return "昨天";
+  }
+  if (diffDays < 30) {
+    return `${diffDays} 天前`;
+  }
+  return `${Math.round(diffDays / 30)} 个月前`;
+}
+
+function starsText(rating) {
+  const full = Math.max(0, Math.min(5, Math.round(Number(rating) || 0)));
+  return `${"★".repeat(full)}${"☆".repeat(5 - full)}`;
+}
+
+function starsHtml(rating) {
+  const full = Math.max(0, Math.min(5, Math.round(Number(rating) || 0)));
+  return Array.from({ length: 5 }, (_item, index) => `<span class="star${index >= full ? " empty" : ""}">★</span>`).join("");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function interceptSubmit(handler) {

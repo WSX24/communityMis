@@ -62,6 +62,24 @@ export function createApiClient(options = {}) {
       }),
       me: (token) => request("/api/auth/me", { token })
     },
+    users: {
+      me: (token) => request("/api/users/me", { token }),
+      updateMe: (token, payload) => request("/api/users/me", {
+        method: "PUT",
+        token,
+        body: payload
+      }),
+      public: (userId, token = null) => request(`/api/users/${encodeURIComponent(userId)}/public`, { token }),
+      credit: (userId, token = null) => request(`/api/users/${encodeURIComponent(userId)}/credit`, { token })
+    },
+    settings: {
+      me: (token) => request("/api/settings/me", { token }),
+      updateMe: (token, payload) => request("/api/settings/me", {
+        method: "PUT",
+        token,
+        body: payload
+      })
+    },
     adminAuth: {
       login: (payload) => request("/api/admin/auth/login", {
         method: "POST",

@@ -88,7 +88,7 @@ function injectShell(html, route) {
   const headInjection = [
     '<link rel="stylesheet" href="/assets/styles/theme.css">',
     '<link rel="stylesheet" href="/assets/styles/shell.css">',
-    `<script>window.__NEIGHBOR_ROUTE__=${routeMeta};window.__API_BASE_URL__=window.__API_BASE_URL__||"http://127.0.0.1:3001";</script>`
+    `<script>window.__NEIGHBOR_ROUTE__=${routeMeta};window.__API_BASE_URL__=window.__API_BASE_URL__||${JSON.stringify(apiBaseUrl())};</script>`
   ].join("\n");
   const bodyScript = '<script type="module" src="/assets/app/prototype-shell.mjs"></script>';
 
@@ -101,6 +101,13 @@ function injectShell(html, route) {
   });
   output = output.replace(/<\/body>/i, `${bodyScript}\n</body>`);
   return output;
+}
+
+function apiBaseUrl() {
+  if (process.env.API_BASE_URL) {
+    return process.env.API_BASE_URL;
+  }
+  return `http://127.0.0.1:${process.env.BACKEND_PORT ?? "3001"}`;
 }
 
 function buildHtmlReplacementPairs() {

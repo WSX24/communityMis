@@ -21,6 +21,7 @@ export function createAuthController(options = {}) {
     refreshUser,
     refreshAdmin,
     guardRoute,
+    updateUserProfile,
     saveProfileDraft,
     readProfileDraft
   };
@@ -65,6 +66,16 @@ export function createAuthController(options = {}) {
       phone: payload.phone ?? profileDraft.phone ?? null,
       skillTags: payload.skillTags ?? profileDraft.skillTags ?? []
     });
+    if (api.users?.updateMe) {
+      const profilePayload = normalizeProfileDraft({
+        ...profileDraft,
+        phone: payload.phone ?? profileDraft.phone ?? null,
+        skillTags: payload.skillTags ?? profileDraft.skillTags ?? []
+      });
+      if (Object.keys(profilePayload).length > 0) {
+        await updateUserProfile(profilePayload, session);
+      }
+    }
     return session;
   }
 
@@ -103,6 +114,23 @@ export function createAuthController(options = {}) {
       return redirectIfAuthenticated("admin", "/admin/dashboard");
     }
     return { status: "public" };
+  }
+
+  async function updateUserProfile(profileDraft, existingSession = readSession("user")) {
+    if (!existingSession?.token) {
+      return null;
+    }
+    const result = await api.users.updateMe(existingSession.token, normalizeProfileDraft(profileDraft));
+    const updatedSession = {
+      ...existingSession,
+      user: result.user ?? existingSession.user
+    };
+    writeJson(authStorageKeys.user, updatedSession);
+    saveProfileDraft(updatedSession.user, {
+      ...profileDraft,
+      ...(result.user ?? {})
+    });
+    return result;
   }
 
   function saveProfileDraft(user, profileDraft) {
@@ -239,6 +267,21 @@ function isValidSession(session) {
 
 function profileKey(user) {
   return user.userId ? `id:${user.userId}` : `username:${String(user.username ?? "").toLowerCase()}`;
+}
+
+function normalizeProfileDraft(input = {}) {
+  const output = {};
+  for (const key of ["displayName", "phone", "bio"]) {
+    if (Object.prototype.hasOwnProperty.call(input, key)) {
+      output[key] = input[key] ?? null;
+    }
+  }
+  for (const key of ["skillTags", "serviceCategories"]) {
+    if (Array.isArray(input[key])) {
+      output[key] = input[key].map((item) => String(item).trim()).filter(Boolean);
+    }
+  }
+  return output;
 }
 
 function safeLocalStorage() {

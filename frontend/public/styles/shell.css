@@ -78,6 +78,62 @@ button.settings-item:disabled {
   display: none !important;
 }
 
+.profile-edit-card,
+.credit-rule-note {
+  display: grid;
+  gap: var(--space-md, 12px);
+  margin-bottom: var(--space-xl, 24px);
+  padding: var(--space-lg, 16px);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.runtime-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md, 12px);
+}
+
+.runtime-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.runtime-field input,
+.runtime-field textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 500;
+  padding: 10px 12px;
+}
+
+.runtime-field textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.credit-rule-note {
+  margin-top: var(--space-lg, 16px);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.credit-rule-note strong {
+  color: var(--fg);
+  font-size: 15px;
+}
+
 @media (max-width: 390px) {
   .page,
   .feed-content,
@@ -97,5 +153,9 @@ button.settings-item:disabled {
 
   body[data-route-id="tasks"] .ai-filter-btn {
     padding-inline: 10px;
+  }
+
+  .runtime-field-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -12,12 +12,18 @@ export function createMysqlAuthStore(options = {}) {
     database: options.database ?? process.env.DB_NAME ?? "community_mis"
   };
   const sessions = new Map();
+  const profileExtras = new Map();
+  const settings = new Map();
 
   return {
     createUserWithWallet,
     findUserByUsername,
     findUserById,
     findWalletByUserId,
+    updateUserProfile,
+    findSettingsByUserId,
+    updateSettingsByUserId,
+    listReviewsForTargetId,
     createSession,
     findSession,
     revokeSession
@@ -44,8 +50,13 @@ JOIN \`wallet\` w ON w.\`user_id\` = u.\`user_id\`
 WHERE u.\`user_id\` = @created_user_id;
 `;
     const result = await mysqlJson(sql);
+    const user = normalizeUser(result.user);
+    if (user) {
+      profileExtras.set(user.userId, normalizeProfileExtra(input, user));
+      settings.set(user.userId, normalizeSettings(input.settings));
+    }
     return {
-      user: normalizeUser(result.user),
+      user: withProfileExtras(user),
       wallet: normalizeWallet(result.wallet)
     };
   }
@@ -61,7 +72,7 @@ FROM \`user\` u
 WHERE LOWER(u.\`username\`) = ${sqlString(normalized)}
 LIMIT 1;
 `;
-    return normalizeUser(await mysqlJson(sql, { optional: true }));
+    return withProfileExtras(normalizeUser(await mysqlJson(sql, { optional: true })));
   }
 
   async function findUserById(userId) {
@@ -71,7 +82,7 @@ FROM \`user\` u
 WHERE u.\`user_id\` = ${Number(userId)}
 LIMIT 1;
 `;
-    return normalizeUser(await mysqlJson(sql, { optional: true }));
+    return withProfileExtras(normalizeUser(await mysqlJson(sql, { optional: true })));
   }
 
   async function findWalletByUserId(userId) {
@@ -82,6 +93,100 @@ WHERE w.\`user_id\` = ${Number(userId)}
 LIMIT 1;
 `;
     return normalizeWallet(await mysqlJson(sql, { optional: true }));
+  }
+
+  async function updateUserProfile(userId, input) {
+    const id = Number(userId);
+    const existing = await findUserById(id);
+    if (!existing) {
+      return null;
+    }
+
+    const assignments = [];
+    if (hasOwn(input, "phone")) {
+      assignments.push(`\`phone\` = ${sqlNullableString(input.phone)}`);
+    }
+    if (hasOwn(input, "skillTags")) {
+      assignments.push(`\`skill_tags\` = ${sqlString(JSON.stringify(Array.isArray(input.skillTags) ? input.skillTags : []))}`);
+    }
+
+    if (assignments.length > 0) {
+      const result = await runMysql(`
+UPDATE \`user\`
+SET ${assignments.join(", ")}
+WHERE \`user_id\` = ${id}
+LIMIT 1;
+`);
+      if (result.code !== 0) {
+        throw new Error(`mysql exited with code ${result.code}: ${result.stderr.trim()}`);
+      }
+    }
+
+    profileExtras.set(id, {
+      ...normalizeProfileExtra(existing, existing),
+      ...profileExtras.get(id),
+      ...normalizeProfileExtra(input, existing)
+    });
+    return findUserById(id);
+  }
+
+  function findSettingsByUserId(userId) {
+    return clone(settings.get(Number(userId)) ?? normalizeSettings());
+  }
+
+  function updateSettingsByUserId(userId, input) {
+    const id = Number(userId);
+    const next = mergeSettings(settings.get(id) ?? normalizeSettings(), input);
+    settings.set(id, next);
+    return clone(next);
+  }
+
+  async function listReviewsForTargetId(userId) {
+    const sql = `
+SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(
+  'reviewId', q.\`review_id\`,
+  'orderId', q.\`order_id\`,
+  'reviewerId', q.\`reviewer_id\`,
+  'targetId', q.\`target_id\`,
+  'direction', q.\`direction\`,
+  'rating', q.\`rating\`,
+  'comment', q.\`comment\`,
+  'orderTitle', q.\`order_title\`,
+  'tags', JSON_ARRAY(),
+  'createdAt', q.\`created_at\`,
+  'reviewer', JSON_OBJECT(
+    'userId', q.\`reviewer_id\`,
+    'username', q.\`reviewer_username\`,
+    'displayName', q.\`reviewer_display_name\`
+  )
+)), JSON_ARRAY())
+FROM (
+  SELECT
+    r.\`review_id\`,
+    r.\`order_id\`,
+    r.\`reviewer_id\`,
+    r.\`target_id\`,
+    r.\`direction\`,
+    r.\`rating\`,
+    r.\`comment\`,
+    sr.\`title\` AS \`order_title\`,
+    DATE_FORMAT(r.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS \`created_at\`,
+    reviewer.\`username\` AS \`reviewer_username\`,
+    reviewer.\`username\` AS \`reviewer_display_name\`
+  FROM \`review\` r
+  JOIN \`user\` reviewer ON reviewer.\`user_id\` = r.\`reviewer_id\`
+  LEFT JOIN \`service_order\` so ON so.\`order_id\` = r.\`order_id\`
+  LEFT JOIN \`service_request\` sr ON sr.\`request_id\` = so.\`request_id\`
+  WHERE r.\`target_id\` = ${Number(userId)}
+  ORDER BY r.\`created_at\` DESC
+) q;
+`;
+    const rows = await mysqlJson(sql, { optional: true });
+    return Array.isArray(rows) ? rows.map(normalizeReview) : [];
+  }
+
+  function withProfileExtras(user) {
+    return mergeProfileExtras(user, profileExtras.get(user?.userId));
   }
 
   function createSession(input) {
@@ -198,7 +303,10 @@ function normalizeUser(user) {
   }
   return {
     ...user,
-    skillTags: parseSkillTags(user.skillTags)
+    displayName: user.displayName ?? user.username,
+    bio: user.bio ?? null,
+    skillTags: parseSkillTags(user.skillTags),
+    serviceCategories: parseSkillTags(user.serviceCategories)
   };
 }
 
@@ -219,6 +327,135 @@ function parseSkillTags(value) {
   } catch {
     return [];
   }
+}
+
+function normalizeProfileExtra(input, fallback = {}) {
+  const output = {};
+  if (hasOwn(input, "displayName")) {
+    output.displayName = normalizeOptionalString(input.displayName) ?? fallback.displayName ?? fallback.username;
+  }
+  if (hasOwn(input, "bio")) {
+    output.bio = normalizeOptionalString(input.bio);
+  }
+  if (hasOwn(input, "serviceCategories")) {
+    output.serviceCategories = Array.isArray(input.serviceCategories)
+      ? input.serviceCategories.map((item) => String(item).trim()).filter(Boolean).slice(0, 20)
+      : [];
+  }
+  return output;
+}
+
+function mergeProfileExtras(user, extra = null) {
+  if (!user) {
+    return null;
+  }
+  return {
+    ...user,
+    ...(extra ?? {}),
+    displayName: extra?.displayName ?? user.displayName ?? user.username,
+    bio: extra?.bio ?? user.bio ?? null,
+    serviceCategories: extra?.serviceCategories ?? user.serviceCategories ?? deriveServiceCategories(user.skillTags)
+  };
+}
+
+function normalizeReview(input) {
+  return {
+    reviewId: Number(input.reviewId),
+    orderId: Number(input.orderId),
+    reviewerId: Number(input.reviewerId),
+    targetId: Number(input.targetId),
+    direction: String(input.direction ?? ""),
+    rating: Math.min(5, Math.max(1, Number(input.rating) || 1)),
+    comment: normalizeOptionalString(input.comment),
+    orderTitle: normalizeOptionalString(input.orderTitle),
+    tags: Array.isArray(input.tags) ? input.tags : [],
+    createdAt: input.createdAt ?? new Date().toISOString(),
+    reviewer: input.reviewer ?? null
+  };
+}
+
+function deriveServiceCategories(skillTags) {
+  return Array.isArray(skillTags) ? skillTags.slice(0, 6) : [];
+}
+
+function normalizeSettings(input = {}) {
+  return mergeSettings({
+    notifications: {
+      newMessages: true,
+      interactions: true,
+      orderStatus: true,
+      announcements: false
+    },
+    privacy: {
+      showCommunity: true,
+      searchable: true,
+      phoneVisible: false
+    },
+    preferences: {
+      postVisibility: "nearby",
+      language: "zh-CN",
+      darkMode: "system"
+    }
+  }, input);
+}
+
+function mergeSettings(current, patch = {}) {
+  return {
+    notifications: {
+      ...current.notifications,
+      ...booleanPatch(patch.notifications, ["newMessages", "interactions", "orderStatus", "announcements"])
+    },
+    privacy: {
+      ...current.privacy,
+      ...booleanPatch(patch.privacy, ["showCommunity", "searchable", "phoneVisible"])
+    },
+    preferences: {
+      ...current.preferences,
+      ...preferencePatch(patch.preferences)
+    }
+  };
+}
+
+function booleanPatch(input, keys) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+  const output = {};
+  for (const key of keys) {
+    if (hasOwn(input, key)) {
+      output[key] = Boolean(input[key]);
+    }
+  }
+  return output;
+}
+
+function preferencePatch(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+  const output = {};
+  if (hasOwn(input, "postVisibility")) {
+    output.postVisibility = String(input.postVisibility || "nearby");
+  }
+  if (hasOwn(input, "language")) {
+    output.language = String(input.language || "zh-CN");
+  }
+  if (hasOwn(input, "darkMode")) {
+    output.darkMode = String(input.darkMode || "system");
+  }
+  return output;
+}
+
+function normalizeOptionalString(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const text = String(value).trim();
+  return text ? text : null;
+}
+
+function hasOwn(input, key) {
+  return Object.prototype.hasOwnProperty.call(input ?? {}, key);
 }
 
 function sqlString(value) {

@@ -137,7 +137,10 @@ export function publicUser(user) {
     userId: user.userId,
     username: user.username,
     phone: user.phone,
+    displayName: user.displayName ?? user.username,
+    bio: user.bio ?? null,
     skillTags: user.skillTags,
+    serviceCategories: user.serviceCategories ?? [],
     role: user.role,
     status: user.status,
     createdAt: user.createdAt

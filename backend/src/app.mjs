@@ -4,6 +4,7 @@ import { createAuthService } from "./auth/service.mjs";
 import { handleAuthRoutes } from "./auth/routes.mjs";
 import { HttpError, sendError, sendJson } from "./http.mjs";
 import { healthPayload } from "./routes/health.mjs";
+import { handleUserRoutes } from "./users/routes.mjs";
 
 export function createBackendServer(options = {}) {
   const startedAt = options.startedAt ?? new Date();
@@ -16,7 +17,7 @@ export function createBackendServer(options = {}) {
 
   return http.createServer(async (request, response) => {
     response.setHeader("access-control-allow-origin", "*");
-    response.setHeader("access-control-allow-methods", "GET,HEAD,POST,OPTIONS");
+    response.setHeader("access-control-allow-methods", "GET,HEAD,POST,PUT,OPTIONS");
     response.setHeader("access-control-allow-headers", "content-type,authorization");
 
     if (request.method === "OPTIONS") {
@@ -34,6 +35,10 @@ export function createBackendServer(options = {}) {
       }
 
       if (await handleAuthRoutes({ request, response, url, authService })) {
+        return;
+      }
+
+      if (await handleUserRoutes({ request, response, url, authService })) {
         return;
       }
 
