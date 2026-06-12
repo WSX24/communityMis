@@ -8,13 +8,25 @@ const FRONTEND_ROOT = path.resolve(path.dirname(CURRENT_FILE), "..");
 export const PROJECT_ROOT = path.resolve(FRONTEND_ROOT, "..");
 export const UI_SOURCE_ROOT = path.join(PROJECT_ROOT, "UISource");
 export const PRODUCTION_UI_ROOT = path.join(FRONTEND_ROOT, "public", "ui");
+export const DIST_ROOT = path.join(FRONTEND_ROOT, "dist");
+export const CONFIG_PLACEHOLDER = "__NEIGHBOR_CONFIG_JSON__";
 
 const htmlReplacementPairs = buildHtmlReplacementPairs();
 
-export function renderPrototypeHtml(route) {
+export function renderPrototypeHtml(route, options = {}) {
   const sourceFile = path.join(PRODUCTION_UI_ROOT, route.source);
   const html = fs.readFileSync(sourceFile, "utf8");
-  return injectShell(rewritePrototypeLinks(rewriteAssetReferences(stripDemoBusinessContent(html, route))), route);
+  let rewritten = rewriteManifestAssetReferences(
+    rewritePrototypeLinks(rewriteAssetReferences(stripDemoBusinessContent(html, route))),
+    options
+  );
+  if (options.stripInlineEvents) {
+    rewritten = stripInlineEventHandlers(rewritten);
+  }
+  if (options.stripInlineScripts) {
+    rewritten = stripInlineBusinessScripts(rewritten);
+  }
+  return injectShell(rewritten, route, options);
 }
 
 export function rewritePrototypeLinks(html) {
@@ -50,9 +62,11 @@ export function stripDemoBusinessContent(html, route) {
   return output;
 }
 
-export function buildRouteIndexHtml() {
+export function buildRouteIndexHtml(options = {}) {
   const userRoutes = routes.filter((item) => item.surface === "user" || item.surface === "userAuth");
   const adminRoutes = routes.filter((item) => item.surface === "admin" || item.surface === "adminAuth");
+  const tokensCss = assetPath("/css/tokens.css", options);
+  const shellCss = assetPath("/assets/styles/shell.css", options);
 
   return `<!doctype html>
 <html lang="zh-CN">
@@ -60,8 +74,8 @@ export function buildRouteIndexHtml() {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>路由未找到 - 邻帮</title>
-  <link rel="stylesheet" href="/css/tokens.css">
-  <link rel="stylesheet" href="/assets/styles/shell.css">
+  <link rel="stylesheet" href="${tokensCss}">
+  <link rel="stylesheet" href="${shellCss}">
   <style>
     body { min-height: 100dvh; padding: var(--space-2xl); background: var(--bg); color: var(--fg); }
     main { width: min(100%, 960px); margin: 0 auto; display: grid; gap: var(--space-xl); }
@@ -395,7 +409,7 @@ function removeBlocks(html, start, end) {
   return replaceRange(html, start, end, "");
 }
 
-function injectShell(html, route) {
+function injectShell(html, route, options = {}) {
   const routeMeta = JSON.stringify({
     id: route.id,
     title: route.title,
@@ -405,12 +419,13 @@ function injectShell(html, route) {
     surface: route.surface,
     layout: route.layout
   });
+  const configExpression = runtimeConfigExpression(options);
   const headInjection = [
-    '<link rel="stylesheet" href="/assets/styles/theme.css">',
-    '<link rel="stylesheet" href="/assets/styles/shell.css">',
-    `<script>window.__NEIGHBOR_ROUTE__=${routeMeta};window.__API_BASE_URL__=window.__API_BASE_URL__||${JSON.stringify(apiBaseUrl())};</script>`
+    `<link rel="stylesheet" href="${assetPath("/assets/styles/theme.css", options)}">`,
+    `<link rel="stylesheet" href="${assetPath("/assets/styles/shell.css", options)}">`,
+    `<script id="neighbor-config">window.__NEIGHBOR_ROUTE__=${routeMeta};window.__NEIGHBOR_CONFIG__=${configExpression};window.__API_BASE_URL__=window.__NEIGHBOR_CONFIG__.apiBaseUrl;</script>`
   ].join("\n");
-  const bodyScript = '<script type="module" src="/assets/app/prototype-shell.mjs"></script>';
+  const bodyScript = `<script type="module" src="${assetPath(options.shellLogicalPath ?? "/assets/app/prototype-shell.mjs", options)}"></script>`;
 
   let output = html.replace(/<\/head>/i, `${headInjection}\n</head>`);
   output = output.replace(/<body(\s[^>]*)?>/i, (_match, attrs = "") => {
@@ -423,11 +438,79 @@ function injectShell(html, route) {
   return output;
 }
 
-function apiBaseUrl() {
-  if (process.env.API_BASE_URL) {
-    return process.env.API_BASE_URL;
+export function createRuntimeConfig(options = {}) {
+  const env = options.env ?? process.env;
+  const mode = options.mode ?? env.NODE_ENV ?? "development";
+  const isProduction = mode === "production";
+  const apiBaseUrl = env.API_BASE_URL ?? (isProduction ? "" : `http://127.0.0.1:${env.BACKEND_PORT ?? "3001"}`);
+
+  if (isProduction && !apiBaseUrl) {
+    throw new Error("API_BASE_URL is required when NODE_ENV=production.");
   }
-  return `http://127.0.0.1:${process.env.BACKEND_PORT ?? "3001"}`;
+  if (apiBaseUrl && !isHttpUrl(apiBaseUrl)) {
+    throw new Error("API_BASE_URL must be an absolute http(s) URL.");
+  }
+
+  return {
+    apiBaseUrl,
+    buildVersion: env.BUILD_VERSION ?? "dev",
+    environment: env.APP_ENV ?? (isProduction ? "production" : "development")
+  };
+}
+
+function runtimeConfigExpression(options) {
+  if (options.runtimeConfigExpression) {
+    return options.runtimeConfigExpression;
+  }
+  return JSON.stringify(options.runtimeConfig ?? createRuntimeConfig({
+    env: options.env,
+    mode: options.mode
+  }));
+}
+
+function rewriteManifestAssetReferences(html, options) {
+  const assets = normalizedAssets(options);
+  if (assets.size === 0) {
+    return html;
+  }
+  return html.replace(/\b(href|src)=(["'])(\/(?:css|js)\/[^"']+|\/assets\/(?:styles|app)\/[^"']+)\2/g, (_match, attr, quote, source) => {
+    return `${attr}=${quote}${assets.get(source) ?? source}${quote}`;
+  });
+}
+
+function stripInlineEventHandlers(html) {
+  const withAiModalTriggers = html.replace(
+    /\s+onclick\s*=\s*(["'])\s*openAIModal\(\s*(["'])(.*?)\2\s*\)\s*;?\s*\1/gi,
+    (_match, _outerQuote, _innerQuote, scene) => ` data-ai-modal-scene="${escapeAttribute(scene)}"`
+  );
+  return withAiModalTriggers.replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+}
+
+function stripInlineBusinessScripts(html) {
+  return html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (match, attrs = "") => {
+    if (/\bsrc\s*=/.test(attrs) || /\btype\s*=\s*["']module["']/i.test(attrs)) {
+      return match;
+    }
+    return "";
+  });
+}
+
+function assetPath(logicalPath, options) {
+  return normalizedAssets(options).get(logicalPath) ?? logicalPath;
+}
+
+function normalizedAssets(options) {
+  const source = options.assets ?? options.assetManifest?.assets ?? {};
+  return source instanceof Map ? source : new Map(Object.entries(source));
+}
+
+function isHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch (_error) {
+    return false;
+  }
 }
 
 function buildHtmlReplacementPairs() {

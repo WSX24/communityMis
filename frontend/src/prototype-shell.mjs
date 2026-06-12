@@ -6,16 +6,24 @@ const route = window.__NEIGHBOR_ROUTE__ ?? {
   currentPath: window.location.pathname,
   surface: "unknown"
 };
+const runtimeConfig = window.__NEIGHBOR_CONFIG__ ?? {};
 
 document.documentElement.dataset.routeId = route.id;
 document.documentElement.dataset.routeSurface = route.surface;
 
 const api = createApiClient({
-  baseUrl: window.__API_BASE_URL__ ?? "http://127.0.0.1:3001"
+  baseUrl: requireApiBaseUrl(runtimeConfig.apiBaseUrl)
 });
 const auth = createAuthController({ api });
 let feedCategoriesCache = null;
 const TASK_PAGE_SIZE = 6;
+
+function requireApiBaseUrl(value) {
+  if (!value) {
+    throw new Error("API base URL is not configured.");
+  }
+  return value;
+}
 const TASK_FILTERS = new Map([
   ["all", { label: "全部任务", category: null, tag: null }],
   ["express", { label: "快递代取", category: "errand", tag: "跑腿代取" }],

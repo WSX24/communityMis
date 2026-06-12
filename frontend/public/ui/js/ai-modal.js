@@ -465,7 +465,7 @@
         </div>
         <p class="ai-modal-disclaimer">AI 回答仅供参考，不能替代平台规则和人工判断。<br>关键操作（接单、结算、纠纷裁决等）仍需你在页面中确认。</p>
         <div class="ai-modal-input-bar">
-          <textarea id="ai-modal-input" rows="1" placeholder="输入你的问题…" oninput="this.style.height='';this.style.height=Math.min(this.scrollHeight,100)+'px';"></textarea>
+          <textarea id="ai-modal-input" rows="1" placeholder="输入你的问题…"></textarea>
           <button class="ai-modal-send-btn" id="ai-modal-send" aria-label="发送">${icons.send}</button>
         </div>
       </div>
@@ -485,9 +485,11 @@
     document.getElementById('ai-modal-new').addEventListener('click', resetChat);
 
     sendBtn.addEventListener('click', sendMessage);
+    inputEl.addEventListener('input', resizeModalInput);
     inputEl.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
     });
+    chatArea.addEventListener('click', handleChatAction);
 
     document.querySelectorAll('#ai-modal-scene-bar .ai-modal-scene-chip').forEach(chip => {
       chip.addEventListener('click', function () {
@@ -499,12 +501,6 @@
       });
     });
 
-    document.querySelectorAll('#ai-modal-chat .sq-btn').forEach(btn => {
-      btn.addEventListener('click', function () {
-        inputEl.value = this.dataset.question;
-        sendMessage();
-      });
-    });
   }
 
   function closeModal() {
@@ -541,12 +537,6 @@
       <div class="suggested-qs"><div class="sq-label">试试问我</div><div class="sq-grid">${suggestedQs}</div></div>
     </div>`;
 
-    chatArea.querySelectorAll('.sq-btn').forEach(btn => {
-      btn.addEventListener('click', function () {
-        inputEl.value = this.dataset.question;
-        sendMessage();
-      });
-    });
   }
 
   function buildMsgHTML(role, content) {
@@ -564,7 +554,7 @@
     if (resp.type === 'filter') {
       html += `<div class="apply-filter-card">
         <div class="filter-tags">${resp.tags.map(t => `<span class="filter-tag">${t}</span>`).join('')}</div>
-        <button class="apply-filter-btn" onclick="window._aiModalNavigate&&window._aiModalNavigate('tasks.html')">
+        <button class="apply-filter-btn" data-ai-modal-action="navigate" data-target="/tasks">
           ${icons.search.replace('width="14"','').replace('height="14"','')} 查看匹配结果（${resp.resultCount} 个任务）
         </button>
       </div>`;
@@ -584,19 +574,70 @@
           <span class="filter-tag" style="background:var(--warning-light, #fef3c7);color:var(--warning, #d97706);">悬赏 ${esc(resp.draftReward)}</span>
         </div>
         <div class="draft-actions">
-          <button class="btn btn--primary btn--sm" onclick="window._aiModalNavigate&&window._aiModalNavigate('post.html')">确认并填入发布表单</button>
-          <button class="btn btn--ghost btn--sm" onclick="document.getElementById('ai-modal-input').value='帮我写一段发布代取快递任务的描述';document.getElementById('ai-modal-send').click();">重新生成</button>
+          <button class="btn btn--primary btn--sm" data-ai-modal-action="navigate" data-target="/post">确认并填入发布表单</button>
+          <button class="btn btn--ghost btn--sm" data-ai-modal-action="regenerate" data-question="帮我写一段发布代取快递任务的描述">重新生成</button>
         </div>
       </div>`;
     }
 
     html += `</div>
       <div class="ai-modal-msg-actions">
-        <button class="ai-modal-msg-action-btn" onclick="navigator.clipboard?.writeText(this.closest('.ai-modal-msg').querySelector('.ai-modal-msg-bubble').textContent.trim());this.textContent='✓ 已复制';setTimeout(()=>this.textContent='${esc('复制')}',2000);">${icons.copy} 复制</button>
-        <button class="ai-modal-msg-action-btn" onclick="this.classList.toggle('active')">${icons.thumbsUp} 有用</button>
-        <button class="ai-modal-msg-action-btn" onclick="this.classList.toggle('active')">${icons.thumbsDown} 没用</button>
+        <button class="ai-modal-msg-action-btn" data-ai-modal-action="copy">${icons.copy} 复制</button>
+        <button class="ai-modal-msg-action-btn" data-ai-modal-action="feedback">${icons.thumbsUp} 有用</button>
+        <button class="ai-modal-msg-action-btn" data-ai-modal-action="feedback">${icons.thumbsDown} 没用</button>
       </div></div></div>`;
     return html;
+  }
+
+  function resizeModalInput() {
+    inputEl.style.height = '';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 100) + 'px';
+  }
+
+  function handleChatAction(event) {
+    const suggested = event.target.closest('.sq-btn');
+    if (suggested && chatArea.contains(suggested)) {
+      inputEl.value = suggested.dataset.question || '';
+      resizeModalInput();
+      sendMessage();
+      return;
+    }
+
+    const action = event.target.closest('[data-ai-modal-action]');
+    if (!action || !chatArea.contains(action)) {
+      return;
+    }
+
+    const type = action.dataset.aiModalAction;
+    if (type === 'navigate') {
+      navigateFromModal(action.dataset.target || '/tasks');
+      return;
+    }
+    if (type === 'regenerate') {
+      inputEl.value = action.dataset.question || '';
+      resizeModalInput();
+      sendMessage();
+      return;
+    }
+    if (type === 'copy') {
+      copyModalMessage(action);
+      return;
+    }
+    if (type === 'feedback') {
+      action.classList.toggle('active');
+    }
+  }
+
+  function navigateFromModal(url) {
+    closeModal();
+    setTimeout(() => { window.location.href = url; }, 300);
+  }
+
+  async function copyModalMessage(button) {
+    const text = button.closest('.ai-modal-msg')?.querySelector('.ai-modal-msg-bubble')?.textContent.trim() || '';
+    await navigator.clipboard?.writeText(text);
+    button.textContent = '✓ 已复制';
+    setTimeout(() => { button.innerHTML = icons.copy + ' 复制'; }, 2000);
   }
 
   function showTyping() {
@@ -680,7 +721,10 @@
   }
 
   function resolveApiUrl(path) {
-    const base = window.__API_BASE_URL__ || 'http://127.0.0.1:3001';
+    const base = window.__NEIGHBOR_CONFIG__?.apiBaseUrl || window.__API_BASE_URL__;
+    if (!base) {
+      throw new Error('API 地址未配置。');
+    }
     return new URL(path, base).toString();
   }
 
@@ -698,4 +742,11 @@
   window.openAIModal = openModal;
   window.closeAIModal = closeModal;
   window._aiModalNavigate = function (url) { closeModal(); setTimeout(() => { window.location.href = url; }, 300); };
+
+  document.addEventListener('click', function (event) {
+    const trigger = event.target.closest('[data-ai-modal-scene]');
+    if (!trigger) return;
+    event.preventDefault();
+    openModal(trigger.dataset.aiModalScene || 'all');
+  });
 })();
