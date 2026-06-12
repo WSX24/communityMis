@@ -10,6 +10,7 @@ export class ApiError extends Error {
 export function createApiClient(options = {}) {
   const baseUrl = options.baseUrl ?? "";
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const credentials = options.credentials ?? "include";
 
   async function request(path, requestOptions = {}) {
     if (!fetchImpl) {
@@ -23,6 +24,12 @@ export function createApiClient(options = {}) {
     if (token && !headers.has("authorization")) {
       headers.set("authorization", `Bearer ${token}`);
     }
+    if (isMutatingMethod(requestOptions.method) && !headers.has("x-csrf-token")) {
+      const csrfToken = readCookie("csrf_token");
+      if (csrfToken) {
+        headers.set("x-csrf-token", csrfToken);
+      }
+    }
     if (body !== undefined && body !== null && !headers.has("content-type") && shouldJsonEncode(requestOptions.body)) {
       headers.set("content-type", "application/json");
     }
@@ -30,7 +37,8 @@ export function createApiClient(options = {}) {
     const response = await fetchImpl(resolveUrl(baseUrl, path), {
       ...requestOptions,
       body,
-      headers
+      headers,
+      credentials: requestOptions.credentials ?? credentials
     });
     const payload = await parseResponse(response);
 
@@ -112,7 +120,16 @@ export function createApiClient(options = {}) {
       })
     },
     messages: {
-      list: (token, params = {}) => request(withQuery("/api/messages", params), { token })
+      list: (token, params = {}) => request(withQuery("/api/messages", params), { token }),
+      send: (token, payload) => request("/api/messages", {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      read: (token, messageId) => request(`/api/messages/${encodeURIComponent(messageId)}/read`, {
+        method: "POST",
+        token
+      })
     },
     ai: {
       chat: (token, payload) => request("/api/ai/chat", {
@@ -190,7 +207,55 @@ export function createApiClient(options = {}) {
       }),
       public: (userId, token = null) => request(`/api/users/${encodeURIComponent(userId)}/public`, { token }),
       reviews: (userId, token = null) => request(`/api/users/${encodeURIComponent(userId)}/reviews`, { token }),
-      credit: (userId, token = null) => request(`/api/users/${encodeURIComponent(userId)}/credit`, { token })
+      credit: (userId, token = null) => request(`/api/users/${encodeURIComponent(userId)}/credit`, { token }),
+      follow: (token, userId) => request(`/api/users/${encodeURIComponent(userId)}/follow`, {
+        method: "POST",
+        token
+      }),
+      unfollow: (token, userId) => request(`/api/users/${encodeURIComponent(userId)}/follow`, {
+        method: "DELETE",
+        token
+      }),
+      contact: (userId, token = null) => request(`/api/users/${encodeURIComponent(userId)}/contact`, { token }),
+      avatar: (token, fileId) => request("/api/users/me/avatar", {
+        method: "POST",
+        token,
+        body: { fileId }
+      })
+    },
+    verification: {
+      sendSms: (payload) => request("/api/verification/sms/send", {
+        method: "POST",
+        body: payload
+      }),
+      sendEmail: (payload) => request("/api/verification/email/send", {
+        method: "POST",
+        body: payload
+      })
+    },
+    files: {
+      upload: (token, formData) => request("/api/files", {
+        method: "POST",
+        token,
+        body: formData
+      }),
+      url: (fileId) => resolveUrl(baseUrl, `/api/files/${encodeURIComponent(fileId)}`).toString()
+    },
+    requestComments: {
+      list: (requestId) => request(`/api/requests/${encodeURIComponent(requestId)}/comments`),
+      create: (token, requestId, payload) => request(`/api/requests/${encodeURIComponent(requestId)}/comments`, {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      like: (token, commentId) => request(`/api/request-comments/${encodeURIComponent(commentId)}/like`, {
+        method: "POST",
+        token
+      }),
+      unlike: (token, commentId) => request(`/api/request-comments/${encodeURIComponent(commentId)}/like`, {
+        method: "DELETE",
+        token
+      })
     },
     settings: {
       me: (token) => request("/api/settings/me", { token }),
@@ -347,6 +412,24 @@ function shouldJsonEncode(body) {
     return false;
   }
   return typeof body === "object";
+}
+
+function isMutatingMethod(method) {
+  return ["POST", "PUT", "PATCH", "DELETE"].includes(String(method ?? "GET").toUpperCase());
+}
+
+function readCookie(name) {
+  const cookie = globalThis.document?.cookie;
+  if (typeof cookie !== "string") {
+    return null;
+  }
+  for (const part of cookie.split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === name) {
+      return decodeURIComponent(rest.join("="));
+    }
+  }
+  return null;
 }
 
 async function parseResponse(response) {

@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
 import { HttpError } from "../http.mjs";
+import { parseCookies } from "../cookies.mjs";
 import { hashPassword, verifyPassword } from "./password.mjs";
 import { createMemoryAuthStore, ACTIVE_STATUS, INITIAL_TIME_COIN_BALANCE, normalizeUsername } from "./store.mjs";
 import { createSignedSessionToken, verifySignedSessionToken } from "./tokens.mjs";
+import { verifyRegistrationCodes } from "../verification/routes.mjs";
 
 const ADMIN_ROLES = new Set(["admin", "super_admin"]);
 const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -11,6 +13,11 @@ export function createAuthService(options = {}) {
   const store = options.store ?? createMemoryAuthStore();
   const sessionSecret = options.sessionSecret ?? process.env.AUTH_SESSION_SECRET ?? crypto.randomBytes(32).toString("base64url");
   const sessionTtlMs = options.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
+  const cookie = {
+    domain: options.cookie?.domain ?? null,
+    secure: Boolean(options.cookie?.secure),
+    sameSite: options.cookie?.sameSite ?? "Lax"
+  };
 
   return {
     register,
@@ -20,11 +27,13 @@ export function createAuthService(options = {}) {
     requireRole,
     logout,
     publicUser,
+    cookie,
     store
   };
 
   async function register(input) {
     const body = normalizeRegistrationInput(input);
+    await verifyRegistrationCodes(store, input);
     let created;
     try {
       created = await store.createUserWithWallet({
@@ -44,6 +53,7 @@ export function createAuthService(options = {}) {
     }
 
     return {
+      ...(await createLoginPayload(created.user, input)),
       user: publicUser(created.user),
       wallet: publicWallet(created.wallet)
     };
@@ -57,18 +67,22 @@ export function createAuthService(options = {}) {
     return loginWithPolicy(input, { adminOnly: true });
   }
 
-  async function authenticateRequest(request) {
-    const token = bearerToken(request);
-    if (!token) {
+  async function authenticateRequest(request, options = {}) {
+    if (request.authContext) {
+      return request.authContext;
+    }
+
+    const sid = sessionIdFromCookie(request);
+    const token = options.allowBearer === false ? null : bearerToken(request);
+    const tokenPayload = sid ? { sid } : token ? verifySignedSessionToken(token, sessionSecret, new Date()) : null;
+    if (token && !sid && !tokenPayload) {
+      throw new HttpError(401, "INVALID_TOKEN", "Authentication token is invalid or expired.");
+    }
+    if (!tokenPayload?.sid) {
       throw new HttpError(401, "UNAUTHENTICATED", "Authentication is required.");
     }
 
     const now = new Date();
-    const tokenPayload = verifySignedSessionToken(token, sessionSecret, now);
-    if (!tokenPayload) {
-      throw new HttpError(401, "INVALID_TOKEN", "Authentication token is invalid or expired.");
-    }
-
     const session = await store.findSession(tokenPayload.sid);
     if (!session || session.revokedAt || new Date(session.expiresAt).getTime() <= now.getTime()) {
       throw new HttpError(401, "INVALID_SESSION", "Authentication session is invalid or expired.");
@@ -82,7 +96,9 @@ export function createAuthService(options = {}) {
       throw new HttpError(403, "USER_DISABLED", "Disabled users cannot perform this operation.");
     }
 
-    return { token, session, user };
+    const context = { token, session, user };
+    request.authContext = context;
+    return context;
   }
 
   function requireRole(context, roles) {
@@ -110,11 +126,19 @@ export function createAuthService(options = {}) {
       throw new HttpError(403, "FORBIDDEN", "Administrator privileges are required.");
     }
 
+    return createLoginPayload(user, input);
+  }
+
+  async function createLoginPayload(user, input = {}) {
     const expiresAt = new Date(Date.now() + sessionTtlMs).toISOString();
+    const csrfToken = crypto.randomBytes(32).toString("base64url");
     const session = await store.createSession({
       userId: user.userId,
       role: user.role,
-      expiresAt
+      expiresAt,
+      csrfToken,
+      ipAddress: input?.ipAddress,
+      userAgent: input?.userAgent
     });
     const token = createSignedSessionToken({
       sid: session.sessionId,
@@ -127,6 +151,11 @@ export function createAuthService(options = {}) {
       token,
       tokenType: "Bearer",
       expiresAt,
+      session: {
+        sessionId: session.sessionId,
+        expiresAt,
+        csrfToken
+      },
       user: publicUser(user)
     };
   }
@@ -204,4 +233,9 @@ function bearerToken(request) {
   }
   const match = authorization.match(/^Bearer\s+(.+)$/i);
   return match ? match[1].trim() : null;
+}
+
+function sessionIdFromCookie(request) {
+  const sid = parseCookies(request).get("sid");
+  return sid ? String(sid) : null;
 }

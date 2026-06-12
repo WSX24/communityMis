@@ -264,11 +264,12 @@ function apiConnectSource(apiBaseUrl) {
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.FRONTEND_PORT ?? 5173);
+  const host = process.env.BIND_HOST ?? process.env.FRONTEND_BIND_HOST ?? "127.0.0.1";
   try {
-    createFrontendServer().listen(port, "127.0.0.1", () => {
-      console.log(`Frontend routes: http://127.0.0.1:${port}`);
+    createFrontendServer().listen(port, host, () => {
+      console.log(`Frontend routes: http://${host}:${port}`);
       console.log(`Mode: ${process.env.NODE_ENV === "production" ? "production" : "development"}`);
       console.log(`Project root: ${PROJECT_ROOT}`);
     });

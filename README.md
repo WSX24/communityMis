@@ -21,6 +21,23 @@ npm run dev:frontend
 npm run dev:backend
 ```
 
+## 生产部署
+
+后端生产模式按单机 Node.js + MySQL 8+ 设计。复制 `.env.example` 为实际环境变量后运行：
+
+```bash
+npm run db:init
+npm start
+```
+
+关键约束：
+
+- `NODE_ENV=production` 时必须使用 `AUTH_STORE=mysql`，并配置 `AUTH_SESSION_SECRET`、`DB_*`、`CORS_ORIGIN`、上传目录、短信、SMTP 和 OpenAI-compatible API 变量。
+- 认证以 HTTP-only `sid` Cookie 为准；浏览器请求必须使用 `credentials: "include"`。
+- 登录后会设置非 HTTP-only `csrf_token` Cookie，所有 `POST`、`PUT`、`PATCH`、`DELETE` 请求需带 `X-CSRF-Token`。
+- `/api/health` 只表示进程存活，`/api/ready` 会检查 MySQL、上传目录可写和关键配置状态，响应不会包含密钥。
+- `database/seeds` 里的演示账号只适合开发/测试；生产初始化前应审查或移除 seed SQL。
+
 ## 生产路由
 
 前端沿用 `frontend/public/ui` 中从设计原型整理出的视觉资源，并通过浏览器运行时脚本调用后端 `/api/*` 接口加载真实数据。示例：

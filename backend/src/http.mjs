@@ -11,13 +11,14 @@ export class HttpError extends Error {
 export function sendJson(response, status, payload, isHead = false) {
   const body = JSON.stringify(payload, null, 2);
   response.writeHead(status, {
+    ...pendingHeaders(response),
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store"
   });
   response.end(isHead ? undefined : body);
 }
 
-export function sendError(response, error) {
+export function sendError(response, error, options = {}) {
   if (error instanceof HttpError) {
     sendJson(response, error.status, {
       error: {
@@ -32,7 +33,8 @@ export function sendError(response, error) {
   sendJson(response, 500, {
     error: {
       code: "INTERNAL_ERROR",
-      message: "The server encountered an unexpected error."
+      message: "The server encountered an unexpected error.",
+      ...(options.exposeStack ? { details: { stack: error?.stack ?? String(error) } } : {})
     }
   });
 }
@@ -77,4 +79,10 @@ export function methodNotAllowed(response, allowedMethods) {
       message: "The requested API method is not allowed."
     }
   });
+}
+
+function pendingHeaders(response) {
+  return response.pendingHeaders && typeof response.pendingHeaders === "object"
+    ? response.pendingHeaders
+    : {};
 }

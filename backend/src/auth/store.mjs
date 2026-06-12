@@ -30,6 +30,11 @@ export function createMemoryAuthStore(options = {}) {
   const aiMessages = new Map();
   const aiCallLogs = new Map();
   const aiFeedback = new Map();
+  const verificationCodes = new Map();
+  const fileAssets = new Map();
+  const requestComments = new Map();
+  const requestCommentLikes = new Map();
+  const userFollows = new Map();
   let aiConfig = normalizeAiConfig(options.seedAiConfig ?? options.aiConfig);
   let systemSettings = normalizeSystemSettings(options.seedSystemSettings ?? options.systemSettings);
   let nextUserId = options.nextUserId ?? 10000;
@@ -52,6 +57,8 @@ export function createMemoryAuthStore(options = {}) {
   let nextAiMessageId = options.nextAiMessageId ?? 86000;
   let nextAiCallId = options.nextAiCallId ?? 87000;
   let nextAiFeedbackId = options.nextAiFeedbackId ?? 88000;
+  let nextVerificationId = options.nextVerificationId ?? 89000;
+  let nextRequestCommentId = options.nextRequestCommentId ?? 90000;
 
   for (const seedUser of options.seedUsers ?? defaultSeedUsers()) {
     insertSeedUser(seedUser);
@@ -191,6 +198,20 @@ export function createMemoryAuthStore(options = {}) {
     resolveAiFeedback,
     getAiConfig,
     updateAiConfig,
+    createVerificationCode,
+    consumeVerificationToken,
+    createFileAsset,
+    findFileAssetById,
+    createMessage,
+    markMessageRead,
+    listRequestComments,
+    createRequestComment,
+    likeRequestComment,
+    unlikeRequestComment,
+    followUser,
+    unfollowUser,
+    isFollowing,
+    updateUserAvatar,
     createSession,
     findSession,
     revokeSession
@@ -974,6 +995,196 @@ export function createMemoryAuthStore(options = {}) {
       total: conversations.length,
       unreadTotal: conversations.reduce((sum, item) => sum + item.unreadCount, 0)
     };
+  }
+
+  function createMessage(input) {
+    const senderId = Number(input.senderId);
+    const receiverId = Number(input.receiverId);
+    const sender = users.get(senderId);
+    const receiver = users.get(receiverId);
+    if (!sender || sender.status !== ACTIVE_STATUS || !receiver || receiver.status !== ACTIVE_STATUS) {
+      throw storeError("MESSAGE_PARTICIPANT_NOT_FOUND", "Message participant was not found.");
+    }
+    if (senderId === receiverId) {
+      throw storeError("MESSAGE_SELF_NOT_ALLOWED", "Cannot send a message to yourself.");
+    }
+    const now = input.createdAt ?? new Date().toISOString();
+    const message = normalizeMessage({
+      messageId: input.messageId ?? nextMessageId,
+      senderId,
+      receiverId,
+      orderId: input.orderId ?? null,
+      businessType: input.businessType ?? (input.orderId ? "order" : "direct"),
+      businessId: input.businessId ?? input.orderId ?? null,
+      content: input.content,
+      isRead: false,
+      createdAt: now
+    });
+    nextMessageId = Math.max(nextMessageId, message.messageId + 1);
+    messages.set(message.messageId, message);
+    return clone(enrichMessage(message));
+  }
+
+  function markMessageRead(userId, messageId) {
+    const message = messages.get(Number(messageId));
+    if (!message || message.receiverId !== Number(userId)) {
+      return null;
+    }
+    if (!message.isRead) {
+      message.isRead = true;
+      message.readAt = new Date().toISOString();
+    }
+    return clone(enrichMessage(message));
+  }
+
+  function createVerificationCode(input) {
+    const now = new Date().toISOString();
+    const item = {
+      verificationId: nextVerificationId,
+      verificationToken: input.verificationToken,
+      channel: input.channel,
+      purpose: input.purpose ?? "register",
+      recipient: input.recipient,
+      codeHash: input.codeHash,
+      expiresAt: input.expiresAt,
+      attemptCount: 0,
+      sendStatus: input.sendStatus ?? "sent",
+      providerMessageId: input.providerMessageId ?? null,
+      usedAt: null,
+      createdAt: now
+    };
+    nextVerificationId += 1;
+    verificationCodes.set(item.verificationToken, item);
+    return clone(item);
+  }
+
+  function consumeVerificationToken(input) {
+    const item = verificationCodes.get(String(input.verificationToken ?? ""));
+    if (!item || item.channel !== input.channel || item.purpose !== input.purpose || item.recipient !== input.recipient) {
+      throw storeError("VERIFICATION_INVALID", "Verification token is invalid.");
+    }
+    if (item.usedAt) {
+      throw storeError("VERIFICATION_USED", "Verification token was already used.");
+    }
+    if (new Date(item.expiresAt).getTime() <= Date.now()) {
+      throw storeError("VERIFICATION_EXPIRED", "Verification token is expired.");
+    }
+    item.attemptCount += 1;
+    if (item.attemptCount > 5) {
+      throw storeError("VERIFICATION_ATTEMPTS_EXCEEDED", "Verification attempts exceeded.");
+    }
+    if (item.codeHash !== input.codeHash) {
+      throw storeError("VERIFICATION_CODE_MISMATCH", "Verification code is incorrect.");
+    }
+    item.usedAt = new Date().toISOString();
+    return clone(item);
+  }
+
+  function createFileAsset(input) {
+    const now = input.createdAt ?? new Date().toISOString();
+    const asset = normalizeFileAsset({
+      fileId: input.fileId ?? crypto.randomUUID(),
+      ownerId: input.ownerId,
+      purpose: input.purpose,
+      businessType: input.businessType,
+      businessId: input.businessId,
+      originalName: input.originalName,
+      storagePath: input.storagePath,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      createdAt: now
+    });
+    fileAssets.set(asset.fileId, asset);
+    return clone(asset);
+  }
+
+  function findFileAssetById(fileId) {
+    const asset = fileAssets.get(String(fileId));
+    return asset ? clone(asset) : null;
+  }
+
+  function listRequestComments(requestId, viewerId = null) {
+    const id = Number(requestId);
+    return Array.from(requestComments.values())
+      .filter((comment) => comment.requestId === id)
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() || left.commentId - right.commentId)
+      .map((comment) => enrichRequestComment(comment, viewerId))
+      .map(clone);
+  }
+
+  function createRequestComment(input) {
+    const requestId = Number(input.requestId);
+    const userId = Number(input.userId);
+    if (!serviceRequests.has(requestId)) {
+      throw storeError("REQUEST_NOT_FOUND", "Service request was not found.");
+    }
+    const user = users.get(userId);
+    if (!user || user.status !== ACTIVE_STATUS) {
+      throw storeError("COMMENT_FORBIDDEN", "Comment user is invalid.");
+    }
+    const parentId = input.parentId === undefined || input.parentId === null ? null : Number(input.parentId);
+    if (parentId !== null && !requestComments.has(parentId)) {
+      throw storeError("COMMENT_PARENT_NOT_FOUND", "Parent comment was not found.");
+    }
+    const now = input.createdAt ?? new Date().toISOString();
+    const comment = {
+      commentId: nextRequestCommentId,
+      requestId,
+      userId,
+      parentId,
+      content: String(input.content ?? "").trim(),
+      likeCount: 0,
+      createdAt: now,
+      updatedAt: now
+    };
+    nextRequestCommentId += 1;
+    requestComments.set(comment.commentId, comment);
+    return clone(enrichRequestComment(comment, userId));
+  }
+
+  function likeRequestComment(input) {
+    return setRequestCommentLike(input, true);
+  }
+
+  function unlikeRequestComment(input) {
+    return setRequestCommentLike(input, false);
+  }
+
+  function followUser(input) {
+    const followerId = Number(input.followerId);
+    const followeeId = Number(input.followeeId);
+    if (followerId === followeeId) {
+      throw storeError("FOLLOW_SELF_NOT_ALLOWED", "Cannot follow yourself.");
+    }
+    const followee = users.get(followeeId);
+    if (!followee || followee.status !== ACTIVE_STATUS) {
+      throw storeError("USER_NOT_FOUND", "User was not found.");
+    }
+    const key = followKey(followerId, followeeId);
+    userFollows.set(key, { followerId, followeeId, createdAt: new Date().toISOString() });
+    return clone({ following: true, followerId, followeeId });
+  }
+
+  function unfollowUser(input) {
+    const followerId = Number(input.followerId);
+    const followeeId = Number(input.followeeId);
+    userFollows.delete(followKey(followerId, followeeId));
+    return clone({ following: false, followerId, followeeId });
+  }
+
+  function isFollowing(followerId, followeeId) {
+    return userFollows.has(followKey(Number(followerId), Number(followeeId)));
+  }
+
+  function updateUserAvatar(userId, fileId) {
+    const user = users.get(Number(userId));
+    const asset = fileAssets.get(String(fileId));
+    if (!user || !asset || Number(asset.ownerId) !== Number(userId)) {
+      return null;
+    }
+    user.avatarFileId = asset.fileId;
+    user.updatedAt = new Date().toISOString();
+    return clone(user);
   }
 
   function createReview(input) {
@@ -1955,6 +2166,9 @@ export function createMemoryAuthStore(options = {}) {
       sessionId: crypto.randomUUID(),
       userId: input.userId,
       role: input.role,
+      csrfToken: input.csrfToken,
+      ipAddress: input.ipAddress ?? null,
+      userAgent: input.userAgent ?? null,
       expiresAt: input.expiresAt,
       createdAt: now,
       revokedAt: null
@@ -2402,6 +2616,47 @@ export function createMemoryAuthStore(options = {}) {
     }
 
     return map;
+  }
+
+  function enrichMessage(message) {
+    return {
+      ...message,
+      sender: publicReviewer(users.get(message.senderId)),
+      receiver: publicReviewer(users.get(message.receiverId))
+    };
+  }
+
+  function setRequestCommentLike(input, liked) {
+    const commentId = Number(input.commentId);
+    const userId = Number(input.userId);
+    const comment = requestComments.get(commentId);
+    if (!comment) {
+      throw storeError("COMMENT_NOT_FOUND", "Request comment was not found.");
+    }
+    const key = `${commentId}:${userId}`;
+    const exists = requestCommentLikes.has(key);
+    if (liked && !exists) {
+      requestCommentLikes.set(key, { commentId, userId, createdAt: new Date().toISOString() });
+      comment.likeCount += 1;
+    }
+    if (!liked && exists) {
+      requestCommentLikes.delete(key);
+      comment.likeCount = Math.max(0, comment.likeCount - 1);
+    }
+    return clone(enrichRequestComment(comment, userId));
+  }
+
+  function enrichRequestComment(comment, viewerId = null) {
+    const likedKey = viewerId === null || viewerId === undefined ? null : `${comment.commentId}:${Number(viewerId)}`;
+    return {
+      ...comment,
+      user: publicReviewer(users.get(comment.userId)),
+      likedByViewer: likedKey ? requestCommentLikes.has(likedKey) : false
+    };
+  }
+
+  function followKey(followerId, followeeId) {
+    return `${followerId}:${followeeId}`;
   }
 
   function withCategory(request) {
@@ -3376,13 +3631,33 @@ function normalizeNotification(input) {
 
 function normalizeMessage(input) {
   const orderId = input.orderId ?? input.order_id;
+  const businessId = input.businessId ?? input.business_id;
   return {
     messageId: Number(input.messageId ?? input.message_id),
     senderId: Number(input.senderId ?? input.sender_id),
     receiverId: Number(input.receiverId ?? input.receiver_id),
     orderId: orderId === undefined || orderId === null ? null : Number(orderId),
+    businessType: normalizeOptionalString(input.businessType ?? input.business_type),
+    businessId: businessId === undefined || businessId === null ? null : Number(businessId),
     content: String(input.content ?? "").trim(),
     isRead: Boolean(input.isRead ?? input.is_read ?? false),
+    readAt: input.readAt ?? input.read_at ?? null,
+    createdAt: input.createdAt ?? input.created_at ?? new Date().toISOString()
+  };
+}
+
+function normalizeFileAsset(input) {
+  const businessId = input.businessId ?? input.business_id;
+  return {
+    fileId: String(input.fileId ?? input.file_id),
+    ownerId: Number(input.ownerId ?? input.owner_id),
+    purpose: normalizeOptionalString(input.purpose) ?? "general",
+    businessType: normalizeOptionalString(input.businessType ?? input.business_type),
+    businessId: businessId === undefined || businessId === null ? null : Number(businessId),
+    originalName: String(input.originalName ?? input.original_name ?? "upload.bin"),
+    storagePath: String(input.storagePath ?? input.storage_path ?? ""),
+    mimeType: String(input.mimeType ?? input.mime_type ?? "application/octet-stream"),
+    sizeBytes: Number(input.sizeBytes ?? input.size_bytes ?? 0),
     createdAt: input.createdAt ?? input.created_at ?? new Date().toISOString()
   };
 }

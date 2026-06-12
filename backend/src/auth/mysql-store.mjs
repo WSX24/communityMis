@@ -1,17 +1,20 @@
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import { ACTIVE_STATUS, INITIAL_TIME_COIN_BALANCE, normalizeUsername } from "./store.mjs";
+import { createMysqlPool } from "../mysql/pool.mjs";
 
 export function createMysqlAuthStore(options = {}) {
   const config = {
     mysqlBin: options.mysqlBin ?? process.env.MYSQL_BIN ?? "mysql",
-    host: options.host ?? process.env.DB_HOST ?? "127.0.0.1",
-    port: options.port ?? process.env.DB_PORT ?? "3306",
-    user: options.user ?? process.env.DB_USER ?? "root",
-    password: options.password ?? process.env.DB_PASSWORD ?? process.env.MYSQL_PWD ?? "",
-    database: options.database ?? process.env.DB_NAME ?? "community_mis"
+    host: options.host ?? options.config?.db?.host ?? process.env.DB_HOST ?? "127.0.0.1",
+    port: options.port ?? options.config?.db?.port ?? process.env.DB_PORT ?? "3306",
+    user: options.user ?? options.config?.db?.user ?? process.env.DB_USER ?? "root",
+    password: options.password ?? options.config?.db?.password ?? process.env.DB_PASSWORD ?? process.env.MYSQL_PWD ?? "",
+    database: options.database ?? options.config?.db?.database ?? process.env.DB_NAME ?? "community_mis",
+    connectionLimit: options.connectionLimit ?? options.config?.db?.connectionLimit ?? 10
   };
   const sessions = new Map();
+  let poolPromise = null;
   const profileExtras = new Map();
   const settings = new Map();
   const requestExtras = new Map();
@@ -101,9 +104,24 @@ export function createMysqlAuthStore(options = {}) {
     resolveAiFeedback,
     getAiConfig,
     updateAiConfig,
+    createVerificationCode,
+    consumeVerificationToken,
+    createFileAsset,
+    findFileAssetById,
+    createMessage,
+    markMessageRead,
+    listRequestComments,
+    createRequestComment,
+    likeRequestComment,
+    unlikeRequestComment,
+    followUser,
+    unfollowUser,
+    isFollowing,
+    updateUserAvatar,
     createSession,
     findSession,
-    revokeSession
+    revokeSession,
+    close
   };
 
   async function createUserWithWallet(input) {
@@ -3774,6 +3792,333 @@ LIMIT 1;
     return normalizeAuditLog(await mysqlJson(sql, { optional: true }));
   }
 
+  async function createVerificationCode(input) {
+    await pooledExecute(`
+INSERT INTO \`verification_code\` (
+  \`verification_token\`,
+  \`channel\`,
+  \`purpose\`,
+  \`recipient\`,
+  \`code_hash\`,
+  \`expires_at\`,
+  \`send_status\`,
+  \`provider_message_id\`
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`, [
+      input.verificationToken,
+      input.channel,
+      input.purpose ?? "register",
+      input.recipient,
+      input.codeHash,
+      toMysqlDateTime(input.expiresAt),
+      input.sendStatus ?? "sent",
+      input.providerMessageId ?? null
+    ]);
+    return pooledOne(`
+SELECT
+  \`verification_id\` AS verificationId,
+  \`verification_token\` AS verificationToken,
+  \`channel\`,
+  \`purpose\`,
+  \`recipient\`,
+  \`code_hash\` AS codeHash,
+  DATE_FORMAT(\`expires_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS expiresAt,
+  \`attempt_count\` AS attemptCount,
+  \`send_status\` AS sendStatus,
+  \`provider_message_id\` AS providerMessageId,
+  IF(\`used_at\` IS NULL, NULL, DATE_FORMAT(\`used_at\`, '%Y-%m-%dT%H:%i:%s.000Z')) AS usedAt,
+  DATE_FORMAT(\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
+FROM \`verification_code\`
+WHERE \`verification_token\` = ?
+LIMIT 1
+`, [input.verificationToken]);
+  }
+
+  async function consumeVerificationToken(input) {
+    const row = await pooledOne(`
+SELECT
+  \`verification_token\` AS verificationToken,
+  \`channel\`,
+  \`purpose\`,
+  \`recipient\`,
+  \`code_hash\` AS codeHash,
+  DATE_FORMAT(\`expires_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS expiresAt,
+  \`attempt_count\` AS attemptCount,
+  IF(\`used_at\` IS NULL, NULL, DATE_FORMAT(\`used_at\`, '%Y-%m-%dT%H:%i:%s.000Z')) AS usedAt
+FROM \`verification_code\`
+WHERE \`verification_token\` = ?
+  AND \`channel\` = ?
+  AND \`purpose\` = ?
+  AND \`recipient\` = ?
+LIMIT 1
+`, [input.verificationToken, input.channel, input.purpose, input.recipient]);
+    if (!row) throw storeError("VERIFICATION_INVALID", "Verification token is invalid.");
+    if (row.usedAt) throw storeError("VERIFICATION_USED", "Verification token was already used.");
+    if (new Date(row.expiresAt).getTime() <= Date.now()) throw storeError("VERIFICATION_EXPIRED", "Verification token is expired.");
+    if (Number(row.attemptCount ?? 0) >= 5) throw storeError("VERIFICATION_ATTEMPTS_EXCEEDED", "Verification attempts exceeded.");
+    await pooledExecute("UPDATE `verification_code` SET `attempt_count` = `attempt_count` + 1 WHERE `verification_token` = ?", [input.verificationToken]);
+    if (row.codeHash !== input.codeHash) throw storeError("VERIFICATION_CODE_MISMATCH", "Verification code is incorrect.");
+    await pooledExecute("UPDATE `verification_code` SET `used_at` = CURRENT_TIMESTAMP WHERE `verification_token` = ?", [input.verificationToken]);
+    return row;
+  }
+
+  async function createFileAsset(input) {
+    const asset = normalizeFileAsset({
+      ...input,
+      fileId: input.fileId ?? crypto.randomUUID(),
+      createdAt: input.createdAt ?? new Date().toISOString()
+    });
+    await pooledExecute(`
+INSERT INTO \`file_asset\` (
+  \`file_id\`,
+  \`owner_id\`,
+  \`purpose\`,
+  \`business_type\`,
+  \`business_id\`,
+  \`original_name\`,
+  \`storage_path\`,
+  \`mime_type\`,
+  \`size_bytes\`,
+  \`created_at\`
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, [
+      asset.fileId,
+      asset.ownerId,
+      asset.purpose,
+      asset.businessType,
+      asset.businessId,
+      asset.originalName,
+      asset.storagePath,
+      asset.mimeType,
+      asset.sizeBytes,
+      toMysqlDateTime(asset.createdAt)
+    ]);
+    return asset;
+  }
+
+  async function findFileAssetById(fileId) {
+    const row = await pooledOne(`
+SELECT
+  \`file_id\` AS fileId,
+  \`owner_id\` AS ownerId,
+  \`purpose\`,
+  \`business_type\` AS businessType,
+  \`business_id\` AS businessId,
+  \`original_name\` AS originalName,
+  \`storage_path\` AS storagePath,
+  \`mime_type\` AS mimeType,
+  \`size_bytes\` AS sizeBytes,
+  DATE_FORMAT(\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
+FROM \`file_asset\`
+WHERE \`file_id\` = ?
+LIMIT 1
+`, [fileId]);
+    return row ? normalizeFileAsset(row) : null;
+  }
+
+  async function createMessage(input) {
+    const senderId = Number(input.senderId);
+    const receiverId = Number(input.receiverId);
+    if (senderId === receiverId) {
+      throw storeError("MESSAGE_SELF_NOT_ALLOWED", "Cannot send a message to yourself.");
+    }
+    const content = normalizeOptionalString(input.content);
+    if (!content) {
+      throw storeError("INVALID_MESSAGE", "Message content is required.");
+    }
+    const result = await pooledExecute(`
+INSERT INTO \`message\` (
+  \`sender_id\`,
+  \`receiver_id\`,
+  \`order_id\`,
+  \`business_type\`,
+  \`business_id\`,
+  \`content\`
+)
+SELECT ?, ?, ?, ?, ?, ?
+WHERE EXISTS (SELECT 1 FROM \`user\` WHERE \`user_id\` = ? AND \`status\` = 1)
+  AND EXISTS (SELECT 1 FROM \`user\` WHERE \`user_id\` = ? AND \`status\` = 1)
+`, [
+      senderId,
+      receiverId,
+      input.orderId ?? null,
+      input.businessType ?? (input.orderId ? "order" : "direct"),
+      input.businessId ?? input.orderId ?? null,
+      content,
+      senderId,
+      receiverId
+    ]);
+    if (Number(result.affectedRows ?? 0) !== 1) {
+      throw storeError("MESSAGE_PARTICIPANT_NOT_FOUND", "Message participant was not found.");
+    }
+    return findMessageById(result.insertId);
+  }
+
+  async function markMessageRead(userId, messageId) {
+    await pooledExecute(`
+UPDATE \`message\`
+SET \`is_read\` = 1,
+    \`read_at\` = COALESCE(\`read_at\`, CURRENT_TIMESTAMP)
+WHERE \`message_id\` = ?
+  AND \`receiver_id\` = ?
+LIMIT 1
+`, [Number(messageId), Number(userId)]);
+    return findMessageById(messageId, userId);
+  }
+
+  async function findMessageById(messageId, viewerId = null) {
+    const row = await pooledOne(`
+SELECT
+  m.\`message_id\` AS messageId,
+  m.\`sender_id\` AS senderId,
+  m.\`receiver_id\` AS receiverId,
+  m.\`order_id\` AS orderId,
+  m.\`business_type\` AS businessType,
+  m.\`business_id\` AS businessId,
+  m.\`content\`,
+  m.\`is_read\` AS isRead,
+  IF(m.\`read_at\` IS NULL, NULL, DATE_FORMAT(m.\`read_at\`, '%Y-%m-%dT%H:%i:%s.000Z')) AS readAt,
+  DATE_FORMAT(m.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
+FROM \`message\` m
+WHERE m.\`message_id\` = ?
+  ${viewerId === null ? "" : "AND (m.`sender_id` = ? OR m.`receiver_id` = ?)"}
+LIMIT 1
+`, viewerId === null ? [Number(messageId)] : [Number(messageId), Number(viewerId), Number(viewerId)]);
+    return row ? normalizeMessage(row) : null;
+  }
+
+  async function listRequestComments(requestId, viewerId = null) {
+    const rows = await pooledRows(`
+SELECT
+  c.\`comment_id\` AS commentId,
+  c.\`request_id\` AS requestId,
+  c.\`user_id\` AS userId,
+  c.\`parent_id\` AS parentId,
+  c.\`content\`,
+  c.\`like_count\` AS likeCount,
+  DATE_FORMAT(c.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt,
+  DATE_FORMAT(c.\`updated_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS updatedAt,
+  ${userJsonObjectSql("u")} AS userJson,
+  ${viewerId === null ? "0" : "EXISTS(SELECT 1 FROM `request_comment_like` l WHERE l.`comment_id` = c.`comment_id` AND l.`user_id` = ?)"} AS likedByViewer
+FROM \`request_comment\` c
+JOIN \`user\` u ON u.\`user_id\` = c.\`user_id\`
+WHERE c.\`request_id\` = ?
+ORDER BY c.\`created_at\` ASC, c.\`comment_id\` ASC
+`, viewerId === null ? [Number(requestId)] : [Number(viewerId), Number(requestId)]);
+    return rows.map(normalizeRequestComment);
+  }
+
+  async function createRequestComment(input) {
+    const result = await pooledExecute(`
+INSERT INTO \`request_comment\` (
+  \`request_id\`,
+  \`user_id\`,
+  \`parent_id\`,
+  \`content\`
+)
+SELECT ?, ?, ?, ?
+WHERE EXISTS (SELECT 1 FROM \`service_request\` WHERE \`request_id\` = ?)
+  AND EXISTS (SELECT 1 FROM \`user\` WHERE \`user_id\` = ? AND \`status\` = 1)
+`, [
+      Number(input.requestId),
+      Number(input.userId),
+      input.parentId ?? null,
+      normalizeOptionalString(input.content) ?? "",
+      Number(input.requestId),
+      Number(input.userId)
+    ]);
+    if (Number(result.affectedRows ?? 0) !== 1) {
+      throw storeError("REQUEST_NOT_FOUND", "Service request was not found.");
+    }
+    return (await listRequestComments(input.requestId, input.userId)).find((comment) => comment.commentId === Number(result.insertId));
+  }
+
+  async function likeRequestComment(input) {
+    const commentId = Number(input.commentId);
+    const userId = Number(input.userId);
+    await pooledExecute("INSERT IGNORE INTO `request_comment_like` (`comment_id`, `user_id`) VALUES (?, ?)", [commentId, userId]);
+    await refreshCommentLikeCount(commentId);
+    return findRequestComment(commentId, userId);
+  }
+
+  async function unlikeRequestComment(input) {
+    const commentId = Number(input.commentId);
+    const userId = Number(input.userId);
+    await pooledExecute("DELETE FROM `request_comment_like` WHERE `comment_id` = ? AND `user_id` = ?", [commentId, userId]);
+    await refreshCommentLikeCount(commentId);
+    return findRequestComment(commentId, userId);
+  }
+
+  async function refreshCommentLikeCount(commentId) {
+    await pooledExecute(`
+UPDATE \`request_comment\`
+SET \`like_count\` = (
+  SELECT COUNT(*)
+  FROM \`request_comment_like\` l
+  WHERE l.\`comment_id\` = ?
+)
+WHERE \`comment_id\` = ?
+`, [commentId, commentId]);
+  }
+
+  async function findRequestComment(commentId, viewerId = null) {
+    const row = await pooledOne(`
+SELECT
+  c.\`comment_id\` AS commentId,
+  c.\`request_id\` AS requestId,
+  c.\`user_id\` AS userId,
+  c.\`parent_id\` AS parentId,
+  c.\`content\`,
+  c.\`like_count\` AS likeCount,
+  DATE_FORMAT(c.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt,
+  DATE_FORMAT(c.\`updated_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS updatedAt,
+  ${userJsonObjectSql("u")} AS userJson,
+  ${viewerId === null ? "0" : "EXISTS(SELECT 1 FROM `request_comment_like` l WHERE l.`comment_id` = c.`comment_id` AND l.`user_id` = ?)"} AS likedByViewer
+FROM \`request_comment\` c
+JOIN \`user\` u ON u.\`user_id\` = c.\`user_id\`
+WHERE c.\`comment_id\` = ?
+LIMIT 1
+`, viewerId === null ? [commentId] : [viewerId, commentId]);
+    if (!row) {
+      throw storeError("COMMENT_NOT_FOUND", "Request comment was not found.");
+    }
+    return normalizeRequestComment(row);
+  }
+
+  async function followUser(input) {
+    const followerId = Number(input.followerId);
+    const followeeId = Number(input.followeeId);
+    if (followerId === followeeId) throw storeError("FOLLOW_SELF_NOT_ALLOWED", "Cannot follow yourself.");
+    await pooledExecute("INSERT IGNORE INTO `user_follow` (`follower_id`, `followee_id`) VALUES (?, ?)", [followerId, followeeId]);
+    return { following: true, followerId, followeeId };
+  }
+
+  async function unfollowUser(input) {
+    const followerId = Number(input.followerId);
+    const followeeId = Number(input.followeeId);
+    await pooledExecute("DELETE FROM `user_follow` WHERE `follower_id` = ? AND `followee_id` = ?", [followerId, followeeId]);
+    return { following: false, followerId, followeeId };
+  }
+
+  async function isFollowing(followerId, followeeId) {
+    const row = await pooledOne("SELECT 1 AS ok FROM `user_follow` WHERE `follower_id` = ? AND `followee_id` = ? LIMIT 1", [Number(followerId), Number(followeeId)]);
+    return Boolean(row);
+  }
+
+  async function updateUserAvatar(userId, fileId) {
+    const asset = await findFileAssetById(fileId);
+    if (!asset || Number(asset.ownerId) !== Number(userId)) {
+      return null;
+    }
+    profileExtras.set(Number(userId), {
+      ...(profileExtras.get(Number(userId)) ?? {}),
+      avatarFileId: asset.fileId
+    });
+    return findUserById(userId);
+  }
+
   function revokeSessionsForUser(userId) {
     const now = new Date().toISOString();
     for (const session of sessions.values()) {
@@ -3783,32 +4128,185 @@ LIMIT 1;
     }
   }
 
-  function createSession(input) {
+  async function createSession(input) {
     const now = new Date().toISOString();
     const session = {
       sessionId: crypto.randomUUID(),
       userId: input.userId,
       role: input.role,
+      csrfToken: input.csrfToken,
+      ipAddress: input.ipAddress ?? null,
+      userAgent: input.userAgent ?? null,
       expiresAt: input.expiresAt,
       createdAt: now,
       revokedAt: null
     };
     sessions.set(session.sessionId, session);
+    await persistSession(session);
     return clone(session);
   }
 
-  function findSession(sessionId) {
+  async function persistSession(session) {
+    try {
+      await pooledExecute(`
+INSERT INTO \`auth_session\` (
+  \`session_id\`,
+  \`user_id\`,
+  \`role\`,
+  \`csrf_token\`,
+  \`expires_at\`,
+  \`ip_address\`,
+  \`user_agent\`,
+  \`created_at\`
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`, [
+        session.sessionId,
+        session.userId,
+        session.role,
+        session.csrfToken,
+        toMysqlDateTime(session.expiresAt),
+        session.ipAddress,
+        session.userAgent,
+        toMysqlDateTime(session.createdAt)
+      ]);
+      return;
+    } catch (_error) {
+      await mysqlJson(`
+INSERT INTO \`auth_session\` (
+  \`session_id\`,
+  \`user_id\`,
+  \`role\`,
+  \`csrf_token\`,
+  \`expires_at\`,
+  \`ip_address\`,
+  \`user_agent\`,
+  \`created_at\`
+)
+VALUES (
+  ${sqlString(session.sessionId)},
+  ${Number(session.userId)},
+  ${sqlString(session.role)},
+  ${sqlString(session.csrfToken)},
+  ${sqlString(toMysqlDateTime(session.expiresAt))},
+  ${sqlNullableString(session.ipAddress)},
+  ${sqlNullableString(session.userAgent)},
+  ${sqlString(toMysqlDateTime(session.createdAt))}
+);
+SELECT JSON_OBJECT('ok', TRUE);
+`, { optional: true }).catch((error) => {
+        if (!isMissingAuthSessionTable(error)) {
+          throw error;
+        }
+      });
+    }
+  }
+
+  async function findSession(sessionId) {
+    let row = await pooledOne(`
+SELECT
+  \`session_id\` AS sessionId,
+  \`user_id\` AS userId,
+  \`role\`,
+  \`csrf_token\` AS csrfToken,
+  DATE_FORMAT(\`expires_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS expiresAt,
+  DATE_FORMAT(\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt,
+  IF(\`revoked_at\` IS NULL, NULL, DATE_FORMAT(\`revoked_at\`, '%Y-%m-%dT%H:%i:%s.000Z')) AS revokedAt,
+  \`ip_address\` AS ipAddress,
+  \`user_agent\` AS userAgent
+FROM \`auth_session\`
+WHERE \`session_id\` = ?
+LIMIT 1
+`, [sessionId]).catch(() => null);
+    if (!row) {
+      row = await mysqlJson(`
+SELECT JSON_OBJECT(
+  'sessionId', \`session_id\`,
+  'userId', \`user_id\`,
+  'role', \`role\`,
+  'csrfToken', \`csrf_token\`,
+  'expiresAt', DATE_FORMAT(\`expires_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
+  'createdAt', DATE_FORMAT(\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
+  'revokedAt', IF(\`revoked_at\` IS NULL, NULL, DATE_FORMAT(\`revoked_at\`, '%Y-%m-%dT%H:%i:%s.000Z')),
+  'ipAddress', \`ip_address\`,
+  'userAgent', \`user_agent\`
+)
+FROM \`auth_session\`
+WHERE \`session_id\` = ${sqlString(sessionId)}
+LIMIT 1;
+`, { optional: true }).catch((error) => {
+        if (isMissingAuthSessionTable(error)) {
+          return null;
+        }
+        throw error;
+      });
+    }
+    if (row) {
+      const normalized = normalizeSession(row);
+      sessions.set(normalized.sessionId, normalized);
+      return clone(normalized);
+    }
     const session = sessions.get(sessionId);
     return session ? clone(session) : null;
   }
 
-  function revokeSession(sessionId) {
+  async function revokeSession(sessionId) {
+    const now = new Date().toISOString();
+    await pooledExecute(`
+UPDATE \`auth_session\`
+SET \`revoked_at\` = COALESCE(\`revoked_at\`, ?)
+WHERE \`session_id\` = ?
+`, [toMysqlDateTime(now), sessionId]).catch(() => mysqlJson(`
+UPDATE \`auth_session\`
+SET \`revoked_at\` = COALESCE(\`revoked_at\`, ${sqlString(toMysqlDateTime(now))})
+WHERE \`session_id\` = ${sqlString(sessionId)};
+SELECT JSON_OBJECT('ok', TRUE);
+`, { optional: true }).catch((error) => {
+      if (isMissingAuthSessionTable(error)) {
+        return null;
+      }
+      throw error;
+    }));
     const session = sessions.get(sessionId);
     if (!session || session.revokedAt) {
-      return false;
+      return Boolean(session);
     }
-    session.revokedAt = new Date().toISOString();
+    session.revokedAt = now;
     return true;
+  }
+
+  async function close() {
+    if (!poolPromise) {
+      return;
+    }
+    const pool = await poolPromise;
+    await pool.end();
+    poolPromise = null;
+  }
+
+  async function pooledExecute(sql, params = []) {
+    const pool = await mysqlPool();
+    const [result] = await pool.execute(sql, params);
+    return result;
+  }
+
+  async function pooledOne(sql, params = []) {
+    const pool = await mysqlPool();
+    const [rows] = await pool.execute(sql, params);
+    return Array.isArray(rows) ? rows[0] ?? null : null;
+  }
+
+  async function pooledRows(sql, params = []) {
+    const pool = await mysqlPool();
+    const [rows] = await pool.execute(sql, params);
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  function mysqlPool() {
+    if (!poolPromise) {
+      poolPromise = createMysqlPool(config);
+    }
+    return poolPromise;
   }
 
   async function mysqlJson(sql, options = {}) {
@@ -4145,6 +4643,7 @@ function normalizeUser(user) {
   }
   return {
     ...user,
+    avatarFileId: user.avatarFileId ?? user.avatar_file_id ?? null,
     displayName: user.displayName ?? user.username,
     bio: user.bio ?? null,
     skillTags: parseSkillTags(user.skillTags),
@@ -4297,6 +4796,66 @@ function normalizeTransactionLog(input) {
     balanceAfter: input.balanceAfter === undefined || input.balanceAfter === null ? null : Number(input.balanceAfter),
     remark: normalizeOptionalString(input.remark),
     createdAt: input.createdAt ?? input.created_at ?? null
+  };
+}
+
+function normalizeMessage(input) {
+  const orderId = input.orderId ?? input.order_id;
+  const businessId = input.businessId ?? input.business_id;
+  return {
+    messageId: Number(input.messageId ?? input.message_id),
+    senderId: Number(input.senderId ?? input.sender_id),
+    receiverId: Number(input.receiverId ?? input.receiver_id),
+    orderId: orderId === undefined || orderId === null ? null : Number(orderId),
+    businessType: normalizeOptionalString(input.businessType ?? input.business_type),
+    businessId: businessId === undefined || businessId === null ? null : Number(businessId),
+    content: String(input.content ?? ""),
+    isRead: Boolean(input.isRead ?? input.is_read),
+    readAt: input.readAt ?? input.read_at ?? null,
+    createdAt: input.createdAt ?? input.created_at ?? null
+  };
+}
+
+function normalizeFileAsset(input) {
+  const businessId = input.businessId ?? input.business_id;
+  return {
+    fileId: String(input.fileId ?? input.file_id),
+    ownerId: Number(input.ownerId ?? input.owner_id),
+    purpose: normalizeOptionalString(input.purpose) ?? "general",
+    businessType: normalizeOptionalString(input.businessType ?? input.business_type),
+    businessId: businessId === undefined || businessId === null ? null : Number(businessId),
+    originalName: String(input.originalName ?? input.original_name ?? "upload.bin"),
+    storagePath: String(input.storagePath ?? input.storage_path ?? ""),
+    mimeType: String(input.mimeType ?? input.mime_type ?? "application/octet-stream"),
+    sizeBytes: Number(input.sizeBytes ?? input.size_bytes ?? 0),
+    createdAt: input.createdAt ?? input.created_at ?? new Date().toISOString()
+  };
+}
+
+function normalizeRequestComment(input) {
+  return {
+    commentId: Number(input.commentId ?? input.comment_id),
+    requestId: Number(input.requestId ?? input.request_id),
+    userId: Number(input.userId ?? input.user_id),
+    parentId: input.parentId === undefined || input.parentId === null ? null : Number(input.parentId ?? input.parent_id),
+    content: String(input.content ?? ""),
+    likeCount: Number(input.likeCount ?? input.like_count ?? 0),
+    likedByViewer: Boolean(input.likedByViewer),
+    user: input.userJson ? normalizePublicUser(withProfileExtras(normalizeUser(input.userJson))) : null,
+    createdAt: input.createdAt ?? input.created_at ?? null,
+    updatedAt: input.updatedAt ?? input.updated_at ?? input.createdAt ?? input.created_at ?? null
+  };
+}
+
+function normalizePublicUser(user) {
+  if (!user) {
+    return null;
+  }
+  return {
+    userId: user.userId,
+    username: user.username,
+    displayName: user.displayName ?? user.username,
+    avatarFileId: user.avatarFileId ?? null
   };
 }
 
@@ -5478,6 +6037,37 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function normalizeSession(input) {
+  return {
+    sessionId: String(input.sessionId ?? input.session_id),
+    userId: Number(input.userId ?? input.user_id),
+    role: String(input.role ?? "user"),
+    csrfToken: String(input.csrfToken ?? input.csrf_token ?? ""),
+    expiresAt: toIso(input.expiresAt ?? input.expires_at),
+    createdAt: toIso(input.createdAt ?? input.created_at),
+    revokedAt: input.revokedAt ?? input.revoked_at ? toIso(input.revokedAt ?? input.revoked_at) : null,
+    ipAddress: normalizeOptionalString(input.ipAddress ?? input.ip_address),
+    userAgent: normalizeOptionalString(input.userAgent ?? input.user_agent)
+  };
+}
+
+function toMysqlDateTime(value) {
+  const date = new Date(value);
+  const safeDate = Number.isFinite(date.getTime()) ? date : new Date();
+  return safeDate.toISOString().slice(0, 19).replace("T", " ");
+}
+
+function toIso(value) {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  const text = String(value);
+  return text.includes("T") ? text : new Date(text).toISOString();
+}
+
 function normalizeAdminStats(input = {}) {
   const kpis = input.kpis ?? {};
   return {
@@ -5544,4 +6134,8 @@ function storeError(code, message) {
   const error = new Error(message);
   error.code = code;
   return error;
+}
+
+function isMissingAuthSessionTable(error) {
+  return /auth_session/i.test(String(error?.message ?? error?.stderr ?? "")) && /doesn't exist|does not exist|ER_NO_SUCH_TABLE/i.test(String(error?.message ?? error?.stderr ?? ""));
 }

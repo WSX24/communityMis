@@ -229,15 +229,7 @@ async function chatPayload(store, context, body, conversation, aiAdapter) {
 
   let result = ruleAnswer(prompt);
   if (aiAdapter && typeof aiAdapter.complete === "function") {
-    try {
-      result = await aiAdapter.complete({ prompt, scene, user: context.user, fallback: result });
-    } catch {
-      result = {
-        ...result,
-        fallback: true,
-        answer: `${result.answer}\n\n当前模型服务不可用，已使用本地规则模板回答。`
-      };
-    }
+    result = await aiAdapter.complete({ prompt, scene, user: context.user, fallback: result });
   }
   const message = await createAiMessageSafe(store, {
     conversationId: conversation.conversationId,
