@@ -87,7 +87,8 @@ export const routes = [
 export const responsiveViewports = [
   { name: "mobile-standard", width: 390, height: 844 },
   { name: "tablet-portrait", width: 820, height: 1180 },
-  { name: "desktop", width: 1440, height: 900 }
+  { name: "desktop", width: 1440, height: 900 },
+  { name: "wide-desktop", width: 1920, height: 1080 }
 ];
 
 export const routeById = new Map(routes.map((item) => [item.id, item]));

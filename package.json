@@ -29,7 +29,8 @@
     "test:stage18": "node scripts/validate-stage-18.mjs",
     "test:stage19": "node scripts/validate-stage-19.mjs",
     "test:stage20": "node scripts/validate-stage-20.mjs",
-    "test:stage21": "node scripts/validate-stage-21.mjs"
+    "test:stage21": "node scripts/validate-stage-21.mjs",
+    "test:stage22": "node scripts/validate-stage-22.mjs"
   },
   "engines": {
     "node": ">=18.18"
