@@ -2,7 +2,10 @@ import { ACTIVE_STATUS, DISABLED_STATUS } from "../auth/store.mjs";
 import { HttpError, methodNotAllowed, readJsonBody, sendJson } from "../http.mjs";
 
 const ADMIN_USER_STATUS_RE = /^\/api\/admin\/users\/([^/]+)\/status$/;
+const ADMIN_DISPUTE_DETAIL_RE = /^\/api\/admin\/disputes\/([^/]+)$/;
+const ADMIN_DISPUTE_FINALIZE_RE = /^\/api\/admin\/disputes\/([^/]+)\/finalize$/;
 const ADMIN_TRANSACTION_TYPES = new Set(["all", "income", "expense", "system_fee", "freeze", "release", "refund"]);
+const ADMIN_DISPUTE_STATUSES = new Set(["all", "pending", "todo", "in_progress", "processing", "reviewing", "resolved", "ruled", "closed"]);
 const USER_STATUSES = new Set(["all", "active", "disabled"]);
 const REQUEST_BODY_MAX_BYTES = 64 * 1024;
 
@@ -76,6 +79,59 @@ export async function handleAdminRoutes({ request, response, url, authService })
     return true;
   }
 
+  if (url.pathname === "/api/admin/disputes") {
+    allowOnly(request, response, ["GET"]);
+    await requireAdmin(request, authService);
+    sendJson(response, 200, await disputesPayload(authService.store, url.searchParams));
+    return true;
+  }
+
+  const disputeFinalizeMatch = url.pathname.match(ADMIN_DISPUTE_FINALIZE_RE);
+  if (disputeFinalizeMatch) {
+    allowOnly(request, response, ["POST"]);
+    const context = await requireAdmin(request, authService);
+    if (typeof authService.store.finalizeDispute !== "function") {
+      throw new HttpError(500, "ADMIN_DISPUTE_STORE_UNAVAILABLE", "Dispute finalization is not available.");
+    }
+    const disputeId = parseDisputeId(disputeFinalizeMatch[1]);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    const input = normalizeFinalizeDisputeInput(body);
+    let result;
+    try {
+      result = await authService.store.finalizeDispute({
+        ...input,
+        disputeId,
+        actorId: context.user.userId,
+        actorRole: context.user.role,
+        ipAddress: clientIp(request)
+      });
+    } catch (error) {
+      throw finalizeDisputeError(error);
+    }
+    const dispute = await enrichDisputeForAdmin(authService.store, result.dispute);
+    sendJson(response, 200, {
+      dispute,
+      order: result.order ? adminDisputeOrderDto(result.order) : null,
+      auditLog: result.auditLog ? auditLogDto(result.auditLog) : null
+    });
+    return true;
+  }
+
+  const disputeDetailMatch = url.pathname.match(ADMIN_DISPUTE_DETAIL_RE);
+  if (disputeDetailMatch) {
+    allowOnly(request, response, ["GET"]);
+    await requireAdmin(request, authService);
+    sendJson(response, 200, await disputeDetailPayload(authService.store, disputeDetailMatch[1]));
+    return true;
+  }
+
+  if (url.pathname === "/api/admin/stats") {
+    allowOnly(request, response, ["GET"]);
+    await requireAdmin(request, authService);
+    sendJson(response, 200, await statsPayload(authService.store));
+    return true;
+  }
+
   return false;
 }
 
@@ -146,6 +202,52 @@ async function transactionsPayload(store, searchParams) {
       pageSize: query.pageSize
     }
   };
+}
+
+async function disputesPayload(store, searchParams) {
+  if (typeof store.listAdminDisputes !== "function") {
+    throw new HttpError(500, "ADMIN_DISPUTE_STORE_UNAVAILABLE", "Admin dispute listing is not available.");
+  }
+  const query = normalizeDisputeQuery(searchParams);
+  const result = await store.listAdminDisputes(query);
+  const disputes = Array.isArray(result?.disputes) ? result.disputes : [];
+  const total = Number(result?.total ?? disputes.length);
+  return {
+    disputes: await Promise.all(disputes.map((item) => enrichDisputeForAdmin(store, item))),
+    pagination: paginationDto(query.page, query.pageSize, total),
+    summary: disputeSummaryDto(result?.summary, disputes, total),
+    filters: {
+      status: query.status,
+      keyword: query.keyword,
+      page: query.page,
+      pageSize: query.pageSize
+    }
+  };
+}
+
+async function disputeDetailPayload(store, rawDisputeId) {
+  const disputeId = parseDisputeId(rawDisputeId);
+  let dispute = null;
+  if (typeof store.findDisputeById === "function") {
+    dispute = await store.findDisputeById(disputeId);
+  }
+  if (!dispute && typeof store.listAdminDisputes === "function") {
+    const result = await store.listAdminDisputes({ page: 1, pageSize: 1000, status: "all" });
+    dispute = (result.disputes ?? []).find((item) => Number(item.disputeId) === disputeId) ?? null;
+  }
+  if (!dispute) {
+    throw new HttpError(404, "DISPUTE_NOT_FOUND", "Dispute was not found.");
+  }
+  return {
+    dispute: await enrichDisputeForAdmin(store, dispute)
+  };
+}
+
+async function statsPayload(store) {
+  if (typeof store.adminStats === "function") {
+    return adminStatsDto(await store.adminStats());
+  }
+  return adminStatsDto(await fallbackStats(store));
 }
 
 async function fallbackDashboardMetrics(store) {
@@ -296,6 +398,250 @@ function transactionSummaryDto(summary, transactions, total) {
   };
 }
 
+async function enrichDisputeForAdmin(store, dispute) {
+  const juryResult = await juryResultForDispute(store, dispute?.disputeId);
+  return adminDisputeDto(dispute, { juryResult });
+}
+
+async function juryResultForDispute(store, disputeId) {
+  if (!disputeId || typeof store.listJuryVotesForDisputeId !== "function") {
+    return juryResultDto([], disputeId);
+  }
+  const votes = await store.listJuryVotesForDisputeId(disputeId);
+  return juryResultDto(votes, disputeId);
+}
+
+function adminDisputeDto(item, options = {}) {
+  const order = item.order ?? {};
+  const request = item.request ?? {};
+  const amount = Number(order.coinAmount ?? request.coinAmount ?? item.freeze?.amount ?? 0);
+  const status = String(item.status ?? "pending");
+  const finalResult = item.finalResult ?? null;
+  return {
+    disputeId: item.disputeId,
+    orderId: item.orderId,
+    requestId: request.requestId ?? order.requestId ?? null,
+    type: item.type,
+    typeText: disputeTypeText(item.type),
+    status,
+    statusText: disputeStatusText(status),
+    isFinalizable: !["resolved", "cancelled"].includes(status),
+    reason: item.reason ?? "",
+    description: item.description ?? item.reason ?? "",
+    amount: roundMoney(amount),
+    finalResult,
+    finalResultText: finalResult ? finalResultText(finalResult) : null,
+    refundAmount: item.refundAmount === null || item.refundAmount === undefined ? null : roundMoney(item.refundAmount),
+    providerPayout: finalResult ? roundMoney(Math.max(0, amount - Number(item.refundAmount ?? 0))) : null,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt ?? null,
+    resolvedAt: item.resolvedAt ?? null,
+    order: item.order ? adminDisputeOrderDto(item.order) : null,
+    request: item.request ? adminDisputeRequestDto(item.request) : null,
+    initiator: item.initiator ? adminDisputeUserDto(item.initiator) : null,
+    respondent: item.respondent ? adminDisputeUserDto(item.respondent) : null,
+    publisher: item.publisher ? adminDisputeUserDto(item.publisher) : null,
+    provider: item.provider ? adminDisputeUserDto(item.provider) : null,
+    evidence: Array.isArray(item.evidence) ? item.evidence.map(disputeEvidenceDto) : [],
+    freeze: item.freeze ? disputeFreezeDto(item.freeze) : null,
+    progress: item.progress ?? null,
+    juryResult: options.juryResult ?? juryResultDto([], item.disputeId),
+    href: `/admin/disputes/final?disputeId=${encodeURIComponent(item.disputeId)}`
+  };
+}
+
+function adminDisputeOrderDto(order) {
+  return {
+    orderId: order.orderId,
+    requestId: order.requestId,
+    providerId: order.providerId ?? null,
+    status: order.status,
+    payerConfirmed: Boolean(order.payerConfirmed),
+    providerConfirmed: Boolean(order.providerConfirmed),
+    coinAmount: roundMoney(order.coinAmount ?? 0),
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt ?? null,
+    completedAt: order.completedAt ?? null
+  };
+}
+
+function adminDisputeRequestDto(request) {
+  return {
+    requestId: request.requestId,
+    publisherId: request.publisherId,
+    categoryId: request.categoryId ?? null,
+    title: request.title,
+    description: request.description ?? "",
+    location: request.location ?? null,
+    estimatedHours: Number(request.estimatedHours ?? 0),
+    coinAmount: roundMoney(request.coinAmount ?? 0),
+    status: request.status,
+    tags: Array.isArray(request.tags) ? request.tags : [],
+    category: request.category ?? null,
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt ?? null
+  };
+}
+
+function adminDisputeUserDto(user) {
+  return {
+    userId: user.userId,
+    username: user.username,
+    displayName: user.displayName ?? user.username
+  };
+}
+
+function disputeEvidenceDto(item) {
+  return {
+    evidenceId: item.evidenceId,
+    disputeId: item.disputeId,
+    uploaderId: item.uploaderId,
+    evidenceType: item.evidenceType,
+    content: item.content ?? "",
+    attachments: Array.isArray(item.attachments) ? item.attachments : [],
+    uploader: item.uploader ? adminDisputeUserDto(item.uploader) : null,
+    createdAt: item.createdAt
+  };
+}
+
+function disputeFreezeDto(item) {
+  return {
+    freezeId: item.freezeId,
+    userId: item.userId,
+    orderId: item.orderId,
+    requestId: item.requestId ?? null,
+    disputeId: item.disputeId ?? null,
+    reasonType: item.reasonType,
+    status: item.status,
+    amount: roundMoney(item.amount ?? 0),
+    reason: item.reason,
+    releaseCondition: item.releaseCondition,
+    relatedTitle: item.relatedTitle ?? null,
+    businessType: item.businessType ?? "dispute",
+    businessId: item.businessId ?? item.disputeId ?? item.orderId ?? null,
+    timeline: Array.isArray(item.timeline) ? item.timeline : [],
+    createdAt: item.createdAt,
+    releasedAt: item.releasedAt ?? null
+  };
+}
+
+function juryResultDto(votes, disputeId) {
+  const list = Array.isArray(votes) ? votes : [];
+  const counts = { publisher: 0, provider: 0, mediate: 0 };
+  for (const vote of list) {
+    const key = String(vote.vote ?? "");
+    if (Object.hasOwn(counts, key)) {
+      counts[key] += 1;
+    }
+  }
+  const total = list.length;
+  const leader = Object.entries(counts)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0]?.[0] ?? "mediate";
+  return {
+    disputeId: disputeId ? Number(disputeId) : null,
+    total,
+    counts,
+    percentages: {
+      publisher: total > 0 ? Math.round((counts.publisher / total) * 100) : 0,
+      provider: total > 0 ? Math.round((counts.provider / total) * 100) : 0,
+      mediate: total > 0 ? Math.round((counts.mediate / total) * 100) : 0
+    },
+    leader,
+    leaderText: juryVoteText(leader),
+    votes: list.map((item) => ({
+      voteId: item.voteId,
+      disputeId: item.disputeId,
+      jurorId: item.jurorId,
+      vote: item.vote,
+      voteText: juryVoteText(item.vote),
+      reason: item.reason ?? "",
+      juror: item.juror ? adminDisputeUserDto(item.juror) : null,
+      createdAt: item.createdAt
+    }))
+  };
+}
+
+function disputeSummaryDto(summary, disputes, total) {
+  if (summary) {
+    return {
+      total: Number(summary.total ?? total ?? 0),
+      pendingCount: Number(summary.pendingCount ?? 0),
+      inProgressCount: Number(summary.inProgressCount ?? 0),
+      resolvedCount: Number(summary.resolvedCount ?? 0)
+    };
+  }
+  return {
+    total: Number(total ?? disputes.length),
+    pendingCount: disputes.filter((item) => ["pending", "evidence_collecting"].includes(item.status)).length,
+    inProgressCount: disputes.filter((item) => ["jury_voting", "admin_review"].includes(item.status)).length,
+    resolvedCount: disputes.filter((item) => item.status === "resolved").length
+  };
+}
+
+function adminStatsDto(stats = {}) {
+  const kpis = stats.kpis ?? {};
+  return {
+    kpis: {
+      userCount: Number(kpis.userCount ?? 0),
+      circulatingCoins: roundMoney(kpis.circulatingCoins ?? 0),
+      completedOrderCount: Number(kpis.completedOrderCount ?? 0),
+      disputeRate: round1(kpis.disputeRate ?? 0),
+      averageCredit: round1(kpis.averageCredit ?? 0)
+    },
+    hotServices: Array.isArray(stats.hotServices) ? stats.hotServices.map((item) => ({
+      name: item.name,
+      requestCount: Number(item.requestCount ?? 0),
+      orderCount: Number(item.orderCount ?? 0),
+      coinAmount: roundMoney(item.coinAmount ?? 0),
+      percentage: Number(item.percentage ?? 0)
+    })) : [],
+    orderTrend: Array.isArray(stats.orderTrend) ? stats.orderTrend.map((item) => ({
+      month: item.month,
+      orders: Number(item.orders ?? 0)
+    })) : [],
+    coinFlow: Array.isArray(stats.coinFlow) ? stats.coinFlow.map((item) => ({
+      type: item.type,
+      amount: roundMoney(item.amount ?? 0),
+      percentage: Number(item.percentage ?? 0)
+    })) : [],
+    userGrowth: Array.isArray(stats.userGrowth) ? stats.userGrowth.map((item) => ({
+      month: item.month,
+      newUsers: Number(item.newUsers ?? 0),
+      totalUsers: Number(item.totalUsers ?? 0)
+    })) : [],
+    disputeRate: Array.isArray(stats.disputeRate) ? stats.disputeRate.map((item) => ({
+      month: item.month,
+      orderCount: Number(item.orderCount ?? 0),
+      disputeCount: Number(item.disputeCount ?? 0),
+      rate: round1(item.rate ?? 0)
+    })) : []
+  };
+}
+
+async function fallbackStats(store) {
+  const users = typeof store.listAdminUsers === "function" ? await store.listAdminUsers({ page: 1, pageSize: 1000 }) : { users: [] };
+  const orders = typeof store.listServiceOrders === "function" ? await store.listServiceOrders() : [];
+  const requests = typeof store.listServiceRequests === "function" ? await store.listServiceRequests() : [];
+  const transactions = typeof store.listTransactionLogs === "function" ? await store.listTransactionLogs({ limit: 1000 }) : [];
+  const reviews = typeof store.listReviewsForTargetId === "function"
+    ? (await Promise.all((users.users ?? []).map((item) => store.listReviewsForTargetId((item.user ?? item).userId)))).flat()
+    : [];
+  return {
+    kpis: {
+      userCount: Number(users.total ?? users.users?.length ?? 0),
+      circulatingCoins: roundMoney(transactions.reduce((sum, item) => sum + Number(item.amount ?? 0), 0)),
+      completedOrderCount: orders.filter((item) => item.status === "completed").length,
+      disputeRate: 0,
+      averageCredit: reviews.length > 0 ? round1(reviews.reduce((sum, item) => sum + Number(item.rating ?? 0), 0) / reviews.length) : 0
+    },
+    hotServices: [],
+    orderTrend: [],
+    coinFlow: [],
+    userGrowth: [],
+    disputeRate: []
+  };
+}
+
 function normalizeUserQuery(searchParams) {
   const status = optionalLower(searchParams.get("status") ?? "all", 20) ?? "all";
   if (!USER_STATUSES.has(status)) {
@@ -326,6 +672,51 @@ function normalizeTransactionQuery(searchParams) {
   };
 }
 
+function normalizeDisputeQuery(searchParams) {
+  const status = optionalLower(searchParams.get("status") ?? "all", 30) ?? "all";
+  if (!ADMIN_DISPUTE_STATUSES.has(status)) {
+    throw new HttpError(400, "INVALID_DISPUTE_STATUS", "Unsupported dispute status filter.");
+  }
+  return {
+    status,
+    keyword: optionalLower(searchParams.get("keyword") ?? searchParams.get("q"), 100),
+    page: parsePositiveInt(searchParams.get("page") ?? "1", "INVALID_PAGE", 1, 1000),
+    pageSize: parsePositiveInt(searchParams.get("pageSize") ?? searchParams.get("limit") ?? "20", "INVALID_PAGE_SIZE", 1, 100)
+  };
+}
+
+function normalizeFinalizeDisputeInput(input) {
+  const result = String(input?.result ?? input?.finalResult ?? "").trim().toLowerCase();
+  const mapped = new Map([
+    ["demand", "publisher_win"],
+    ["publisher", "publisher_win"],
+    ["publisher_win", "publisher_win"],
+    ["service", "provider_win"],
+    ["provider", "provider_win"],
+    ["provider_win", "provider_win"],
+    ["mediate", "mediate"],
+    ["mediation", "mediate"]
+  ]).get(result);
+  if (!mapped) {
+    throw new HttpError(400, "INVALID_FINAL_RESULT", "Final result must be publisher_win, provider_win, or mediate.");
+  }
+  const refundAmount = input?.refundAmount === undefined || input?.refundAmount === null || input?.refundAmount === ""
+    ? null
+    : Number(input.refundAmount);
+  if (refundAmount !== null && (!Number.isFinite(refundAmount) || refundAmount < 0)) {
+    throw new HttpError(400, "INVALID_REFUND_AMOUNT", "Refund amount must be a non-negative number.");
+  }
+  const reason = optionalText(input?.reason, 1000);
+  if (!reason || reason.length < 5) {
+    throw new HttpError(400, "INVALID_FINAL_REASON", "Finalization reason must be at least 5 characters.");
+  }
+  return {
+    finalResult: mapped,
+    refundAmount,
+    reason
+  };
+}
+
 function normalizeStatusInput(input) {
   const rawStatus = input?.status;
   const normalized = typeof rawStatus === "string" ? rawStatus.trim().toLowerCase() : rawStatus;
@@ -346,6 +737,13 @@ function normalizeStatusInput(input) {
 function parseUserId(raw) {
   if (!/^\d+$/.test(String(raw))) {
     throw new HttpError(404, "USER_NOT_FOUND", "User was not found.");
+  }
+  return Number(raw);
+}
+
+function parseDisputeId(raw) {
+  if (!/^\d+$/.test(String(raw))) {
+    throw new HttpError(404, "DISPUTE_NOT_FOUND", "Dispute was not found.");
   }
   return Number(raw);
 }
@@ -421,6 +819,72 @@ function transactionRisk(item) {
     return "mid";
   }
   return "low";
+}
+
+function finalizeDisputeError(error) {
+  if (error?.code === "DISPUTE_NOT_FOUND") {
+    return new HttpError(404, "DISPUTE_NOT_FOUND", "Dispute was not found.");
+  }
+  if (error?.code === "ORDER_NOT_FOUND") {
+    return new HttpError(404, "ORDER_NOT_FOUND", "Service order was not found.");
+  }
+  if (error?.code === "INVALID_FINAL_RESULT") {
+    return new HttpError(400, "INVALID_FINAL_RESULT", "Unsupported final dispute result.");
+  }
+  if (error?.code === "DISPUTE_ALREADY_RESOLVED") {
+    return new HttpError(409, "DISPUTE_ALREADY_RESOLVED", "This dispute is already resolved.");
+  }
+  if (error?.code === "DISPUTE_CLOSED") {
+    return new HttpError(409, "DISPUTE_CLOSED", "Closed disputes cannot be finalized.");
+  }
+  if (error?.code === "INSUFFICIENT_BALANCE") {
+    return new HttpError(409, "INSUFFICIENT_BALANCE", "Payer wallet balance is insufficient.");
+  }
+  if (error?.code === "ORDER_WALLET_NOT_FOUND") {
+    return new HttpError(409, "ORDER_WALLET_NOT_FOUND", "Order wallet was not found.");
+  }
+  return error;
+}
+
+function disputeTypeText(type) {
+  const map = new Map([
+    ["quality_issue", "质量争议"],
+    ["not_completed", "未完成"],
+    ["communication", "沟通争议"],
+    ["other", "其他争议"]
+  ]);
+  return map.get(type) ?? "订单争议";
+}
+
+function disputeStatusText(status) {
+  const map = new Map([
+    ["pending", "待处理"],
+    ["evidence_collecting", "举证中"],
+    ["jury_voting", "陪审中"],
+    ["admin_review", "待终审"],
+    ["resolved", "已裁决"],
+    ["cancelled", "已取消"]
+  ]);
+  return map.get(status) ?? "待处理";
+}
+
+function finalResultText(result) {
+  const map = new Map([
+    ["publisher_win", "支持需求方"],
+    ["provider_win", "支持服务方"],
+    ["mediate", "调解处理"],
+    ["cancelled", "已取消"]
+  ]);
+  return map.get(result) ?? "终审结案";
+}
+
+function juryVoteText(vote) {
+  const map = new Map([
+    ["publisher", "建议需求方胜诉"],
+    ["provider", "建议服务方胜诉"],
+    ["mediate", "建议调解处理"]
+  ]);
+  return map.get(vote) ?? "建议调解处理";
 }
 
 function businessHref(type, id) {

@@ -181,7 +181,15 @@ export function createApiClient(options = {}) {
         token,
         body: payload
       }),
-      transactions: (token, params = {}) => request(withQuery("/api/admin/transactions", params), { token })
+      transactions: (token, params = {}) => request(withQuery("/api/admin/transactions", params), { token }),
+      disputes: (token, params = {}) => request(withQuery("/api/admin/disputes", params), { token }),
+      dispute: (token, disputeId) => request(`/api/admin/disputes/${encodeURIComponent(disputeId)}`, { token }),
+      finalizeDispute: (token, disputeId, payload) => request(`/api/admin/disputes/${encodeURIComponent(disputeId)}/finalize`, {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      stats: (token) => request("/api/admin/stats", { token })
     }
   };
 }

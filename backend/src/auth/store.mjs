@@ -120,6 +120,9 @@ export function createMemoryAuthStore(options = {}) {
     updateUserStatus,
     adminDashboardMetrics,
     listAdminTransactions,
+    listAdminDisputes,
+    finalizeDispute,
+    adminStats,
     createAuditLog,
     listAuditLogs,
     createSession,
@@ -1174,6 +1177,242 @@ export function createMemoryAuthStore(options = {}) {
         frozenCoins: roundMoney(filtered.filter((item) => item.type === "freeze").reduce((sum, item) => sum + Number(item.amount ?? 0), 0)),
         reviewCount: filtered.filter((item) => item.disputeId || item.type === "refund").length
       }
+    };
+  }
+
+  function listAdminDisputes(query = {}) {
+    const status = normalizeAdminDisputeFilter(query.status, "all");
+    const keyword = normalizeOptionalString(query.keyword)?.toLowerCase() ?? null;
+    const page = positiveInteger(query.page, 1);
+    const pageSize = positiveInteger(query.pageSize, 20);
+    const filtered = Array.from(disputes.values())
+      .map(enrichDispute)
+      .filter((item) => adminDisputeStatusMatches(item.status, status))
+      .filter((item) => !keyword || adminDisputeHaystack(item).includes(keyword))
+      .sort(compareDisputes);
+    const offset = (page - 1) * pageSize;
+    return {
+      disputes: filtered.slice(offset, offset + pageSize).map(clone),
+      total: filtered.length,
+      summary: adminDisputeSummary(filtered)
+    };
+  }
+
+  function finalizeDispute(input) {
+    const disputeId = Number(input.disputeId);
+    const dispute = disputes.get(disputeId);
+    if (!dispute) {
+      throw storeError("DISPUTE_NOT_FOUND", "Dispute was not found.");
+    }
+    if (dispute.status === "resolved") {
+      throw storeError("DISPUTE_ALREADY_RESOLVED", "This dispute is already resolved.");
+    }
+    if (dispute.status === "cancelled") {
+      throw storeError("DISPUTE_CLOSED", "Closed disputes cannot be finalized.");
+    }
+
+    const order = serviceOrders.get(dispute.orderId);
+    const request = order ? serviceRequests.get(order.requestId) : null;
+    if (!order || !request) {
+      throw storeError("ORDER_NOT_FOUND", "Service order was not found.");
+    }
+    const payerWallet = wallets.get(request.publisherId);
+    const providerWallet = wallets.get(order.providerId);
+    if (!payerWallet || !providerWallet) {
+      throw storeError("ORDER_WALLET_NOT_FOUND", "Order wallet was not found.");
+    }
+
+    const finalResult = normalizeFinalDisputeResult(input.result ?? input.finalResult);
+    const now = input.createdAt ?? new Date().toISOString();
+    const coinAmount = roundMoney(order.coinAmount ?? 0);
+    const refundAmount = finalRefundAmount(finalResult, input.refundAmount, coinAmount);
+    const providerPayout = roundMoney(Math.max(0, coinAmount - refundAmount));
+    if (providerPayout > payerWallet.balance) {
+      throw storeError("INSUFFICIENT_BALANCE", "Payer wallet balance is insufficient.");
+    }
+
+    const previousDispute = clone(dispute);
+    const previousOrder = clone(order);
+    const previousRequest = clone(request);
+    const previousPayerWallet = clone(payerWallet);
+    const previousProviderWallet = clone(providerWallet);
+    const relatedFreezes = Array.from(walletFreezes.values()).filter((freeze) => freeze.disputeId === disputeId);
+    const previousFreezes = relatedFreezes.map(clone);
+    const previousNextTransactionLogId = nextTransactionLogId;
+    const previousNextNotificationId = nextNotificationId;
+    const previousNextAuditLogId = nextAuditLogId;
+    const createdLogIds = [];
+
+    try {
+      dispute.status = "resolved";
+      dispute.finalResult = finalResult;
+      dispute.refundAmount = refundAmount;
+      dispute.updatedAt = now;
+      dispute.resolvedAt = now;
+
+      order.status = "completed";
+      order.completedAt = order.completedAt ?? now;
+      order.updatedAt = now;
+      request.status = "completed";
+      request.updatedAt = now;
+
+      for (const freeze of relatedFreezes) {
+        if (isUnreleasedFreeze(freeze)) {
+          payerWallet.frozenBalance = roundMoney(Math.max(0, payerWallet.frozenBalance - freeze.amount));
+          payerWallet.version += 1;
+        }
+        freeze.status = "released";
+        freeze.releasedAt = now;
+        freeze.releaseCondition = `终审结案：${finalResultLabel(finalResult)}，退还 ${refundAmount.toFixed(2)} 时间币。`;
+        freeze.timeline = [
+          ...(Array.isArray(freeze.timeline) ? freeze.timeline : []),
+          {
+            title: "管理员终审结案",
+            detail: freeze.releaseCondition,
+            createdAt: now
+          }
+        ].slice(-8);
+      }
+      payerWallet.updatedAt = now;
+
+      if (providerPayout > 0) {
+        payerWallet.balance = roundMoney(payerWallet.balance - providerPayout);
+        payerWallet.version += 1;
+        payerWallet.updatedAt = now;
+        providerWallet.balance = roundMoney(providerWallet.balance + providerPayout);
+        providerWallet.version += 1;
+        providerWallet.updatedAt = now;
+        createdLogIds.push(insertTransactionLog({
+          userId: request.publisherId,
+          orderId: order.orderId,
+          disputeId,
+          type: "expense",
+          amount: providerPayout,
+          balanceAfter: payerWallet.balance,
+          remark: `纠纷终审结案，向服务方结算 ${providerPayout.toFixed(2)} 时间币`,
+          createdAt: now
+        }).logId);
+        createdLogIds.push(insertTransactionLog({
+          userId: order.providerId,
+          orderId: order.orderId,
+          disputeId,
+          type: "income",
+          amount: providerPayout,
+          balanceAfter: providerWallet.balance,
+          remark: `纠纷终审结案，服务方入账 ${providerPayout.toFixed(2)} 时间币`,
+          createdAt: now
+        }).logId);
+      }
+      if (refundAmount > 0) {
+        createdLogIds.push(insertTransactionLog({
+          userId: request.publisherId,
+          orderId: order.orderId,
+          disputeId,
+          type: "refund",
+          amount: refundAmount,
+          balanceAfter: payerWallet.balance,
+          remark: `纠纷终审结案，退回冻结时间币 ${refundAmount.toFixed(2)}`,
+          createdAt: now
+        }).logId);
+      }
+
+      createNotification({
+        userId: request.publisherId,
+        type: "dispute",
+        title: "纠纷终审已完成",
+        content: `订单「${request.title}」终审结果：${finalResultLabel(finalResult)}，退还 ${refundAmount.toFixed(2)} 时间币。`,
+        businessType: "dispute",
+        businessId: disputeId,
+        createdAt: now
+      });
+      createNotification({
+        userId: order.providerId,
+        type: "dispute",
+        title: "纠纷终审已完成",
+        content: `订单「${request.title}」终审结果：${finalResultLabel(finalResult)}，结算 ${providerPayout.toFixed(2)} 时间币。`,
+        businessType: "dispute",
+        businessId: disputeId,
+        createdAt: now
+      });
+
+      const auditLog = createAuditLog({
+        actorId: input.actorId,
+        actorRole: input.actorRole ?? "admin",
+        action: "admin.dispute.finalize",
+        targetType: "dispute",
+        targetId: disputeId,
+        ipAddress: input.ipAddress,
+        detail: {
+          finalResult,
+          refundAmount,
+          providerPayout,
+          reason: normalizeOptionalString(input.reason)
+        },
+        createdAt: now
+      });
+
+      return {
+        dispute: clone(enrichDispute(dispute)),
+        order: clone(order),
+        auditLog
+      };
+    } catch (error) {
+      disputes.set(previousDispute.disputeId, previousDispute);
+      serviceOrders.set(previousOrder.orderId, previousOrder);
+      serviceRequests.set(previousRequest.requestId, previousRequest);
+      wallets.set(previousPayerWallet.userId, previousPayerWallet);
+      wallets.set(previousProviderWallet.userId, previousProviderWallet);
+      for (const previousFreeze of previousFreezes) {
+        walletFreezes.set(previousFreeze.freezeId, previousFreeze);
+      }
+      for (const logId of createdLogIds) {
+        transactionLogs.delete(logId);
+      }
+      rollbackNotificationsAfter(now);
+      for (const auditId of Array.from(auditLogs.keys())) {
+        if (auditId >= previousNextAuditLogId) {
+          auditLogs.delete(auditId);
+        }
+      }
+      nextTransactionLogId = previousNextTransactionLogId;
+      nextNotificationId = previousNextNotificationId;
+      nextAuditLogId = previousNextAuditLogId;
+      throw error;
+    }
+  }
+
+  function adminStats() {
+    const userList = Array.from(users.values());
+    const requestList = Array.from(serviceRequests.values()).filter((item) => item.visible !== false).map(withCategory);
+    const orderList = Array.from(serviceOrders.values());
+    const disputeList = Array.from(disputes.values()).filter((item) => item.status !== "cancelled");
+    const transactionList = Array.from(transactionLogs.values());
+    const reviewList = reviews;
+    const completedOrders = orderList.filter((item) => item.status === "completed");
+    const disputeRate = orderList.length > 0 ? round1((disputeList.length / orderList.length) * 100) : 0;
+    return {
+      kpis: {
+        userCount: userList.length,
+        circulatingCoins: roundMoney(sumTransactions(transactionList)),
+        completedOrderCount: completedOrders.length,
+        disputeRate,
+        averageCredit: averageCreditScore(reviewList)
+      },
+      hotServices: hotServicesStats(requestList, orderList),
+      orderTrend: monthlyStats(orderList, (order) => order.createdAt, (items) => ({ orders: items.length })),
+      coinFlow: coinFlowStats(transactionList),
+      userGrowth: monthlyStats(userList, (user) => user.createdAt, (items, month, all) => ({
+        newUsers: items.length,
+        totalUsers: all.filter((user) => monthKey(user.createdAt) <= month).length
+      })),
+      disputeRate: monthlyStats(orderList, (order) => order.createdAt, (items, month) => {
+        const disputeCount = disputeList.filter((item) => monthKey(item.createdAt) === month).length;
+        return {
+          orderCount: items.length,
+          disputeCount,
+          rate: items.length > 0 ? round1((disputeCount / items.length) * 100) : 0
+        };
+      })
     };
   }
 
@@ -2657,6 +2896,186 @@ function adminTransactionHaystack(item) {
     item.order?.provider?.username,
     item.order?.provider?.displayName
   ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function adminDisputeHaystack(item) {
+  return [
+    item.disputeId,
+    item.orderId,
+    item.type,
+    item.status,
+    item.reason,
+    item.description,
+    item.request?.title,
+    item.publisher?.username,
+    item.publisher?.displayName,
+    item.provider?.username,
+    item.provider?.displayName,
+    item.finalResult
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function normalizeAdminDisputeFilter(value, fallback) {
+  const text = String(value ?? "").trim().toLowerCase();
+  const map = new Map([
+    ["pending", "pending"],
+    ["todo", "pending"],
+    ["in_progress", "in_progress"],
+    ["processing", "in_progress"],
+    ["reviewing", "in_progress"],
+    ["resolved", "resolved"],
+    ["ruled", "resolved"],
+    ["closed", "resolved"],
+    ["all", "all"]
+  ]);
+  return map.get(text) ?? fallback;
+}
+
+function adminDisputeStatusMatches(disputeStatus, filter) {
+  if (filter === "all") {
+    return true;
+  }
+  if (filter === "pending") {
+    return ["pending", "evidence_collecting"].includes(disputeStatus);
+  }
+  if (filter === "in_progress") {
+    return ["jury_voting", "admin_review"].includes(disputeStatus);
+  }
+  if (filter === "resolved") {
+    return disputeStatus === "resolved";
+  }
+  return disputeStatus === filter;
+}
+
+function adminDisputeSummary(items) {
+  return {
+    total: items.length,
+    pendingCount: items.filter((item) => adminDisputeStatusMatches(item.status, "pending")).length,
+    inProgressCount: items.filter((item) => adminDisputeStatusMatches(item.status, "in_progress")).length,
+    resolvedCount: items.filter((item) => item.status === "resolved").length
+  };
+}
+
+function normalizeFinalDisputeResult(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  const map = new Map([
+    ["publisher", "publisher_win"],
+    ["publisher_win", "publisher_win"],
+    ["demand", "publisher_win"],
+    ["demand_win", "publisher_win"],
+    ["requester", "publisher_win"],
+    ["provider", "provider_win"],
+    ["provider_win", "provider_win"],
+    ["service", "provider_win"],
+    ["service_win", "provider_win"],
+    ["mediate", "mediate"],
+    ["mediation", "mediate"]
+  ]);
+  const normalized = map.get(text);
+  if (!normalized) {
+    throw storeError("INVALID_FINAL_RESULT", "Unsupported final dispute result.");
+  }
+  return normalized;
+}
+
+function finalRefundAmount(finalResult, rawRefundAmount, coinAmount) {
+  const requested = Number(rawRefundAmount);
+  const explicit = Number.isFinite(requested) ? Math.min(coinAmount, Math.max(0, requested)) : null;
+  if (finalResult === "publisher_win") {
+    return roundMoney(explicit === null ? coinAmount : explicit);
+  }
+  if (finalResult === "provider_win") {
+    return 0;
+  }
+  return roundMoney(explicit === null ? coinAmount / 2 : explicit);
+}
+
+function finalResultLabel(value) {
+  const map = new Map([
+    ["publisher_win", "支持需求方"],
+    ["provider_win", "支持服务方"],
+    ["mediate", "调解处理"],
+    ["cancelled", "已取消"]
+  ]);
+  return map.get(value) ?? "终审结案";
+}
+
+function averageCreditScore(reviews) {
+  if (!Array.isArray(reviews) || reviews.length === 0) {
+    return 0;
+  }
+  const total = reviews.reduce((sum, review) => sum + Math.min(5, Math.max(1, Number(review.rating) || 1)), 0);
+  return round1(total / reviews.length);
+}
+
+function hotServicesStats(requests, orders) {
+  const orderCounts = new Map();
+  for (const order of orders) {
+    orderCounts.set(order.requestId, (orderCounts.get(order.requestId) ?? 0) + 1);
+  }
+  const map = new Map();
+  for (const request of requests) {
+    const key = request.category?.name || request.categoryName || request.categoryCode || request.tags?.[0] || "其他";
+    const entry = map.get(key) ?? { name: key, requestCount: 0, orderCount: 0, coinAmount: 0 };
+    entry.requestCount += 1;
+    entry.orderCount += orderCounts.get(request.requestId) ?? 0;
+    entry.coinAmount = roundMoney(entry.coinAmount + Number(request.coinAmount ?? 0));
+    map.set(key, entry);
+  }
+  const total = Array.from(map.values()).reduce((sum, item) => sum + item.requestCount, 0);
+  return Array.from(map.values())
+    .sort((left, right) => right.requestCount - left.requestCount || right.orderCount - left.orderCount || left.name.localeCompare(right.name))
+    .slice(0, 6)
+    .map((item) => ({
+      ...item,
+      percentage: total > 0 ? Math.round((item.requestCount / total) * 100) : 0
+    }));
+}
+
+function coinFlowStats(transactions) {
+  const total = transactions.reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
+  const types = ["income", "expense", "freeze", "release", "refund", "system_fee"];
+  return types.map((type) => {
+    const amount = roundMoney(transactions.filter((item) => item.type === type).reduce((sum, item) => sum + Number(item.amount ?? 0), 0));
+    return {
+      type,
+      amount,
+      percentage: total > 0 ? Math.round((amount / total) * 100) : 0
+    };
+  });
+}
+
+function monthlyStats(items, dateSelector, reducer) {
+  const groups = new Map();
+  for (const item of items) {
+    const key = monthKey(dateSelector(item));
+    if (!key) {
+      continue;
+    }
+    const group = groups.get(key) ?? [];
+    group.push(item);
+    groups.set(key, group);
+  }
+  return Array.from(groups.keys()).sort().slice(-6).map((month) => ({
+    month,
+    ...reducer(groups.get(month) ?? [], month, items)
+  }));
+}
+
+function monthKey(value) {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  return `${date.getUTCFullYear()}-${month}`;
+}
+
+function round1(value) {
+  return Math.round(Number(value) * 10) / 10;
 }
 
 function sumTransactions(items) {

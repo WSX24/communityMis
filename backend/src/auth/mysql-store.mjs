@@ -60,6 +60,9 @@ export function createMysqlAuthStore(options = {}) {
     updateUserStatus,
     adminDashboardMetrics,
     listAdminTransactions,
+    listAdminDisputes,
+    finalizeDispute,
+    adminStats,
     createAuditLog,
     listAuditLogs,
     createSession,
@@ -2212,6 +2215,553 @@ FROM (
     };
   }
 
+  async function listAdminDisputes(query = {}) {
+    const status = normalizeAdminDisputeFilter(query.status, "all");
+    const keyword = normalizeOptionalString(query.keyword);
+    const page = positiveInteger(query.page, 1);
+    const pageSize = Math.min(100, positiveInteger(query.pageSize, 20));
+    const offset = (page - 1) * pageSize;
+    const conditions = [];
+    if (status === "pending") {
+      conditions.push("d.`status` IN ('pending')");
+    } else if (status === "in_progress") {
+      conditions.push("d.`status` IN ('jury_voting', 'admin_review')");
+    } else if (status === "resolved") {
+      conditions.push("d.`status` = 'resolved'");
+    }
+    if (keyword) {
+      const like = sqlLike(keyword);
+      conditions.push(`(
+        CAST(d.\`dispute_id\` AS CHAR) LIKE ${like}
+        OR CAST(d.\`order_id\` AS CHAR) LIKE ${like}
+        OR LOWER(d.\`type\`) LIKE ${like}
+        OR LOWER(d.\`status\`) LIKE ${like}
+        OR LOWER(d.\`reason\`) LIKE ${like}
+        OR LOWER(sr.\`title\`) LIKE ${like}
+        OR LOWER(initiator.\`username\`) LIKE ${like}
+        OR LOWER(respondent.\`username\`) LIKE ${like}
+        OR LOWER(publisher.\`username\`) LIKE ${like}
+        OR LOWER(provider.\`username\`) LIKE ${like}
+      )`);
+    }
+    const whereSql = conditions.length > 0 ? conditions.join(" AND ") : "1 = 1";
+    const allDisputes = await listDisputes(whereSql);
+    const disputes = allDisputes.slice(offset, offset + pageSize);
+    const totalPayload = await mysqlJson(`
+SELECT JSON_OBJECT(
+  'total', COUNT(*),
+  'pendingCount', SUM(IF(d.\`status\` = 'pending', 1, 0)),
+  'inProgressCount', SUM(IF(d.\`status\` IN ('jury_voting', 'admin_review'), 1, 0)),
+  'resolvedCount', SUM(IF(d.\`status\` = 'resolved', 1, 0))
+)
+FROM \`dispute\` d
+JOIN \`service_order\` so ON so.\`order_id\` = d.\`order_id\`
+JOIN \`service_request\` sr ON sr.\`request_id\` = so.\`request_id\`
+JOIN \`user\` initiator ON initiator.\`user_id\` = d.\`initiator_id\`
+JOIN \`user\` respondent ON respondent.\`user_id\` = d.\`respondent_id\`
+JOIN \`user\` publisher ON publisher.\`user_id\` = sr.\`publisher_id\`
+JOIN \`user\` provider ON provider.\`user_id\` = so.\`provider_id\`
+WHERE ${whereSql};
+`, { optional: true });
+    return {
+      disputes,
+      total: Number(totalPayload?.total ?? allDisputes.length),
+      summary: {
+        total: Number(totalPayload?.total ?? allDisputes.length),
+        pendingCount: Number(totalPayload?.pendingCount ?? 0),
+        inProgressCount: Number(totalPayload?.inProgressCount ?? 0),
+        resolvedCount: Number(totalPayload?.resolvedCount ?? 0)
+      }
+    };
+  }
+
+  async function finalizeDispute(input) {
+    const disputeId = Number(input.disputeId);
+    const finalResult = normalizeFinalDisputeResult(input.result ?? input.finalResult);
+    const reason = normalizeOptionalString(input.reason);
+    const requestedRefund = input.refundAmount === undefined || input.refundAmount === null || input.refundAmount === ""
+      ? null
+      : Number(input.refundAmount);
+    if (requestedRefund !== null && (!Number.isFinite(requestedRefund) || requestedRefund < 0)) {
+      throw storeError("INVALID_REFUND_AMOUNT", "Refund amount must be non-negative.");
+    }
+    return finalizeDisputeWithoutFunction(input, finalResult, requestedRefund, reason);
+    const sql = `
+START TRANSACTION;
+SET @resolved_at = CURRENT_TIMESTAMP;
+SET @dispute_id = ${disputeId};
+SET @actor_id = ${input.actorId === undefined || input.actorId === null ? "NULL" : Number(input.actorId)};
+SET @actor_role = ${sqlString(input.actorRole ?? "admin")};
+SET @ip_address = ${sqlNullableString(input.ipAddress)};
+SET @final_result = ${sqlString(finalResult)};
+SET @reason = ${sqlNullableString(reason)};
+SET @requested_refund = ${requestedRefund === null ? "NULL" : requestedRefund};
+SET @dispute_found = 0;
+SET @already_resolved = 0;
+SET @closed = 0;
+SET @order_id = NULL;
+SET @request_id = NULL;
+SET @payer_id = NULL;
+SET @provider_id = NULL;
+SET @request_title = NULL;
+SET @coin_amount = NULL;
+SET @refund_amount = NULL;
+SET @provider_payout = NULL;
+SET @payer_balance_before = NULL;
+SET @provider_balance_before = NULL;
+SET @payer_balance_after = NULL;
+SET @provider_balance_after = NULL;
+SET @payer_frozen_before = NULL;
+SET @freeze_amount = 0;
+SET @wallets_found = 0;
+SET @insufficient_balance = 0;
+SET @updated = 0;
+SELECT
+  @dispute_found := 1,
+  @already_resolved := IF(d.\`status\` = 'resolved', 1, 0),
+  @closed := IF(d.\`status\` = 'cancelled', 1, 0),
+  @order_id := d.\`order_id\`,
+  @request_id := so.\`request_id\`,
+  @payer_id := sr.\`publisher_id\`,
+  @provider_id := so.\`provider_id\`,
+  @request_title := sr.\`title\`,
+  @coin_amount := so.\`coin_amount\`
+FROM \`dispute\` d
+JOIN \`service_order\` so ON so.\`order_id\` = d.\`order_id\`
+JOIN \`service_request\` sr ON sr.\`request_id\` = so.\`request_id\`
+WHERE d.\`dispute_id\` = @dispute_id
+FOR UPDATE;
+SET @refund_amount = CASE
+  WHEN @final_result = 'publisher_win' THEN COALESCE(LEAST(@coin_amount, GREATEST(0, @requested_refund)), @coin_amount)
+  WHEN @final_result = 'provider_win' THEN 0
+  ELSE COALESCE(LEAST(@coin_amount, GREATEST(0, @requested_refund)), ROUND(@coin_amount / 2, 2))
+END;
+SET @provider_payout = ROUND(GREATEST(0, @coin_amount - @refund_amount), 2);
+SELECT @freeze_amount := COALESCE(SUM(tl.\`amount\`), 0)
+FROM \`transaction_log\` tl
+WHERE tl.\`order_id\` = @order_id
+  AND tl.\`user_id\` = @payer_id
+  AND tl.\`type\` = 'freeze';
+SELECT
+  @payer_balance_before := CAST(w.\`balance\` AS DECIMAL(10,2)),
+  @payer_frozen_before := CAST(w.\`frozen_balance\` AS DECIMAL(10,2))
+FROM \`wallet\` w
+WHERE w.\`user_id\` = @payer_id
+  AND @dispute_found = 1
+  AND @already_resolved = 0
+  AND @closed = 0
+FOR UPDATE;
+SELECT @provider_balance_before := CAST(w.\`balance\` AS DECIMAL(10,2))
+FROM \`wallet\` w
+WHERE w.\`user_id\` = @provider_id
+  AND @dispute_found = 1
+  AND @already_resolved = 0
+  AND @closed = 0
+FOR UPDATE;
+SET @wallets_found = IF(@payer_balance_before IS NOT NULL AND @provider_balance_before IS NOT NULL, 1, 0);
+SET @payer_balance_after = ROUND(@payer_balance_before - @provider_payout, 2);
+SET @provider_balance_after = ROUND(@provider_balance_before + @provider_payout, 2);
+SET @insufficient_balance = IF(@wallets_found = 1 AND @payer_balance_after < 0, 1, 0);
+UPDATE \`wallet\`
+SET
+  \`balance\` = @payer_balance_after,
+  \`frozen_balance\` = ROUND(GREATEST(0, \`frozen_balance\` - @freeze_amount), 2),
+  \`version\` = \`version\` + 1,
+  \`updated_at\` = @resolved_at
+WHERE \`user_id\` = @payer_id
+  AND @dispute_found = 1
+  AND @already_resolved = 0
+  AND @closed = 0
+  AND @wallets_found = 1
+  AND @insufficient_balance = 0
+LIMIT 1;
+SET @payer_wallet_updated = ROW_COUNT();
+UPDATE \`wallet\`
+SET
+  \`balance\` = @provider_balance_after,
+  \`version\` = \`version\` + 1,
+  \`updated_at\` = @resolved_at
+WHERE \`user_id\` = @provider_id
+  AND @payer_wallet_updated = 1
+LIMIT 1;
+SET @provider_wallet_updated = ROW_COUNT();
+SET @updated = IF(@payer_wallet_updated = 1 AND @provider_wallet_updated = 1, 1, 0);
+UPDATE \`dispute\`
+SET
+  \`status\` = 'resolved',
+  \`final_result\` = @final_result,
+  \`refund_amount\` = @refund_amount,
+  \`updated_at\` = @resolved_at,
+  \`resolved_at\` = @resolved_at
+WHERE \`dispute_id\` = @dispute_id
+  AND @updated = 1
+LIMIT 1;
+UPDATE \`service_order\`
+SET
+  \`status\` = 'completed',
+  \`completed_at\` = COALESCE(\`completed_at\`, @resolved_at),
+  \`updated_at\` = @resolved_at
+WHERE \`order_id\` = @order_id
+  AND @updated = 1
+LIMIT 1;
+UPDATE \`service_request\`
+SET
+  \`status\` = 'completed',
+  \`updated_at\` = @resolved_at
+WHERE \`request_id\` = @request_id
+  AND @updated = 1
+LIMIT 1;
+INSERT INTO \`transaction_log\` (
+  \`user_id\`,
+  \`order_id\`,
+  \`type\`,
+  \`amount\`,
+  \`balance_after\`,
+  \`remark\`,
+  \`created_at\`
+)
+SELECT @payer_id, @order_id, 'expense', @provider_payout, @payer_balance_after,
+  CONCAT('纠纷终审结案，向服务方结算 ', CAST(@provider_payout AS CHAR), ' 时间币'),
+  @resolved_at
+WHERE @updated = 1 AND @provider_payout > 0;
+INSERT INTO \`transaction_log\` (
+  \`user_id\`,
+  \`order_id\`,
+  \`type\`,
+  \`amount\`,
+  \`balance_after\`,
+  \`remark\`,
+  \`created_at\`
+)
+SELECT @provider_id, @order_id, 'income', @provider_payout, @provider_balance_after,
+  CONCAT('纠纷终审结案，服务方入账 ', CAST(@provider_payout AS CHAR), ' 时间币'),
+  @resolved_at
+WHERE @updated = 1 AND @provider_payout > 0;
+INSERT INTO \`transaction_log\` (
+  \`user_id\`,
+  \`order_id\`,
+  \`type\`,
+  \`amount\`,
+  \`balance_after\`,
+  \`remark\`,
+  \`created_at\`
+)
+SELECT @payer_id, @order_id, 'refund', @refund_amount, @payer_balance_after,
+  CONCAT('纠纷终审结案，退回冻结时间币 ', CAST(@refund_amount AS CHAR)),
+  @resolved_at
+WHERE @updated = 1 AND @refund_amount > 0;
+INSERT INTO \`notification\` (
+  \`user_id\`,
+  \`type\`,
+  \`title\`,
+  \`content\`,
+  \`business_type\`,
+  \`business_id\`,
+  \`created_at\`
+)
+SELECT @payer_id, 'dispute', '纠纷终审已完成',
+  CONCAT('订单「', @request_title, '」终审结果：', dispute_result_label(@final_result), '，退还 ', CAST(@refund_amount AS CHAR), ' 时间币。'),
+  'dispute', @dispute_id, @resolved_at
+WHERE @updated = 1;
+INSERT INTO \`notification\` (
+  \`user_id\`,
+  \`type\`,
+  \`title\`,
+  \`content\`,
+  \`business_type\`,
+  \`business_id\`,
+  \`created_at\`
+)
+SELECT @provider_id, 'dispute', '纠纷终审已完成',
+  CONCAT('订单「', @request_title, '」终审结果：', dispute_result_label(@final_result), '，结算 ', CAST(@provider_payout AS CHAR), ' 时间币。'),
+  'dispute', @dispute_id, @resolved_at
+WHERE @updated = 1;
+INSERT INTO \`audit_log\` (
+  \`actor_id\`,
+  \`actor_role\`,
+  \`action\`,
+  \`target_type\`,
+  \`target_id\`,
+  \`ip_address\`,
+  \`detail\`,
+  \`created_at\`
+)
+SELECT @actor_id, @actor_role, 'admin.dispute.finalize', 'dispute', @dispute_id, @ip_address,
+  JSON_OBJECT(
+    'finalResult', @final_result,
+    'refundAmount', CAST(@refund_amount AS DOUBLE),
+    'providerPayout', CAST(@provider_payout AS DOUBLE),
+    'reason', @reason
+  ),
+  @resolved_at
+WHERE @updated = 1;
+SET @created_audit_id = IF(@updated = 1, LAST_INSERT_ID(), NULL);
+SET @transaction_sql = IF(@updated = 1, 'COMMIT', 'ROLLBACK');
+PREPARE transaction_statement FROM @transaction_sql;
+EXECUTE transaction_statement;
+DEALLOCATE PREPARE transaction_statement;
+SELECT JSON_OBJECT(
+  'disputeFound', @dispute_found,
+  'alreadyResolved', @already_resolved,
+  'closed', @closed,
+  'walletsFound', @wallets_found,
+  'insufficientBalance', @insufficient_balance,
+  'updated', @updated,
+  'orderId', @order_id,
+  'auditId', @created_audit_id
+);
+`;
+    let result;
+    try {
+      result = await mysqlJson(sql);
+    } catch (error) {
+      if (/dispute_result_label/i.test(error.message)) {
+        return finalizeDisputeWithoutFunction(input, finalResult, requestedRefund, reason);
+      }
+      throw error;
+    }
+    return finalizeDisputeResult(result, disputeId);
+  }
+
+  async function finalizeDisputeWithoutFunction(input, finalResult, requestedRefund, reason) {
+    const disputeId = Number(input.disputeId);
+    const label = finalResultLabel(finalResult);
+    const sql = `
+START TRANSACTION;
+SET @resolved_at = CURRENT_TIMESTAMP;
+SET @dispute_id = ${disputeId};
+SET @actor_id = ${input.actorId === undefined || input.actorId === null ? "NULL" : Number(input.actorId)};
+SET @actor_role = ${sqlString(input.actorRole ?? "admin")};
+SET @ip_address = ${sqlNullableString(input.ipAddress)};
+SET @final_result = ${sqlString(finalResult)};
+SET @final_label = ${sqlString(label)};
+SET @reason = ${sqlNullableString(reason)};
+SET @requested_refund = ${requestedRefund === null ? "NULL" : requestedRefund};
+SET @dispute_found = 0;
+SET @already_resolved = 0;
+SET @closed = 0;
+SET @order_id = NULL;
+SET @request_id = NULL;
+SET @payer_id = NULL;
+SET @provider_id = NULL;
+SET @request_title = NULL;
+SET @coin_amount = NULL;
+SET @refund_amount = NULL;
+SET @provider_payout = NULL;
+SET @payer_balance_before = NULL;
+SET @provider_balance_before = NULL;
+SET @freeze_amount = 0;
+SELECT
+  @dispute_found := 1,
+  @already_resolved := IF(d.\`status\` = 'resolved', 1, 0),
+  @closed := IF(d.\`status\` = 'cancelled', 1, 0),
+  @order_id := d.\`order_id\`,
+  @request_id := so.\`request_id\`,
+  @payer_id := sr.\`publisher_id\`,
+  @provider_id := so.\`provider_id\`,
+  @request_title := sr.\`title\`,
+  @coin_amount := so.\`coin_amount\`
+FROM \`dispute\` d
+JOIN \`service_order\` so ON so.\`order_id\` = d.\`order_id\`
+JOIN \`service_request\` sr ON sr.\`request_id\` = so.\`request_id\`
+WHERE d.\`dispute_id\` = @dispute_id
+FOR UPDATE;
+SET @refund_amount = CASE
+  WHEN @final_result = 'publisher_win' THEN COALESCE(LEAST(@coin_amount, GREATEST(0, @requested_refund)), @coin_amount)
+  WHEN @final_result = 'provider_win' THEN 0
+  ELSE COALESCE(LEAST(@coin_amount, GREATEST(0, @requested_refund)), ROUND(@coin_amount / 2, 2))
+END;
+SET @provider_payout = ROUND(GREATEST(0, @coin_amount - @refund_amount), 2);
+SELECT @freeze_amount := COALESCE(SUM(tl.\`amount\`), 0)
+FROM \`transaction_log\` tl
+WHERE tl.\`order_id\` = @order_id
+  AND tl.\`user_id\` = @payer_id
+  AND tl.\`type\` = 'freeze';
+SELECT @payer_balance_before := CAST(w.\`balance\` AS DECIMAL(10,2))
+FROM \`wallet\` w
+WHERE w.\`user_id\` = @payer_id
+  AND @dispute_found = 1
+  AND @already_resolved = 0
+  AND @closed = 0
+FOR UPDATE;
+SELECT @provider_balance_before := CAST(w.\`balance\` AS DECIMAL(10,2))
+FROM \`wallet\` w
+WHERE w.\`user_id\` = @provider_id
+  AND @dispute_found = 1
+  AND @already_resolved = 0
+  AND @closed = 0
+FOR UPDATE;
+SET @wallets_found = IF(@payer_balance_before IS NOT NULL AND @provider_balance_before IS NOT NULL, 1, 0);
+SET @payer_balance_after = ROUND(@payer_balance_before - @provider_payout, 2);
+SET @provider_balance_after = ROUND(@provider_balance_before + @provider_payout, 2);
+SET @insufficient_balance = IF(@wallets_found = 1 AND @payer_balance_after < 0, 1, 0);
+UPDATE \`wallet\`
+SET \`balance\` = @payer_balance_after, \`frozen_balance\` = ROUND(GREATEST(0, \`frozen_balance\` - @freeze_amount), 2), \`version\` = \`version\` + 1, \`updated_at\` = @resolved_at
+WHERE \`user_id\` = @payer_id AND @dispute_found = 1 AND @already_resolved = 0 AND @closed = 0 AND @wallets_found = 1 AND @insufficient_balance = 0
+LIMIT 1;
+SET @payer_wallet_updated = ROW_COUNT();
+UPDATE \`wallet\`
+SET \`balance\` = @provider_balance_after, \`version\` = \`version\` + 1, \`updated_at\` = @resolved_at
+WHERE \`user_id\` = @provider_id AND @payer_wallet_updated = 1
+LIMIT 1;
+SET @provider_wallet_updated = ROW_COUNT();
+SET @updated = IF(@payer_wallet_updated = 1 AND @provider_wallet_updated = 1, 1, 0);
+UPDATE \`dispute\` SET \`status\` = 'resolved', \`final_result\` = @final_result, \`refund_amount\` = @refund_amount, \`updated_at\` = @resolved_at, \`resolved_at\` = @resolved_at WHERE \`dispute_id\` = @dispute_id AND @updated = 1 LIMIT 1;
+UPDATE \`service_order\` SET \`status\` = 'completed', \`completed_at\` = COALESCE(\`completed_at\`, @resolved_at), \`updated_at\` = @resolved_at WHERE \`order_id\` = @order_id AND @updated = 1 LIMIT 1;
+UPDATE \`service_request\` SET \`status\` = 'completed', \`updated_at\` = @resolved_at WHERE \`request_id\` = @request_id AND @updated = 1 LIMIT 1;
+INSERT INTO \`transaction_log\` (\`user_id\`, \`order_id\`, \`type\`, \`amount\`, \`balance_after\`, \`remark\`, \`created_at\`)
+SELECT @payer_id, @order_id, 'expense', @provider_payout, @payer_balance_after, CONCAT('纠纷终审结案，向服务方结算 ', CAST(@provider_payout AS CHAR), ' 时间币'), @resolved_at WHERE @updated = 1 AND @provider_payout > 0;
+INSERT INTO \`transaction_log\` (\`user_id\`, \`order_id\`, \`type\`, \`amount\`, \`balance_after\`, \`remark\`, \`created_at\`)
+SELECT @provider_id, @order_id, 'income', @provider_payout, @provider_balance_after, CONCAT('纠纷终审结案，服务方入账 ', CAST(@provider_payout AS CHAR), ' 时间币'), @resolved_at WHERE @updated = 1 AND @provider_payout > 0;
+INSERT INTO \`transaction_log\` (\`user_id\`, \`order_id\`, \`type\`, \`amount\`, \`balance_after\`, \`remark\`, \`created_at\`)
+SELECT @payer_id, @order_id, 'refund', @refund_amount, @payer_balance_after, CONCAT('纠纷终审结案，退回冻结时间币 ', CAST(@refund_amount AS CHAR)), @resolved_at WHERE @updated = 1 AND @refund_amount > 0;
+INSERT INTO \`notification\` (\`user_id\`, \`type\`, \`title\`, \`content\`, \`business_type\`, \`business_id\`, \`created_at\`)
+SELECT @payer_id, 'dispute', '纠纷终审已完成', CONCAT('订单「', @request_title, '」终审结果：', @final_label, '，退还 ', CAST(@refund_amount AS CHAR), ' 时间币。'), 'dispute', @dispute_id, @resolved_at WHERE @updated = 1;
+INSERT INTO \`notification\` (\`user_id\`, \`type\`, \`title\`, \`content\`, \`business_type\`, \`business_id\`, \`created_at\`)
+SELECT @provider_id, 'dispute', '纠纷终审已完成', CONCAT('订单「', @request_title, '」终审结果：', @final_label, '，结算 ', CAST(@provider_payout AS CHAR), ' 时间币。'), 'dispute', @dispute_id, @resolved_at WHERE @updated = 1;
+INSERT INTO \`audit_log\` (\`actor_id\`, \`actor_role\`, \`action\`, \`target_type\`, \`target_id\`, \`ip_address\`, \`detail\`, \`created_at\`)
+SELECT @actor_id, @actor_role, 'admin.dispute.finalize', 'dispute', @dispute_id, @ip_address, JSON_OBJECT('finalResult', @final_result, 'refundAmount', CAST(@refund_amount AS DOUBLE), 'providerPayout', CAST(@provider_payout AS DOUBLE), 'reason', @reason), @resolved_at WHERE @updated = 1;
+SET @created_audit_id = IF(@updated = 1, LAST_INSERT_ID(), NULL);
+SET @transaction_sql = IF(@updated = 1, 'COMMIT', 'ROLLBACK');
+PREPARE transaction_statement FROM @transaction_sql;
+EXECUTE transaction_statement;
+DEALLOCATE PREPARE transaction_statement;
+SELECT JSON_OBJECT('disputeFound', @dispute_found, 'alreadyResolved', @already_resolved, 'closed', @closed, 'walletsFound', @wallets_found, 'insufficientBalance', @insufficient_balance, 'updated', @updated, 'orderId', @order_id, 'auditId', @created_audit_id);
+`;
+    const result = await mysqlJson(sql);
+    return finalizeDisputeResult(result, disputeId);
+  }
+
+  async function finalizeDisputeResult(result, disputeId) {
+    if (Number(result?.disputeFound ?? 0) !== 1) {
+      throw storeError("DISPUTE_NOT_FOUND", "Dispute was not found.");
+    }
+    if (Number(result?.alreadyResolved ?? 0) === 1) {
+      throw storeError("DISPUTE_ALREADY_RESOLVED", "This dispute is already resolved.");
+    }
+    if (Number(result?.closed ?? 0) === 1) {
+      throw storeError("DISPUTE_CLOSED", "Closed disputes cannot be finalized.");
+    }
+    if (Number(result?.walletsFound ?? 0) !== 1) {
+      throw storeError("ORDER_WALLET_NOT_FOUND", "Order wallet was not found.");
+    }
+    if (Number(result?.insufficientBalance ?? 0) === 1) {
+      throw storeError("INSUFFICIENT_BALANCE", "Payer wallet balance is insufficient.");
+    }
+    if (Number(result?.updated ?? 0) !== 1) {
+      throw storeError("DISPUTE_CLOSED", "Dispute could not be finalized.");
+    }
+    return {
+      dispute: await findDisputeById(disputeId),
+      order: await findServiceOrderById(result.orderId),
+      auditLog: await findAuditLogById(result.auditId)
+    };
+  }
+
+  async function adminStats() {
+    const sql = `
+SELECT JSON_OBJECT(
+  'kpis', JSON_OBJECT(
+    'userCount', (SELECT COUNT(*) FROM \`user\`),
+    'circulatingCoins', (SELECT COALESCE(SUM(\`amount\`), 0) FROM \`transaction_log\`),
+    'completedOrderCount', (SELECT COUNT(*) FROM \`service_order\` WHERE \`status\` = 'completed'),
+    'disputeRate', (
+      SELECT IF(COUNT(*) = 0, 0, ROUND((SELECT COUNT(*) FROM \`dispute\` WHERE \`status\` <> 'cancelled') / COUNT(*) * 100, 1))
+      FROM \`service_order\`
+    ),
+    'averageCredit', (SELECT COALESCE(ROUND(AVG(\`rating\`), 1), 0) FROM \`review\`)
+  ),
+  'hotServices', (
+    SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(
+      'name', q.\`name\`,
+      'requestCount', q.\`request_count\`,
+      'orderCount', q.\`order_count\`,
+      'coinAmount', q.\`coin_amount\`,
+      'percentage', IF(q.\`total_requests\` = 0, 0, ROUND(q.\`request_count\` / q.\`total_requests\` * 100))
+    )), JSON_ARRAY())
+    FROM (
+      SELECT
+        COALESCE(c.\`name\`, '其他') AS \`name\`,
+        COUNT(sr.\`request_id\`) AS \`request_count\`,
+        COUNT(so.\`order_id\`) AS \`order_count\`,
+        COALESCE(SUM(sr.\`coin_amount\`), 0) AS \`coin_amount\`,
+        (SELECT COUNT(*) FROM \`service_request\`) AS \`total_requests\`
+      FROM \`service_request\` sr
+      LEFT JOIN \`category\` c ON c.\`category_id\` = sr.\`category_id\`
+      LEFT JOIN \`service_order\` so ON so.\`request_id\` = sr.\`request_id\`
+      GROUP BY COALESCE(c.\`name\`, '其他')
+      ORDER BY \`request_count\` DESC, \`order_count\` DESC, \`name\` ASC
+      LIMIT 6
+    ) q
+  ),
+  'orderTrend', (
+    SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT('month', q.\`month\`, 'orders', q.\`orders\`)), JSON_ARRAY())
+    FROM (
+      SELECT DATE_FORMAT(\`created_at\`, '%Y-%m') AS \`month\`, COUNT(*) AS \`orders\`
+      FROM \`service_order\`
+      GROUP BY DATE_FORMAT(\`created_at\`, '%Y-%m')
+      ORDER BY \`month\` DESC
+      LIMIT 6
+    ) q
+  ),
+  'coinFlow', (
+    SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(
+      'type', q.\`type\`,
+      'amount', q.\`amount\`,
+      'percentage', IF(q.\`total_amount\` = 0, 0, ROUND(q.\`amount\` / q.\`total_amount\` * 100))
+    )), JSON_ARRAY())
+    FROM (
+      SELECT
+        \`type\`,
+        SUM(\`amount\`) AS \`amount\`,
+        (SELECT COALESCE(SUM(\`amount\`), 0) FROM \`transaction_log\`) AS \`total_amount\`
+      FROM \`transaction_log\`
+      GROUP BY \`type\`
+      ORDER BY \`amount\` DESC
+    ) q
+  ),
+  'userGrowth', (
+    SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(
+      'month', q.\`month\`,
+      'newUsers', q.\`new_users\`,
+      'totalUsers', q.\`total_users\`
+    )), JSON_ARRAY())
+    FROM (
+      SELECT
+        DATE_FORMAT(u.\`created_at\`, '%Y-%m') AS \`month\`,
+        COUNT(*) AS \`new_users\`,
+        (SELECT COUNT(*) FROM \`user\` ux WHERE DATE_FORMAT(ux.\`created_at\`, '%Y-%m') <= DATE_FORMAT(u.\`created_at\`, '%Y-%m')) AS \`total_users\`
+      FROM \`user\` u
+      GROUP BY DATE_FORMAT(u.\`created_at\`, '%Y-%m')
+      ORDER BY \`month\` DESC
+      LIMIT 6
+    ) q
+  ),
+  'disputeRate', (
+    SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(
+      'month', q.\`month\`,
+      'orderCount', q.\`order_count\`,
+      'disputeCount', q.\`dispute_count\`,
+      'rate', IF(q.\`order_count\` = 0, 0, ROUND(q.\`dispute_count\` / q.\`order_count\` * 100, 1))
+    )), JSON_ARRAY())
+    FROM (
+      SELECT
+        DATE_FORMAT(so.\`created_at\`, '%Y-%m') AS \`month\`,
+        COUNT(so.\`order_id\`) AS \`order_count\`,
+        COUNT(d.\`dispute_id\`) AS \`dispute_count\`
+      FROM \`service_order\` so
+      LEFT JOIN \`dispute\` d ON d.\`order_id\` = so.\`order_id\`
+      GROUP BY DATE_FORMAT(so.\`created_at\`, '%Y-%m')
+      ORDER BY \`month\` DESC
+      LIMIT 6
+    ) q
+  )
+);
+`;
+    const result = await mysqlJson(sql, { optional: true });
+    return normalizeAdminStats(result);
+  }
+
   async function createAuditLog(input) {
     const detailJson = JSON.stringify(input.detail ?? {});
     const sql = `
@@ -3074,6 +3624,22 @@ function positiveInteger(raw, fallback) {
   return Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
+function normalizeAdminDisputeFilter(value, fallback) {
+  const text = String(value ?? "").trim().toLowerCase();
+  const map = new Map([
+    ["pending", "pending"],
+    ["todo", "pending"],
+    ["in_progress", "in_progress"],
+    ["processing", "in_progress"],
+    ["reviewing", "in_progress"],
+    ["resolved", "resolved"],
+    ["ruled", "resolved"],
+    ["closed", "resolved"],
+    ["all", "all"]
+  ]);
+  return map.get(text) ?? fallback;
+}
+
 function normalizeDisputeType(value) {
   const text = String(value ?? "").trim().toLowerCase();
   const map = new Map([
@@ -3096,6 +3662,38 @@ function normalizeEvidenceType(value) {
 function normalizeJuryVoteValue(value) {
   const text = String(value ?? "").trim().toLowerCase();
   return ["publisher", "provider", "mediate"].includes(text) ? text : "mediate";
+}
+
+function normalizeFinalDisputeResult(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  const map = new Map([
+    ["publisher", "publisher_win"],
+    ["publisher_win", "publisher_win"],
+    ["demand", "publisher_win"],
+    ["demand_win", "publisher_win"],
+    ["requester", "publisher_win"],
+    ["provider", "provider_win"],
+    ["provider_win", "provider_win"],
+    ["service", "provider_win"],
+    ["service_win", "provider_win"],
+    ["mediate", "mediate"],
+    ["mediation", "mediate"]
+  ]);
+  const normalized = map.get(text);
+  if (!normalized) {
+    throw storeError("INVALID_FINAL_RESULT", "Unsupported final dispute result.");
+  }
+  return normalized;
+}
+
+function finalResultLabel(value) {
+  const map = new Map([
+    ["publisher_win", "支持需求方"],
+    ["provider_win", "支持服务方"],
+    ["mediate", "调解处理"],
+    ["cancelled", "已取消"]
+  ]);
+  return map.get(value) ?? "终审结案";
 }
 
 function disputeProgress(dispute, evidence) {
@@ -3190,6 +3788,46 @@ function sqlLike(value) {
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function normalizeAdminStats(input = {}) {
+  const kpis = input.kpis ?? {};
+  return {
+    kpis: {
+      userCount: Number(kpis.userCount ?? 0),
+      circulatingCoins: Number(kpis.circulatingCoins ?? 0),
+      completedOrderCount: Number(kpis.completedOrderCount ?? 0),
+      disputeRate: Number(kpis.disputeRate ?? 0),
+      averageCredit: Number(kpis.averageCredit ?? 0)
+    },
+    hotServices: Array.isArray(input.hotServices) ? input.hotServices.map((item) => ({
+      name: String(item.name ?? "其他"),
+      requestCount: Number(item.requestCount ?? 0),
+      orderCount: Number(item.orderCount ?? 0),
+      coinAmount: Number(item.coinAmount ?? 0),
+      percentage: Number(item.percentage ?? 0)
+    })).reverse() : [],
+    orderTrend: Array.isArray(input.orderTrend) ? input.orderTrend.map((item) => ({
+      month: String(item.month ?? ""),
+      orders: Number(item.orders ?? 0)
+    })).reverse() : [],
+    coinFlow: Array.isArray(input.coinFlow) ? input.coinFlow.map((item) => ({
+      type: String(item.type ?? ""),
+      amount: Number(item.amount ?? 0),
+      percentage: Number(item.percentage ?? 0)
+    })) : [],
+    userGrowth: Array.isArray(input.userGrowth) ? input.userGrowth.map((item) => ({
+      month: String(item.month ?? ""),
+      newUsers: Number(item.newUsers ?? 0),
+      totalUsers: Number(item.totalUsers ?? 0)
+    })).reverse() : [],
+    disputeRate: Array.isArray(input.disputeRate) ? input.disputeRate.map((item) => ({
+      month: String(item.month ?? ""),
+      orderCount: Number(item.orderCount ?? 0),
+      disputeCount: Number(item.disputeCount ?? 0),
+      rate: Number(item.rate ?? 0)
+    })).reverse() : []
+  };
 }
 
 function parseJsonObject(value) {

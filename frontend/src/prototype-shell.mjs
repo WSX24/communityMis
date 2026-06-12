@@ -85,6 +85,7 @@ const NOTIFICATION_TYPE_LABEL = new Map([
 ]);
 const ADMIN_USERS_PAGE_SIZE = 10;
 const ADMIN_TRANSACTIONS_PAGE_SIZE = 20;
+const ADMIN_DISPUTES_PAGE_SIZE = 20;
 const ADMIN_USER_STATUS_LABEL = new Map([
   ["active", "正常"],
   ["disabled", "已禁用"]
@@ -96,6 +97,25 @@ const ADMIN_TRANSACTION_TYPE_LABEL = new Map([
   ["release", "释放"],
   ["refund", "退款"],
   ["system_fee", "系统"]
+]);
+const ADMIN_DISPUTE_STATUS_LABEL = new Map([
+  ["pending", "待处理"],
+  ["evidence_collecting", "举证中"],
+  ["jury_voting", "陪审中"],
+  ["admin_review", "待终审"],
+  ["resolved", "已裁决"],
+  ["cancelled", "已取消"]
+]);
+const ADMIN_DISPUTE_TYPE_LABEL = new Map([
+  ["quality_issue", "质量争议"],
+  ["not_completed", "未完成"],
+  ["communication", "沟通争议"],
+  ["other", "其他争议"]
+]);
+const ADMIN_FINAL_RESULT_LABEL = new Map([
+  ["publisher_win", "需求方胜诉"],
+  ["provider_win", "服务方胜诉"],
+  ["mediate", "调解处理"]
 ]);
 
 window.NeighborApp = {
@@ -421,6 +441,18 @@ async function hydrateCurrentRoute(session) {
     }
     if (route.id === "admin-transactions") {
       await hydrateAdminTransactionsRoute(session);
+      return;
+    }
+    if (route.id === "admin-disputes") {
+      await hydrateAdminDisputesRoute(session);
+      return;
+    }
+    if (route.id === "admin-dispute-final") {
+      await hydrateAdminDisputeFinalRoute(session);
+      return;
+    }
+    if (route.id === "admin-stats") {
+      await hydrateAdminStatsRoute(session);
     }
   } catch (error) {
     showGlobalMessage(authErrorMessage(error), "error");
@@ -3421,6 +3453,481 @@ function adminAuditActionLabel(action) {
     return "启用了用户";
   }
   return "记录了管理操作";
+}
+
+async function hydrateAdminDisputesRoute(session) {
+  const adminSession = session ?? auth.readSession("admin");
+  if (!adminSession?.token) {
+    return;
+  }
+  applyAdminIdentity(adminSession.user);
+  installAdminDisputesControls(adminSession);
+  await loadAdminDisputes(readAdminDisputesQuery(), adminSession);
+}
+
+async function hydrateAdminDisputeFinalRoute(session) {
+  const adminSession = session ?? auth.readSession("admin");
+  if (!adminSession?.token) {
+    return;
+  }
+  applyAdminIdentity(adminSession.user);
+  const disputeId = new URLSearchParams(window.location.search).get("disputeId") || new URLSearchParams(window.location.search).get("id") || "8001";
+  await loadAdminDisputeFinal(disputeId, adminSession);
+}
+
+async function hydrateAdminStatsRoute(session) {
+  const adminSession = session ?? auth.readSession("admin");
+  if (!adminSession?.token) {
+    return;
+  }
+  applyAdminIdentity(adminSession.user);
+  try {
+    const payload = await api.admin.stats(adminSession.token);
+    renderAdminStats(payload);
+  } catch (error) {
+    showGlobalMessage(adminErrorMessage(error), "error");
+  }
+}
+
+function installAdminDisputesControls(adminSession) {
+  if (document.body.dataset.adminDisputesBound === "true") {
+    return;
+  }
+  document.body.dataset.adminDisputesBound = "true";
+  document.querySelectorAll(".ad-tab").forEach((button, index) => {
+    const status = index === 1 ? "pending" : index === 2 ? "resolved" : "all";
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      document.querySelectorAll(".ad-tab").forEach((tab) => tab.classList.remove("active"));
+      button.classList.add("active");
+      updateAdminDisputesQuery({ status, page: 1 }, adminSession);
+    }, true);
+  });
+}
+
+function readAdminDisputesQuery() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    status: params.get("status") || "all",
+    keyword: params.get("keyword") || "",
+    page: Math.max(1, Number(params.get("page") || 1) || 1)
+  };
+}
+
+function updateAdminDisputesQuery(partial, adminSession) {
+  const next = { ...readAdminDisputesQuery(), ...partial };
+  const params = new URLSearchParams();
+  if (next.status && next.status !== "all") {
+    params.set("status", next.status);
+  }
+  if (next.keyword) {
+    params.set("keyword", next.keyword);
+  }
+  if (next.page > 1) {
+    params.set("page", String(next.page));
+  }
+  const query = params.toString();
+  history.replaceState({}, "", query ? `${window.location.pathname}?${query}` : window.location.pathname);
+  loadAdminDisputes(next, adminSession);
+}
+
+async function loadAdminDisputes(state, adminSession) {
+  const list = document.getElementById("disputeList");
+  if (!list) {
+    return;
+  }
+  renderAdminDisputesState("loading", "正在加载争议列表。");
+  try {
+    const payload = await api.admin.disputes(adminSession.token, {
+      status: state.status,
+      keyword: state.keyword,
+      page: state.page,
+      pageSize: ADMIN_DISPUTES_PAGE_SIZE
+    });
+    renderAdminDisputes(payload, state, adminSession);
+  } catch (error) {
+    renderAdminDisputesState("error", adminErrorMessage(error), {
+      actionText: "重试",
+      onAction: () => loadAdminDisputes(readAdminDisputesQuery(), adminSession)
+    });
+  }
+}
+
+function renderAdminDisputes(payload, state, adminSession) {
+  const list = document.getElementById("disputeList");
+  if (!list) {
+    return;
+  }
+  const disputes = Array.isArray(payload.disputes) ? payload.disputes : [];
+  updateAdminDisputeTabs(payload.summary, state.status);
+  if (disputes.length === 0) {
+    renderAdminDisputesState("empty", "暂无符合条件的争议。");
+    return;
+  }
+  list.innerHTML = disputes.map(adminDisputeCardHtml).join("");
+  list.querySelectorAll(".dispute-card").forEach((card) => {
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("a,button,textarea,input,.ruling-opt")) {
+        return;
+      }
+      card.classList.toggle("expanded");
+    });
+  });
+  renderAdminDisputePager(payload.pagination, state, adminSession);
+}
+
+function renderAdminDisputesState(kind, message, options = {}) {
+  const list = document.getElementById("disputeList");
+  if (!list) {
+    return;
+  }
+  const title = kind === "loading" ? "加载中" : kind === "error" ? "加载失败" : "空结果";
+  list.innerHTML = `
+    <div class="dispute-card expanded" data-runtime-state="${escapeHtml(kind)}">
+      <div class="dc-header"><span class="dc-id">${escapeHtml(title)}</span></div>
+      <div class="dc-title">${escapeHtml(message)}</div>
+      ${options.actionText ? `<button class="btn btn--secondary" type="button" data-runtime-action>${escapeHtml(options.actionText)}</button>` : ""}
+    </div>
+  `;
+  list.querySelector("[data-runtime-action]")?.addEventListener("click", options.onAction);
+  document.querySelector("[data-admin-dispute-pager]")?.remove();
+}
+
+function adminDisputeCardHtml(item) {
+  const statusClass = item.status === "resolved" ? "ruled" : "pending";
+  const typeClass = item.type === "quality_issue" ? "quality" : item.type === "not_completed" ? "incomplete" : "payment";
+  const evidence = Array.isArray(item.evidence) ? item.evidence : [];
+  const publisherEvidence = evidence.filter((entry) => Number(entry.uploaderId) === Number(item.publisher?.userId));
+  const providerEvidence = evidence.filter((entry) => Number(entry.uploaderId) === Number(item.provider?.userId));
+  const finalHref = `/admin/disputes/final?disputeId=${encodeURIComponent(item.disputeId)}`;
+  return `
+    <div class="dispute-card" data-status="${escapeHtml(item.status === "resolved" ? "ruled" : "pending")}" data-dispute-id="${escapeHtml(item.disputeId)}">
+      <div class="dc-header">
+        <span class="dc-id">#DSP-${escapeHtml(item.disputeId)}</span>
+        <span class="dc-type ${escapeHtml(typeClass)}">${escapeHtml(item.typeText || ADMIN_DISPUTE_TYPE_LABEL.get(item.type) || "订单争议")}</span>
+        <span class="dc-status ${escapeHtml(statusClass)}">${escapeHtml(item.statusText || ADMIN_DISPUTE_STATUS_LABEL.get(item.status) || "待处理")}</span>
+        ${item.isFinalizable ? `<a href="${escapeHtml(finalHref)}" style="font-size:13px;font-weight:600;color:var(--accent);padding:4px 12px;border-radius:var(--radius-sm);background:var(--accent-subtle);cursor:pointer;margin-left:auto;">进入终审裁决 →</a>` : ""}
+      </div>
+      <div class="dc-title">${escapeHtml(item.request?.title || item.reason || `纠纷 #${item.disputeId}`)} — ${escapeHtml(item.reason || "订单争议处理")}</div>
+      <div class="dc-meta">关联订单 #${escapeHtml(item.orderId)} · 争议金额 ${escapeHtml(formatAmount(item.amount))} ⏂ · 发起时间 ${escapeHtml(formatDateTime(item.createdAt))}</div>
+      <div class="dc-parties">
+        <div class="dc-party"><span class="badge-label demand">需求方</span> ${escapeHtml(displayAdminUser(item.publisher))}</div>
+        <div class="dc-party"><span class="badge-label service">服务方</span> ${escapeHtml(displayAdminUser(item.provider))}</div>
+      </div>
+      <div class="dc-detail">
+        <div class="evidence-panels">
+          ${adminDisputeEvidencePanel("需求方主张", item.publisher, item.description, publisherEvidence)}
+          ${adminDisputeEvidencePanel("服务方主张", item.provider, item.reason, providerEvidence)}
+        </div>
+        <div class="ai-summary-box">
+          <h4>AI 纠纷分析摘要<span class="ai-id">本地规则摘要</span></h4>
+          <div class="as-items">
+            <div class="as-item"><span class="as-label">双方主张</span><span>${escapeHtml(item.description || item.reason || "暂无补充说明")}</span></div>
+            <div class="as-item"><span class="as-label">关键证据</span><span>当前记录 ${escapeHtml(evidence.length)} 条证据，冻结 ${escapeHtml(formatAmount(item.freeze?.amount ?? item.amount))} 时间币。</span></div>
+            <div class="as-item"><span class="as-label">陪审建议</span><span>${escapeHtml(item.juryResult?.leaderText || "暂无陪审结论")}，共 ${escapeHtml(item.juryResult?.total ?? 0)} 票。</span></div>
+            <div class="as-item"><span class="as-label">风险提示</span><span style="color:var(--danger)">终审会立即更新订单、冻结、流水和双方通知。</span></div>
+          </div>
+          <div class="ai-note">AI分析仅供参考，最终裁决由管理员手动提交。</div>
+        </div>
+        ${item.isFinalizable ? `<div class="ruling-actions"><a class="btn btn--primary" href="${escapeHtml(finalHref)}">进入终审裁决</a></div>` : adminDisputeResolvedHtml(item)}
+      </div>
+    </div>
+  `;
+}
+
+function adminDisputeEvidencePanel(title, user, claim, evidence) {
+  return `
+    <div class="evidence-panel">
+      <div class="ep-title">${escapeHtml(title)} · ${escapeHtml(displayAdminUser(user))}</div>
+      <div class="ep-claim">${escapeHtml(claim || "暂无详细陈述。")}</div>
+      <div class="ep-files">
+        ${(evidence.length ? evidence : [{ content: "暂无附件", attachments: [] }]).map((item) => {
+          const attachment = item.attachments?.[0];
+          return `<div class="ep-file">${escapeHtml(attachment?.name || item.content || "文本证据")}</div>`;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function adminDisputeResolvedHtml(item) {
+  return `
+    <div style="padding:var(--space-lg);background:var(--success-light);border-radius:var(--radius-md);margin-bottom:var(--space-lg)">
+      已裁决：${escapeHtml(item.finalResultText || ADMIN_FINAL_RESULT_LABEL.get(item.finalResult) || "终审结案")} · 退还 ${escapeHtml(formatAmount(item.refundAmount ?? 0))} ⏂ · ${escapeHtml(formatDateTime(item.resolvedAt))}
+    </div>
+  `;
+}
+
+function renderAdminDisputePager(pagination, state, adminSession) {
+  const list = document.getElementById("disputeList");
+  if (!list || !pagination) {
+    return;
+  }
+  document.querySelector("[data-admin-dispute-pager]")?.remove();
+  if (pagination.totalPages <= 1) {
+    return;
+  }
+  const pager = document.createElement("div");
+  pager.className = "au-pagination";
+  pager.dataset.adminDisputePager = "true";
+  pager.innerHTML = `
+    <div class="au-page-info">第 ${escapeHtml(pagination.page)} / ${escapeHtml(pagination.totalPages)} 页</div>
+    <div class="au-page-btns">
+      <button class="au-page-btn${pagination.hasPrev ? "" : " disabled"}" type="button" data-page="prev"${pagination.hasPrev ? "" : " disabled"}>←</button>
+      <button class="au-page-btn${pagination.hasNext ? "" : " disabled"}" type="button" data-page="next"${pagination.hasNext ? "" : " disabled"}>→</button>
+    </div>
+  `;
+  list.insertAdjacentElement("afterend", pager);
+  pager.querySelector("[data-page='prev']")?.addEventListener("click", () => updateAdminDisputesQuery({ page: Math.max(1, state.page - 1) }, adminSession));
+  pager.querySelector("[data-page='next']")?.addEventListener("click", () => updateAdminDisputesQuery({ page: state.page + 1 }, adminSession));
+}
+
+function updateAdminDisputeTabs(summary = {}, status = "all") {
+  const tabs = Array.from(document.querySelectorAll(".ad-tab"));
+  const rows = [
+    ["all", `全部争议 (${summary.total ?? 0})`],
+    ["pending", `待处理 (${Number(summary.pendingCount ?? 0) + Number(summary.inProgressCount ?? 0)})`],
+    ["resolved", `已裁决 (${summary.resolvedCount ?? 0})`]
+  ];
+  tabs.forEach((tab, index) => {
+    const [key, label] = rows[index] ?? rows[0];
+    tab.textContent = label;
+    tab.classList.toggle("active", key === status || (key === "all" && !status));
+  });
+}
+
+async function loadAdminDisputeFinal(disputeId, adminSession) {
+  try {
+    const payload = await api.admin.dispute(adminSession.token, disputeId);
+    renderAdminDisputeFinal(payload.dispute, adminSession);
+  } catch (error) {
+    showGlobalMessage(adminErrorMessage(error), "error");
+  }
+}
+
+function renderAdminDisputeFinal(dispute, adminSession) {
+  window.__adminFinalDispute = dispute;
+  const title = document.querySelector(".df-header-left h2");
+  if (title) title.textContent = dispute.request?.title || dispute.reason || `纠纷 #${dispute.disputeId}`;
+  const id = document.querySelector(".df-id");
+  if (id) id.textContent = `#DSP-${dispute.disputeId}`;
+  const type = document.querySelector(".df-type-badge");
+  if (type) type.textContent = dispute.typeText || ADMIN_DISPUTE_TYPE_LABEL.get(dispute.type) || "订单争议";
+  const status = document.querySelector(".df-status-badge");
+  if (status) status.textContent = dispute.statusText || ADMIN_DISPUTE_STATUS_LABEL.get(dispute.status) || "待处理";
+  const amountInput = document.getElementById("refundAmount");
+  if (amountInput) {
+    amountInput.max = String(dispute.amount ?? 0);
+    amountInput.value = String(Math.min(Number(dispute.refundAmount ?? Math.round(Number(dispute.amount ?? 0) / 2)), Number(dispute.amount ?? 0)));
+    const note = amountInput.parentElement?.querySelector("span");
+    if (note) note.textContent = `⏂（争议总金额 ${formatAmount(dispute.amount)} ⏂）`;
+  }
+  renderAdminDisputeFinalTimeline(dispute);
+  renderAdminDisputeFinalEvidence(dispute);
+  renderAdminDisputeFinalJury(dispute);
+  installAdminDisputeFinalControls(dispute, adminSession);
+  if (!dispute.isFinalizable) {
+    renderAdminDisputeAlreadyFinalized(dispute);
+  }
+}
+
+function renderAdminDisputeFinalTimeline(dispute) {
+  const timeline = document.querySelector(".timeline");
+  if (!timeline) return;
+  const steps = [
+    [dispute.request?.createdAt, `${displayAdminUser(dispute.publisher)} 发布需求：${dispute.request?.title || "--"}，报价 ${formatAmount(dispute.amount)} ⏂`],
+    [dispute.order?.createdAt, `${displayAdminUser(dispute.provider)} 接单，订单生成`],
+    [dispute.createdAt, `${displayAdminUser(dispute.initiator)} 发起${dispute.typeText || "订单"}争议`],
+    [dispute.updatedAt, `${dispute.juryResult?.leaderText || "等待陪审/管理员处理"} · 当前状态 ${dispute.statusText}`]
+  ];
+  timeline.innerHTML = steps.map(([time, text], index) => `
+    <div class="tl-item${index === steps.length - 1 && dispute.isFinalizable ? " active" : ""}">
+      <div class="tl-time">${escapeHtml(formatDateTime(time))}</div>
+      <div class="tl-text">${escapeHtml(text)}</div>
+    </div>
+  `).join("");
+}
+
+function renderAdminDisputeFinalEvidence(dispute) {
+  const panes = document.querySelectorAll(".ev-panel");
+  const evidence = Array.isArray(dispute.evidence) ? dispute.evidence : [];
+  renderAdminEvidencePane(panes[0], "需求方", dispute.publisher, dispute.description, evidence.filter((entry) => Number(entry.uploaderId) === Number(dispute.publisher?.userId)));
+  renderAdminEvidencePane(panes[1], "服务方", dispute.provider, dispute.reason, evidence.filter((entry) => Number(entry.uploaderId) === Number(dispute.provider?.userId)));
+}
+
+function renderAdminEvidencePane(pane, role, user, claim, evidence) {
+  if (!pane) return;
+  const name = pane.querySelector(".ev-name");
+  const credit = pane.querySelector(".ev-credit");
+  const claimNode = pane.querySelector(".ev-claim");
+  const files = pane.querySelector(".ev-files");
+  if (name) name.textContent = displayAdminUser(user);
+  if (credit) credit.textContent = role;
+  if (claimNode) claimNode.textContent = claim || "暂无详细陈述。";
+  if (files) {
+    files.innerHTML = `
+      <div class="ev-files-label">提交证据 (${evidence.length} 项)</div>
+      ${(evidence.length ? evidence : [{ content: "暂无附件", attachments: [] }]).map((item) => {
+        const attachment = item.attachments?.[0];
+        return `<div class="ev-file"><span class="file-icon">📎</span> ${escapeHtml(attachment?.name || item.content || "文本证据")}<span class="file-size">${escapeHtml(formatDateTime(item.createdAt))}</span></div>`;
+      }).join("")}
+    `;
+  }
+}
+
+function renderAdminDisputeFinalJury(dispute) {
+  const result = dispute.juryResult ?? {};
+  const nums = document.querySelectorAll(".jury-stat .js-num");
+  if (nums[0]) nums[0].textContent = String(result.counts?.mediate ?? 0);
+  if (nums[1]) nums[1].textContent = String(result.counts?.publisher ?? 0);
+  if (nums[2]) nums[2].textContent = String(result.counts?.provider ?? 0);
+  const tbody = document.querySelector(".jury-table tbody");
+  if (tbody) {
+    const votes = Array.isArray(result.votes) ? result.votes : [];
+    tbody.innerHTML = votes.length ? votes.map((vote) => `
+      <tr>
+        <td><span class="juror-id">#JUR-${escapeHtml(vote.jurorId)}</span></td>
+        <td>--</td>
+        <td><span class="vote-badge ${escapeHtml(vote.vote === "publisher" ? "demand" : vote.vote === "provider" ? "service" : "mediate")}">${escapeHtml(vote.vote === "publisher" ? "需求方" : vote.vote === "provider" ? "服务方" : "调解")}</span></td>
+        <td>${escapeHtml(vote.reason || "未填写理由")}</td>
+      </tr>
+    `).join("") : `<tr><td colspan="4">暂无陪审投票。</td></tr>`;
+  }
+}
+
+function installAdminDisputeFinalControls(dispute, adminSession) {
+  const form = document.getElementById("rulingForm");
+  if (!form || form.dataset.adminFinalBound === "true") return;
+  form.dataset.adminFinalBound = "true";
+  form.querySelectorAll(".ruling-opt").forEach((option) => {
+    option.addEventListener("click", () => {
+      form.querySelectorAll(".ruling-opt").forEach((item) => item.classList.remove("selected"));
+      option.classList.add("selected");
+      window.selectedRuling = option.dataset.ruling;
+      const detail = document.getElementById("rulingDetail");
+      if (detail) detail.style.display = option.dataset.ruling === "service" ? "none" : "grid";
+    });
+  });
+  const submit = form.querySelector(".ruling-actions .btn--primary");
+  submit?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    await submitAdminFinalRuling(dispute, adminSession, submit);
+  }, true);
+}
+
+async function submitAdminFinalRuling(dispute, adminSession, button) {
+  const selected = document.querySelector(".ruling-opt.selected")?.dataset.ruling || window.selectedRuling;
+  const result = selected === "demand" ? "publisher_win" : selected === "service" ? "provider_win" : selected === "mediate" ? "mediate" : null;
+  const reason = document.getElementById("rulingReason")?.value.trim() ?? "";
+  const refundAmount = result === "provider_win" ? 0 : Number(document.getElementById("refundAmount")?.value ?? 0);
+  if (!result) {
+    showInlineMessage(button, "请选择裁决结果。", "error");
+    return;
+  }
+  if (reason.length < 5) {
+    showInlineMessage(button, "请填写至少 5 个字的裁决理由。", "error");
+    return;
+  }
+  const restore = setLoading(button, "提交中...");
+  try {
+    const payload = await api.admin.finalizeDispute(adminSession.token, dispute.disputeId, { result, refundAmount, reason });
+    showGlobalMessage("终审裁决已提交，订单、流水和通知已同步。", "success");
+    renderAdminDisputeFinal(payload.dispute, adminSession);
+  } catch (error) {
+    showInlineMessage(button, adminErrorMessage(error), "error");
+  } finally {
+    restore();
+  }
+}
+
+function renderAdminDisputeAlreadyFinalized(dispute) {
+  const form = document.getElementById("rulingForm");
+  if (!form) return;
+  form.innerHTML = `
+    <h3>终审已完成</h3>
+    <p class="rf-subtitle">裁决结果：${escapeHtml(dispute.finalResultText || ADMIN_FINAL_RESULT_LABEL.get(dispute.finalResult) || "终审结案")}；退还 ${escapeHtml(formatAmount(dispute.refundAmount ?? 0))} ⏂。</p>
+    <div class="ruling-warn"><span>完成时间：${escapeHtml(formatDateTime(dispute.resolvedAt))}</span></div>
+    <div class="ruling-actions"><a class="btn btn--ghost btn--lg" href="/admin/disputes">返回争议列表</a></div>
+  `;
+}
+
+function renderAdminStats(payload) {
+  const kpis = payload.kpis ?? {};
+  const values = document.querySelectorAll(".skpi-value");
+  if (values[0]) values[0].textContent = formatInteger(kpis.userCount);
+  if (values[1]) values[1].textContent = formatAmount(kpis.circulatingCoins);
+  if (values[2]) values[2].textContent = formatInteger(kpis.completedOrderCount);
+  if (values[3]) values[3].textContent = formatPercent(kpis.disputeRate);
+  if (values[4]) values[4].textContent = Number(kpis.averageCredit || 0).toFixed(1);
+  renderStatsBarChart(document.querySelectorAll(".bar-chart")[0], payload.orderTrend, "orders");
+  renderStatsHotServices(document.querySelector(".hbar-list"), payload.hotServices);
+  renderStatsBarChart(document.querySelectorAll(".bar-chart")[1], payload.userGrowth, "totalUsers");
+  renderStatsCoinFlow(document.querySelector(".donut-grid"), payload.coinFlow);
+  renderStatsTrendTable(document.querySelector(".trend-table tbody"), payload);
+}
+
+function renderStatsBarChart(container, rows = [], valueKey) {
+  if (!container) return;
+  const list = Array.isArray(rows) ? rows : [];
+  const max = Math.max(1, ...list.map((item) => Number(item[valueKey] ?? 0)));
+  container.innerHTML = list.map((item, index) => {
+    const value = Number(item[valueKey] ?? 0);
+    const height = Math.max(18, Math.round((value / max) * 180));
+    return `<div class="bar-col"><div class="bar-val">${escapeHtml(formatInteger(value))}</div><div class="bar${index >= list.length - 3 ? " alt" : ""}" style="height:${height}px"></div><div class="bar-label">${escapeHtml(monthLabel(item.month))}</div></div>`;
+  }).join("");
+}
+
+function renderStatsHotServices(container, rows = []) {
+  if (!container) return;
+  const colors = ["c1", "c2", "c3", "c4", "c5", "c6"];
+  container.innerHTML = (rows.length ? rows : [{ name: "暂无", percentage: 0 }]).map((item, index) => `
+    <div class="hbar-item"><div class="hbar-label">${escapeHtml(item.name)}</div><div class="hbar-track"><div class="hbar-fill ${colors[index % colors.length]}" style="width:${Math.max(4, Number(item.percentage ?? 0))}%">${escapeHtml(item.percentage ?? 0)}%</div></div></div>
+  `).join("");
+}
+
+function renderStatsCoinFlow(container, rows = []) {
+  if (!container) return;
+  container.innerHTML = (rows.length ? rows : [{ type: "income", percentage: 0 }]).slice(0, 4).map((item) => `
+    <div class="donut-item">
+      <div class="donut-ring" style="background:conic-gradient(var(--accent) 0% ${Number(item.percentage ?? 0)}%, var(--border-light) ${Number(item.percentage ?? 0)}% 100%)"><span>${escapeHtml(item.percentage ?? 0)}%</span></div>
+      <div class="donut-label">${escapeHtml(ADMIN_TRANSACTION_TYPE_LABEL.get(item.type) || item.type)}<br>${escapeHtml(formatAmount(item.amount))} ⏂</div>
+    </div>
+  `).join("");
+}
+
+function renderStatsTrendTable(tbody, payload) {
+  if (!tbody) return;
+  const rows = [
+    ["注册用户", payload.kpis?.userCount, "平台累计用户数"],
+    ["时间币流通", payload.kpis?.circulatingCoins, "累计流水金额"],
+    ["完成订单", payload.kpis?.completedOrderCount, "已归档订单"],
+    ["纠纷率", formatPercent(payload.kpis?.disputeRate), "争议订单占比"],
+    ["平均信用", Number(payload.kpis?.averageCredit || 0).toFixed(1), "公开评价均分"]
+  ];
+  tbody.innerHTML = rows.map(([name, value, note]) => `
+    <tr>
+      <td>${escapeHtml(name)}</td>
+      <td>${escapeHtml(value)}</td>
+      <td>${escapeHtml(note)}</td>
+      <td class="trend-up">实时</td>
+      <td>生产 API</td>
+    </tr>
+  `).join("");
+}
+
+function displayAdminUser(user) {
+  return user?.displayName || user?.username || (user?.userId ? `用户 #${user.userId}` : "--");
+}
+
+function monthLabel(value) {
+  const text = String(value ?? "");
+  return text.includes("-") ? `${Number(text.split("-")[1])}月` : text;
+}
+
+function formatPercent(value) {
+  return `${Number(value || 0).toFixed(1)}%`;
 }
 
 function formatInteger(value) {
