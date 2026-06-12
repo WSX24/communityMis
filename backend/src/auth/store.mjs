@@ -23,6 +23,10 @@ export function createMemoryAuthStore(options = {}) {
   const disputeEvidence = new Map();
   const juryVotes = new Map();
   const auditLogs = new Map();
+  const managedTags = new Map();
+  const sensitiveWords = new Map();
+  const riskContents = new Map();
+  let systemSettings = normalizeSystemSettings(options.seedSystemSettings ?? options.systemSettings);
   let nextUserId = options.nextUserId ?? 10000;
   let nextWalletId = options.nextWalletId ?? 20000;
   let nextRequestId = options.nextRequestId ?? 30000;
@@ -36,12 +40,21 @@ export function createMemoryAuthStore(options = {}) {
   let nextDisputeEvidenceId = options.nextDisputeEvidenceId ?? 66000;
   let nextJuryVoteId = options.nextJuryVoteId ?? 67000;
   let nextAuditLogId = options.nextAuditLogId ?? 68000;
+  let nextTagId = options.nextTagId ?? 69000;
+  let nextSensitiveWordId = options.nextSensitiveWordId ?? 70000;
+  let nextRiskContentId = options.nextRiskContentId ?? 71000;
 
   for (const seedUser of options.seedUsers ?? defaultSeedUsers()) {
     insertSeedUser(seedUser);
   }
   for (const seedCategory of options.seedCategories ?? defaultSeedCategories()) {
     insertSeedCategory(seedCategory);
+  }
+  for (const seedTag of options.seedTags ?? defaultSeedTags()) {
+    insertSeedTag(seedTag);
+  }
+  for (const seedWord of options.seedSensitiveWords ?? defaultSeedSensitiveWords()) {
+    insertSeedSensitiveWord(seedWord);
   }
   for (const seedRequest of options.seedRequests ?? defaultSeedServiceRequests()) {
     insertSeedRequest(seedRequest);
@@ -77,6 +90,9 @@ export function createMemoryAuthStore(options = {}) {
   for (const seedAuditLog of options.seedAuditLogs ?? (options.seedRequests === undefined ? defaultSeedAuditLogs() : [])) {
     insertSeedAuditLog(seedAuditLog);
   }
+  for (const seedRiskContent of options.seedRiskContents ?? defaultSeedRiskContents()) {
+    insertSeedRiskContent(seedRiskContent);
+  }
 
   return {
     createUserWithWallet,
@@ -88,6 +104,20 @@ export function createMemoryAuthStore(options = {}) {
     updateSettingsByUserId,
     listCategories,
     listTags,
+    listAdminCategories,
+    createAdminCategory,
+    updateAdminCategory,
+    createAdminTag,
+    updateAdminTag,
+    listSensitiveWords,
+    listActiveSensitiveWords,
+    createSensitiveWord,
+    updateSensitiveWord,
+    createRiskContent,
+    listRiskContents,
+    resolveRiskContent,
+    getSystemSettings,
+    updateSystemSettings,
     listServiceRequests,
     findServiceRequestById,
     createServiceRequest,
@@ -235,7 +265,27 @@ export function createMemoryAuthStore(options = {}) {
   }
 
   function listTags() {
+    const activeCategoryIds = new Set(Array.from(categories.values())
+      .filter((category) => category.status === ACTIVE_STATUS)
+      .map((category) => category.categoryId));
     const tagMap = new Map();
+
+    for (const tag of managedTags.values()) {
+      if (tag.status !== ACTIVE_STATUS || !activeCategoryIds.has(Number(tag.categoryId))) {
+        continue;
+      }
+      tagMap.set(String(tag.name).toLowerCase(), {
+        tagId: tag.tagId,
+        categoryId: tag.categoryId,
+        name: tag.name,
+        status: tag.status,
+        sortOrder: tag.sortOrder,
+        userCount: 0,
+        requestCount: 0,
+        createdAt: tag.createdAt,
+        updatedAt: tag.updatedAt
+      });
+    }
 
     for (const user of users.values()) {
       if (user.status !== ACTIVE_STATUS || user.role !== "user") {
@@ -247,8 +297,9 @@ export function createMemoryAuthStore(options = {}) {
     }
 
     for (const request of serviceRequests.values()) {
+      const requestWithCategory = withCategory(request);
       const publisher = users.get(request.publisherId);
-      if (!isVisibleServiceRequest(request, publisher)) {
+      if (!isVisibleServiceRequest(requestWithCategory, publisher)) {
         continue;
       }
       for (const tag of request.tags ?? []) {
@@ -259,6 +310,226 @@ export function createMemoryAuthStore(options = {}) {
     return Array.from(tagMap.values())
       .sort((left, right) => right.requestCount - left.requestCount || right.userCount - left.userCount || left.name.localeCompare(right.name))
       .map(clone);
+  }
+
+  function listAdminCategories() {
+    const tagCounts = managedTagCounts();
+    const requestCounts = requestCategoryCounts();
+    return {
+      categories: Array.from(categories.values())
+        .sort((left, right) => left.sortOrder - right.sortOrder || left.categoryId - right.categoryId)
+        .map((category) => ({
+          ...clone(category),
+          tagCount: tagCounts.get(category.categoryId) ?? 0,
+          requestCount: requestCounts.get(category.categoryId) ?? 0
+        })),
+      tags: Array.from(managedTags.values())
+        .sort((left, right) => left.sortOrder - right.sortOrder || left.tagId - right.tagId)
+        .map((tag) => ({
+          ...clone(tag),
+          category: tag.categoryId === null ? null : clone(categories.get(tag.categoryId) ?? null),
+          requestCount: countRequestTag(tag.name),
+          userCount: countUserTag(tag.name)
+        }))
+    };
+  }
+
+  function createAdminCategory(input) {
+    const now = input.createdAt ?? new Date().toISOString();
+    const category = normalizeCategory({
+      categoryId: input.categoryId ?? nextCategoryId(),
+      parentId: input.parentId ?? null,
+      name: input.name,
+      code: input.code ?? slugCode(input.name, "category"),
+      description: input.description ?? null,
+      sortOrder: input.sortOrder ?? categories.size * 10 + 10,
+      status: input.status ?? ACTIVE_STATUS,
+      createdAt: now,
+      updatedAt: now
+    });
+    assertUniqueCategory(category);
+    categories.set(category.categoryId, category);
+    return clone(category);
+  }
+
+  function updateAdminCategory(categoryId, input) {
+    const id = Number(categoryId);
+    const existing = categories.get(id);
+    if (!existing) {
+      throw storeError("CATEGORY_NOT_FOUND", "Category was not found.");
+    }
+    const next = normalizeCategory({
+      ...existing,
+      ...input,
+      categoryId: id,
+      code: input.code ?? existing.code,
+      updatedAt: input.updatedAt ?? new Date().toISOString()
+    });
+    assertUniqueCategory(next, id);
+    categories.set(id, next);
+    return clone(next);
+  }
+
+  function createAdminTag(input) {
+    const categoryId = resolveManagedTagCategory(input.categoryId ?? input.categoryName);
+    const now = input.createdAt ?? new Date().toISOString();
+    const tag = normalizeManagedTag({
+      tagId: input.tagId ?? nextTagId,
+      categoryId,
+      name: input.name,
+      status: input.status ?? ACTIVE_STATUS,
+      sortOrder: input.sortOrder ?? managedTags.size * 10 + 10,
+      createdAt: now,
+      updatedAt: now
+    });
+    assertUniqueManagedTag(tag);
+    managedTags.set(tag.tagId, tag);
+    nextTagId = Math.max(nextTagId, tag.tagId + 1);
+    return clone(tag);
+  }
+
+  function updateAdminTag(tagId, input) {
+    const id = Number(tagId);
+    const existing = managedTags.get(id);
+    if (!existing) {
+      throw storeError("TAG_NOT_FOUND", "Tag was not found.");
+    }
+    const categoryId = input.categoryId !== undefined || input.categoryName !== undefined
+      ? resolveManagedTagCategory(input.categoryId ?? input.categoryName)
+      : existing.categoryId;
+    const next = normalizeManagedTag({
+      ...existing,
+      ...input,
+      tagId: id,
+      categoryId,
+      updatedAt: input.updatedAt ?? new Date().toISOString()
+    });
+    assertUniqueManagedTag(next, id);
+    managedTags.set(id, next);
+    return clone(next);
+  }
+
+  function listSensitiveWords(query = {}) {
+    const keyword = normalizeOptionalString(query.keyword)?.toLowerCase() ?? null;
+    const level = normalizeSensitiveLevelFilter(query.level, "all");
+    const status = normalizeStatusFilter(query.status, "all");
+    const page = positiveInteger(query.page, 1);
+    const pageSize = positiveInteger(query.pageSize, 20);
+    const filtered = Array.from(sensitiveWords.values())
+      .filter((item) => level === "all" || item.level === level)
+      .filter((item) => status === "all" || (status === "active" ? item.status === ACTIVE_STATUS : item.status !== ACTIVE_STATUS))
+      .filter((item) => !keyword || sensitiveWordHaystack(item).includes(keyword))
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() || right.wordId - left.wordId);
+    const offset = (page - 1) * pageSize;
+    return {
+      sensitiveWords: filtered.slice(offset, offset + pageSize).map(clone),
+      total: filtered.length,
+      summary: sensitiveWordSummary(filtered)
+    };
+  }
+
+  function listActiveSensitiveWords() {
+    return Array.from(sensitiveWords.values())
+      .filter((item) => item.status === ACTIVE_STATUS)
+      .sort((left, right) => left.word.length - right.word.length || left.word.localeCompare(right.word))
+      .map(clone);
+  }
+
+  function createSensitiveWord(input) {
+    const word = normalizeSensitiveWord({
+      ...input,
+      wordId: input.wordId ?? nextSensitiveWordId,
+      createdAt: input.createdAt ?? new Date().toISOString(),
+      updatedAt: input.updatedAt ?? input.createdAt ?? new Date().toISOString()
+    });
+    assertUniqueSensitiveWord(word);
+    sensitiveWords.set(word.wordId, word);
+    nextSensitiveWordId = Math.max(nextSensitiveWordId, word.wordId + 1);
+    return clone(word);
+  }
+
+  function updateSensitiveWord(wordId, input) {
+    const id = Number(wordId);
+    const existing = sensitiveWords.get(id);
+    if (!existing) {
+      throw storeError("SENSITIVE_WORD_NOT_FOUND", "Sensitive word was not found.");
+    }
+    const next = normalizeSensitiveWord({
+      ...existing,
+      ...input,
+      wordId: id,
+      updatedAt: input.updatedAt ?? new Date().toISOString()
+    });
+    assertUniqueSensitiveWord(next, id);
+    sensitiveWords.set(id, next);
+    return clone(next);
+  }
+
+  function createRiskContent(input) {
+    const now = input.createdAt ?? new Date().toISOString();
+    const existing = findOpenRiskContent(input);
+    if (existing) {
+      existing.hits = mergeRiskHits(existing.hits, input.hits);
+      existing.riskScore = Math.max(existing.riskScore, Number(input.riskScore ?? 0));
+      existing.riskLevel = riskLevelForScore(existing.riskScore);
+      existing.updatedAt = now;
+      return clone(existing);
+    }
+    const item = normalizeRiskContent({
+      ...input,
+      riskId: input.riskId ?? nextRiskContentId,
+      status: input.status ?? "pending",
+      createdAt: now,
+      updatedAt: input.updatedAt ?? now
+    });
+    riskContents.set(item.riskId, item);
+    nextRiskContentId = Math.max(nextRiskContentId, item.riskId + 1);
+    return clone(item);
+  }
+
+  function listRiskContents(query = {}) {
+    const keyword = normalizeOptionalString(query.keyword)?.toLowerCase() ?? null;
+    const status = normalizeRiskStatusFilter(query.status, "all");
+    const riskLevel = normalizeRiskLevelFilter(query.riskLevel ?? query.level, "all");
+    const sourceType = normalizeOptionalString(query.sourceType ?? query.source) ?? null;
+    const page = positiveInteger(query.page, 1);
+    const pageSize = positiveInteger(query.pageSize, 20);
+    const filtered = Array.from(riskContents.values())
+      .filter((item) => status === "all" || item.status === status)
+      .filter((item) => riskLevel === "all" || item.riskLevel === riskLevel)
+      .filter((item) => !sourceType || item.sourceType === sourceType)
+      .filter((item) => !keyword || riskContentHaystack(item).includes(keyword))
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() || right.riskId - left.riskId);
+    const offset = (page - 1) * pageSize;
+    return {
+      riskContents: filtered.slice(offset, offset + pageSize).map(clone),
+      total: filtered.length,
+      summary: riskContentSummary(filtered)
+    };
+  }
+
+  function resolveRiskContent(riskId, input) {
+    const id = Number(riskId);
+    const item = riskContents.get(id);
+    if (!item) {
+      throw storeError("RISK_CONTENT_NOT_FOUND", "Risk content was not found.");
+    }
+    item.status = normalizeRiskResolution(input.status ?? input.resolution ?? input.action);
+    item.resolution = item.status;
+    item.resolutionNote = normalizeOptionalString(input.note ?? input.reason) ?? "";
+    item.resolvedBy = input.actorId === undefined || input.actorId === null ? null : Number(input.actorId);
+    item.resolvedAt = input.resolvedAt ?? new Date().toISOString();
+    item.updatedAt = item.resolvedAt;
+    return clone(item);
+  }
+
+  function getSystemSettings() {
+    return clone(systemSettings);
+  }
+
+  function updateSystemSettings(input) {
+    systemSettings = mergeSystemSettings(systemSettings, input);
+    return clone(systemSettings);
   }
 
   function listServiceRequests() {
@@ -273,6 +544,7 @@ export function createMemoryAuthStore(options = {}) {
   }
 
   function createServiceRequest(input) {
+    assertActiveCategory(input.categoryId);
     const request = normalizeServiceRequest({
       ...input,
       requestId: nextRequestId,
@@ -1497,6 +1769,24 @@ export function createMemoryAuthStore(options = {}) {
     categories.set(category.categoryId, category);
   }
 
+  function insertSeedTag(seedTag) {
+    const tag = normalizeManagedTag(seedTag);
+    managedTags.set(tag.tagId, tag);
+    nextTagId = Math.max(nextTagId, tag.tagId + 1);
+  }
+
+  function insertSeedSensitiveWord(seedWord) {
+    const word = normalizeSensitiveWord(seedWord);
+    sensitiveWords.set(word.wordId, word);
+    nextSensitiveWordId = Math.max(nextSensitiveWordId, word.wordId + 1);
+  }
+
+  function insertSeedRiskContent(seedRiskContent) {
+    const item = normalizeRiskContent(seedRiskContent);
+    riskContents.set(item.riskId, item);
+    nextRiskContentId = Math.max(nextRiskContentId, item.riskId + 1);
+  }
+
   function insertSeedRequest(seedRequest) {
     const request = normalizeServiceRequest({
       ...seedRequest,
@@ -1605,6 +1895,129 @@ export function createMemoryAuthStore(options = {}) {
     notifications.set(notification.notificationId, notification);
     nextNotificationId += 1;
     return notification;
+  }
+
+  function nextCategoryId() {
+    const maxExisting = Array.from(categories.keys()).reduce((max, id) => Math.max(max, Number(id)), 0);
+    return Math.max(maxExisting + 1, 100);
+  }
+
+  function managedTagCounts() {
+    const counts = new Map();
+    for (const tag of managedTags.values()) {
+      counts.set(tag.categoryId, (counts.get(tag.categoryId) ?? 0) + 1);
+    }
+    return counts;
+  }
+
+  function requestCategoryCounts() {
+    const counts = new Map();
+    for (const request of serviceRequests.values()) {
+      if (request.visible === false) {
+        continue;
+      }
+      counts.set(request.categoryId, (counts.get(request.categoryId) ?? 0) + 1);
+    }
+    return counts;
+  }
+
+  function countRequestTag(tagName) {
+    const expected = String(tagName ?? "").trim().toLowerCase();
+    if (!expected) {
+      return 0;
+    }
+    return Array.from(serviceRequests.values()).filter((request) => (
+      request.visible !== false
+      && Array.isArray(request.tags)
+      && request.tags.some((tag) => String(tag).trim().toLowerCase() === expected)
+    )).length;
+  }
+
+  function countUserTag(tagName) {
+    const expected = String(tagName ?? "").trim().toLowerCase();
+    if (!expected) {
+      return 0;
+    }
+    return Array.from(users.values()).filter((user) => (
+      user.status === ACTIVE_STATUS
+      && user.role === "user"
+      && Array.isArray(user.skillTags)
+      && user.skillTags.some((tag) => String(tag).trim().toLowerCase() === expected)
+    )).length;
+  }
+
+  function resolveManagedTagCategory(raw) {
+    if (raw === undefined || raw === null || raw === "") {
+      return null;
+    }
+    const text = String(raw).trim();
+    const category = Array.from(categories.values()).find((item) => (
+      String(item.categoryId) === text
+      || item.name === text
+      || item.code === text
+    ));
+    if (!category) {
+      throw storeError("CATEGORY_NOT_FOUND", "Category was not found.");
+    }
+    return category.categoryId;
+  }
+
+  function assertActiveCategory(categoryId) {
+    const id = Number(categoryId);
+    const category = categories.get(id);
+    if (!category || Number(category.status) !== ACTIVE_STATUS) {
+      throw storeError("CATEGORY_DISABLED", "Selected category is not available for publishing.");
+    }
+  }
+
+  function assertUniqueCategory(category, exceptId = null) {
+    const name = category.name.toLowerCase();
+    const code = category.code.toLowerCase();
+    for (const item of categories.values()) {
+      if (exceptId !== null && item.categoryId === exceptId) {
+        continue;
+      }
+      if (item.name.toLowerCase() === name || item.code.toLowerCase() === code) {
+        throw storeError("CATEGORY_DUPLICATE", "Category name or code already exists.");
+      }
+    }
+  }
+
+  function assertUniqueManagedTag(tag, exceptId = null) {
+    const name = tag.name.toLowerCase();
+    for (const item of managedTags.values()) {
+      if (exceptId !== null && item.tagId === exceptId) {
+        continue;
+      }
+      if (item.name.toLowerCase() === name) {
+        throw storeError("TAG_DUPLICATE", "Tag already exists.");
+      }
+    }
+  }
+
+  function assertUniqueSensitiveWord(word, exceptId = null) {
+    const expected = word.word.toLowerCase();
+    for (const item of sensitiveWords.values()) {
+      if (exceptId !== null && item.wordId === exceptId) {
+        continue;
+      }
+      if (item.word.toLowerCase() === expected) {
+        throw storeError("SENSITIVE_WORD_DUPLICATE", "Sensitive word already exists.");
+      }
+    }
+  }
+
+  function findOpenRiskContent(input) {
+    const sourceType = String(input.sourceType ?? input.source_type ?? "");
+    const sourceId = input.sourceId === undefined || input.sourceId === null ? null : Number(input.sourceId);
+    if (!sourceType || sourceId === null) {
+      return null;
+    }
+    return Array.from(riskContents.values()).find((item) => (
+      item.sourceType === sourceType
+      && item.sourceId === sourceId
+      && ["pending", "reviewing"].includes(item.status)
+    )) ?? null;
   }
 
   function createOrderConfirmationNotifications(input) {
@@ -1966,6 +2379,92 @@ export function defaultSeedCategories() {
       status: ACTIVE_STATUS,
       createdAt: "2026-06-01T09:00:00.000Z",
       updatedAt: "2026-06-01T09:00:00.000Z"
+    }
+  ];
+}
+
+export function defaultSeedTags() {
+  return [
+    { tagId: 30, categoryId: 10, name: "跑腿代取", status: ACTIVE_STATUS, sortOrder: 10, createdAt: "2026-06-01T09:00:00.000Z" },
+    { tagId: 31, categoryId: 10, name: "代买", status: ACTIVE_STATUS, sortOrder: 20, createdAt: "2026-06-01T09:00:00.000Z" },
+    { tagId: 32, categoryId: 10, name: "排队", status: ACTIVE_STATUS, sortOrder: 30, createdAt: "2026-06-01T09:00:00.000Z" },
+    { tagId: 33, categoryId: 11, name: "家政", status: ACTIVE_STATUS, sortOrder: 40, createdAt: "2026-06-01T09:00:00.000Z" },
+    { tagId: 34, categoryId: 11, name: "维修", status: ACTIVE_STATUS, sortOrder: 50, createdAt: "2026-06-01T09:00:00.000Z" },
+    { tagId: 35, categoryId: 12, name: "数学辅导", status: ACTIVE_STATUS, sortOrder: 60, createdAt: "2026-06-01T09:00:00.000Z" },
+    { tagId: 36, categoryId: 12, name: "电脑维修", status: ACTIVE_STATUS, sortOrder: 70, createdAt: "2026-06-01T09:00:00.000Z" },
+    { tagId: 37, categoryId: 13, name: "宠物照看", status: ACTIVE_STATUS, sortOrder: 80, createdAt: "2026-06-01T09:00:00.000Z" },
+    { tagId: 38, categoryId: 14, name: "社区协作", status: ACTIVE_STATUS, sortOrder: 90, createdAt: "2026-06-01T09:00:00.000Z" }
+  ];
+}
+
+export function defaultSeedSensitiveWords() {
+  return [
+    {
+      wordId: 40,
+      word: "私下交易",
+      replacement: "***",
+      level: "block",
+      category: "站外交易",
+      reason: "平台交易需通过邻帮完成，不能引导私下交易。",
+      status: ACTIVE_STATUS,
+      hitCount: 0,
+      createdBy: 9001,
+      createdAt: "2026-06-01T09:00:00.000Z"
+    },
+    {
+      wordId: 41,
+      word: "现金结算",
+      replacement: "***",
+      level: "block",
+      category: "站外交易",
+      reason: "需求发布不能要求现金结算，请使用时间币。",
+      status: ACTIVE_STATUS,
+      hitCount: 0,
+      createdBy: 9001,
+      createdAt: "2026-06-01T09:00:00.000Z"
+    },
+    {
+      wordId: 42,
+      word: "辱骂",
+      replacement: "***",
+      level: "block",
+      category: "人身攻击",
+      reason: "内容包含不友善或攻击性表达。",
+      status: ACTIVE_STATUS,
+      hitCount: 0,
+      createdBy: 9001,
+      createdAt: "2026-06-01T09:00:00.000Z"
+    },
+    {
+      wordId: 43,
+      word: "加微信",
+      replacement: "***",
+      level: "review",
+      category: "站外导流",
+      reason: "疑似引导站外沟通，需管理员复核。",
+      status: ACTIVE_STATUS,
+      hitCount: 0,
+      createdBy: 9001,
+      createdAt: "2026-06-01T09:00:00.000Z"
+    }
+  ];
+}
+
+export function defaultSeedRiskContents() {
+  return [
+    {
+      riskId: 50,
+      sourceType: "request",
+      sourceId: 2005,
+      userId: 1003,
+      title: "高风险示例需求",
+      content: "演示风险内容审核队列，可由管理员标记处理。",
+      hits: [{ word: "演示风险", level: "review", reason: "种子风险内容" }],
+      riskLevel: "medium",
+      riskScore: 66,
+      status: "pending",
+      aiTip: "该记录用于后台内容审核验收。",
+      createdAt: "2026-06-05T09:30:00.000Z"
     }
   ];
 }
@@ -2375,6 +2874,81 @@ function normalizeCategory(input) {
   };
 }
 
+function normalizeManagedTag(input) {
+  const now = new Date().toISOString();
+  return {
+    tagId: Number(input.tagId ?? input.tag_id),
+    categoryId: input.categoryId === undefined || input.categoryId === null ? null : Number(input.categoryId),
+    name: String(input.name ?? "").trim(),
+    status: Number(input.status ?? ACTIVE_STATUS),
+    sortOrder: Number(input.sortOrder ?? input.sort_order ?? 0),
+    createdAt: input.createdAt ?? input.created_at ?? now,
+    updatedAt: input.updatedAt ?? input.updated_at ?? input.createdAt ?? input.created_at ?? now
+  };
+}
+
+function normalizeSensitiveWord(input) {
+  const now = new Date().toISOString();
+  return {
+    wordId: Number(input.wordId ?? input.word_id),
+    word: String(input.word ?? "").trim(),
+    replacement: normalizeOptionalString(input.replacement ?? input.replace) ?? "***",
+    level: normalizeSensitiveLevel(input.level),
+    category: normalizeOptionalString(input.category) ?? "其他",
+    reason: normalizeOptionalString(input.reason) ?? "内容命中平台内容安全规则。",
+    status: Number(input.status ?? ACTIVE_STATUS),
+    hitCount: Number(input.hitCount ?? input.hit_count ?? 0),
+    createdBy: input.createdBy === undefined || input.createdBy === null ? null : Number(input.createdBy),
+    createdAt: input.createdAt ?? input.created_at ?? now,
+    updatedAt: input.updatedAt ?? input.updated_at ?? input.createdAt ?? input.created_at ?? now
+  };
+}
+
+function normalizeRiskContent(input) {
+  const now = new Date().toISOString();
+  const hits = Array.isArray(input.hits) ? input.hits.map(normalizeRiskHit).filter(Boolean) : [];
+  const score = Number(input.riskScore ?? input.risk_score ?? riskScoreFromHits(hits));
+  return {
+    riskId: Number(input.riskId ?? input.risk_id),
+    sourceType: String(input.sourceType ?? input.source_type ?? "content"),
+    sourceId: input.sourceId === undefined || input.sourceId === null ? null : Number(input.sourceId),
+    userId: input.userId === undefined || input.userId === null ? null : Number(input.userId),
+    title: normalizeOptionalString(input.title) ?? "风险内容",
+    content: normalizeOptionalString(input.content) ?? "",
+    hits,
+    riskLevel: normalizeRiskLevel(input.riskLevel ?? input.risk_level) ?? riskLevelForScore(score),
+    riskScore: score,
+    status: normalizeRiskStatus(input.status),
+    aiTip: normalizeOptionalString(input.aiTip ?? input.ai_tip) ?? "命中平台内容治理规则，需管理员复核。",
+    resolution: normalizeOptionalString(input.resolution),
+    resolutionNote: normalizeOptionalString(input.resolutionNote ?? input.resolution_note),
+    resolvedBy: input.resolvedBy === undefined || input.resolvedBy === null ? null : Number(input.resolvedBy),
+    resolvedAt: input.resolvedAt ?? input.resolved_at ?? null,
+    createdAt: input.createdAt ?? input.created_at ?? now,
+    updatedAt: input.updatedAt ?? input.updated_at ?? input.createdAt ?? input.created_at ?? now
+  };
+}
+
+function normalizeRiskHit(input) {
+  if (!input) {
+    return null;
+  }
+  if (typeof input !== "object") {
+    const word = String(input).trim();
+    return word ? { word, level: "review", reason: "命中内容规则" } : null;
+  }
+  const word = String(input.word ?? "").trim();
+  if (!word) {
+    return null;
+  }
+  return {
+    word,
+    level: normalizeSensitiveLevel(input.level),
+    reason: normalizeOptionalString(input.reason) ?? "命中内容规则",
+    category: normalizeOptionalString(input.category)
+  };
+}
+
 function normalizeServiceRequest(input) {
   const now = new Date().toISOString();
   return {
@@ -2610,7 +3184,9 @@ function normalizeEvidenceList(value) {
 }
 
 function isVisibleServiceRequest(request, publisher) {
-  return request.visible !== false && request.status !== "cancelled" && publisher?.status === ACTIVE_STATUS;
+  const category = request.category ?? null;
+  const categoryActive = category ? Number(category.status) === ACTIVE_STATUS : true;
+  return request.visible !== false && request.status !== "cancelled" && publisher?.status === ACTIVE_STATUS && categoryActive;
 }
 
 function isJuryUser(user) {
@@ -2635,6 +3211,59 @@ function addTagCount(tagMap, rawTag, field) {
   };
   entry[field] += 1;
   tagMap.set(key, entry);
+}
+
+function sensitiveWordHaystack(item) {
+  return [
+    item.word,
+    item.level,
+    item.category,
+    item.reason,
+    item.replacement
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function riskContentHaystack(item) {
+  return [
+    item.riskId,
+    item.sourceType,
+    item.sourceId,
+    item.userId,
+    item.title,
+    item.content,
+    item.status,
+    item.riskLevel,
+    item.aiTip,
+    ...(item.hits ?? []).map((hit) => hit.word)
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function sensitiveWordSummary(items) {
+  return {
+    total: items.length,
+    blockCount: items.filter((item) => item.level === "block").length,
+    warnCount: items.filter((item) => item.level === "warn").length,
+    reviewCount: items.filter((item) => item.level === "review").length,
+    activeCount: items.filter((item) => item.status === ACTIVE_STATUS).length
+  };
+}
+
+function riskContentSummary(items) {
+  return {
+    total: items.length,
+    pendingCount: items.filter((item) => item.status === "pending").length,
+    reviewingCount: items.filter((item) => item.status === "reviewing").length,
+    resolvedCount: items.filter((item) => ["approved", "removed", "ignored", "resolved"].includes(item.status)).length,
+    highCount: items.filter((item) => item.riskLevel === "high").length
+  };
+}
+
+function mergeRiskHits(current = [], next = []) {
+  const map = new Map();
+  for (const hit of [...current, ...next].map(normalizeRiskHit).filter(Boolean)) {
+    map.set(hit.word.toLowerCase(), hit);
+  }
+  return Array.from(map.values());
 }
 
 function publicReviewer(user) {
@@ -2683,6 +3312,40 @@ function mergeSettings(current, patch = {}) {
       ...current.preferences,
       ...preferencePatch(patch.preferences)
     }
+  };
+}
+
+function normalizeSystemSettings(input = {}) {
+  const base = {
+    freezeDays: 7,
+    autoArchiveDays: 30,
+    newUserCoin: INITIAL_TIME_COIN_BALANCE,
+    maintenanceMode: false,
+    autoBackup: true,
+    aiHighRiskBlock: true,
+    safetyNotice: "高风险动作必须由管理员二次确认并写入审计日志。",
+    updatedAt: "2026-06-01T09:00:00.000Z"
+  };
+  return mergeSystemSettings(base, input);
+}
+
+function mergeSystemSettings(current, patch = {}) {
+  const numberPatch = (key, min, max, fallback) => {
+    if (!hasOwn(patch, key)) {
+      return fallback;
+    }
+    const value = Number(patch[key]);
+    return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+  };
+  return {
+    freezeDays: numberPatch("freezeDays", 1, 30, Number(current.freezeDays ?? 7)),
+    autoArchiveDays: numberPatch("autoArchiveDays", 7, 180, Number(current.autoArchiveDays ?? 30)),
+    newUserCoin: roundMoney(numberPatch("newUserCoin", 0, 20, Number(current.newUserCoin ?? INITIAL_TIME_COIN_BALANCE))),
+    maintenanceMode: hasOwn(patch, "maintenanceMode") ? Boolean(patch.maintenanceMode) : Boolean(current.maintenanceMode),
+    autoBackup: hasOwn(patch, "autoBackup") ? Boolean(patch.autoBackup) : Boolean(current.autoBackup),
+    aiHighRiskBlock: hasOwn(patch, "aiHighRiskBlock") ? Boolean(patch.aiHighRiskBlock) : Boolean(current.aiHighRiskBlock),
+    safetyNotice: normalizeOptionalString(patch.safetyNotice) ?? current.safetyNotice ?? "高风险动作必须由管理员二次确认并写入审计日志。",
+    updatedAt: patch.updatedAt ?? new Date().toISOString()
   };
 }
 
@@ -2742,6 +3405,124 @@ function positiveInteger(raw, fallback) {
 function normalizeWalletFilter(value, fallback) {
   const text = String(value ?? "").trim().toLowerCase();
   return text || fallback;
+}
+
+function normalizeStatusFilter(value, fallback) {
+  const text = String(value ?? "").trim().toLowerCase();
+  return ["all", "active", "disabled"].includes(text) ? text : fallback;
+}
+
+function normalizeSensitiveLevel(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  const map = new Map([
+    ["strong", "block"],
+    ["block", "block"],
+    ["deny", "block"],
+    ["mild", "warn"],
+    ["warn", "warn"],
+    ["warning", "warn"],
+    ["review", "review"],
+    ["manual", "review"]
+  ]);
+  return map.get(text) ?? "review";
+}
+
+function normalizeSensitiveLevelFilter(value, fallback) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text || text === "all") {
+    return fallback;
+  }
+  return ["block", "warn", "review"].includes(normalizeSensitiveLevel(text)) ? normalizeSensitiveLevel(text) : fallback;
+}
+
+function normalizeRiskLevel(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  const map = new Map([
+    ["high", "high"],
+    ["高", "high"],
+    ["medium", "medium"],
+    ["mid", "medium"],
+    ["中", "medium"],
+    ["low", "low"],
+    ["低", "low"]
+  ]);
+  return map.get(text) ?? null;
+}
+
+function normalizeRiskLevelFilter(value, fallback) {
+  const normalized = normalizeRiskLevel(value);
+  if (!value || String(value).trim().toLowerCase() === "all") {
+    return fallback;
+  }
+  return normalized ?? fallback;
+}
+
+function normalizeRiskStatus(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  return ["pending", "reviewing", "approved", "removed", "ignored", "resolved"].includes(text) ? text : "pending";
+}
+
+function normalizeRiskStatusFilter(value, fallback) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text || text === "all") {
+    return fallback;
+  }
+  return normalizeRiskStatus(text);
+}
+
+function normalizeRiskResolution(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  const map = new Map([
+    ["pass", "approved"],
+    ["approve", "approved"],
+    ["approved", "approved"],
+    ["remove", "removed"],
+    ["removed", "removed"],
+    ["reject", "removed"],
+    ["ignore", "ignored"],
+    ["ignored", "ignored"],
+    ["resolve", "resolved"],
+    ["resolved", "resolved"],
+    ["reviewing", "reviewing"]
+  ]);
+  return map.get(text) ?? "resolved";
+}
+
+function riskScoreFromHits(hits) {
+  if (!Array.isArray(hits) || hits.length === 0) {
+    return 0;
+  }
+  if (hits.some((hit) => hit.level === "block")) {
+    return 90;
+  }
+  if (hits.some((hit) => hit.level === "review")) {
+    return 66;
+  }
+  return 42;
+}
+
+function riskLevelForScore(score) {
+  const value = Number(score);
+  if (value >= 80) {
+    return "high";
+  }
+  if (value >= 50) {
+    return "medium";
+  }
+  return "low";
+}
+
+function slugCode(value, prefix = "item") {
+  const raw = String(value ?? "").trim().toLowerCase();
+  const ascii = raw.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (ascii) {
+    return ascii.slice(0, 50);
+  }
+  let hash = 0;
+  for (const char of raw) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  return `${prefix}_${hash.toString(36) || Date.now().toString(36)}`.slice(0, 50);
 }
 
 function normalizeDisputeFilter(value, fallback) {

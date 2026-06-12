@@ -30,7 +30,7 @@ const NOTIFICATION_TYPES = new Set(["all", "system", "order", "wallet", "review"
 const NOTIFICATION_READ_FILTERS = new Set(["all", "read", "unread"]);
 const JURY_VOTES = new Set(["publisher", "provider", "mediate"]);
 const REQUEST_BODY_MAX_BYTES = 64 * 1024;
-const LOCAL_SENSITIVE_RULES = [
+const FALLBACK_SENSITIVE_RULES = [
   { word: "私下交易", level: "block", reason: "平台交易需通过邻帮完成，不能引导私下交易。" },
   { word: "现金结算", level: "block", reason: "需求发布不能要求现金结算，请使用时间币。" },
   { word: "辱骂", level: "block", reason: "内容包含不友善或攻击性表达。" }
@@ -40,7 +40,18 @@ export async function handleRequestRoutes({ request, response, url, authService 
   if (url.pathname === "/api/content/check") {
     allowOnly(request, response, ["POST"]);
     const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
-    const result = checkContentPolicy(contentCheckFields(body));
+    const result = await checkContentPolicy(authService.store, contentCheckFields(body));
+    if (!result.allowed && typeof authService.store.createRiskContent === "function") {
+      await authService.store.createRiskContent(riskContentInput({
+        body,
+        sourceType: body.sourceType ?? "content_check",
+        sourceId: body.sourceId ?? null,
+        userId: body.userId ?? null,
+        hits: result.hits,
+        title: body.title ?? "发布前内容检测",
+        content: contentCheckFields(body).join("\n")
+      }));
+    }
     sendJson(response, 200, {
       ok: result.allowed,
       allowed: result.allowed,
@@ -75,11 +86,23 @@ export async function handleRequestRoutes({ request, response, url, authService 
       authService.requireRole(context, ["user"]);
       const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
       const input = await normalizeCreateRequestInput(authService.store, body);
-      assertContentAllowed(input);
-      const created = await authService.store.createServiceRequest({
-        ...input,
-        publisherId: context.user.userId
+      await assertContentAllowed(authService.store, input, {
+        userId: context.user.userId,
+        sourceType: "request",
+        title: input.title
       });
+      let created;
+      try {
+        created = await authService.store.createServiceRequest({
+          ...input,
+          publisherId: context.user.userId
+        });
+      } catch (error) {
+        if (error?.code === "CATEGORY_DISABLED") {
+          throw new HttpError(400, "CATEGORY_DISABLED", "Selected category is not available for publishing.");
+        }
+        throw error;
+      }
       sendJson(response, 201, await requestDetailPayload(authService.store, created.requestId));
       return true;
     }
@@ -502,8 +525,11 @@ async function normalizeCreateRequestInput(store, input) {
     throw new HttpError(500, "REQUEST_STORE_UNAVAILABLE", "Request publishing is not available.");
   }
 
-  const categories = await safeStoreCall(store, "listCategories", []);
-  const category = resolveCategory(input, categories);
+  const publicCategories = await safeStoreCall(store, "listCategories", []);
+  const adminCategories = typeof store.listAdminCategories === "function"
+    ? (await store.listAdminCategories()).categories ?? []
+    : publicCategories;
+  const category = resolveCategory(input, publicCategories, adminCategories);
   return {
     categoryId: category.categoryId,
     title: requiredText(input?.title, 2, 100, "INVALID_REQUEST_TITLE", "Request title is required."),
@@ -527,12 +553,16 @@ async function normalizeCreateRequestInput(store, input) {
   };
 }
 
-function resolveCategory(input, categories) {
+function resolveCategory(input, categories, allCategories = categories) {
   const rawId = input?.categoryId ?? input?.category_id;
   const rawText = input?.categoryCode ?? input?.category ?? input?.categoryName;
 
   if (rawId !== undefined && rawId !== null && rawId !== "") {
     const categoryId = parsePositiveInt(rawId, "INVALID_CATEGORY_ID");
+    const knownCategory = allCategories.find((item) => item.categoryId === categoryId);
+    if (knownCategory && Number(knownCategory.status) !== ACTIVE_STATUS) {
+      throw new HttpError(400, "CATEGORY_DISABLED", "Selected category is not available for publishing.");
+    }
     const category = categories.find((item) => item.categoryId === categoryId);
     if (category) {
       return category;
@@ -542,6 +572,13 @@ function resolveCategory(input, categories) {
   const text = optionalInputText(rawText, 50, "INVALID_CATEGORY");
   if (text) {
     const normalized = text.toLowerCase();
+    const knownCategory = allCategories.find((item) => [item.code, item.name, String(item.categoryId)]
+      .filter(Boolean)
+      .map((value) => String(value).toLowerCase())
+      .includes(normalized));
+    if (knownCategory && Number(knownCategory.status) !== ACTIVE_STATUS) {
+      throw new HttpError(400, "CATEGORY_DISABLED", "Selected category is not available for publishing.");
+    }
     const category = categories.find((item) => [item.code, item.name, String(item.categoryId)]
       .filter(Boolean)
       .map((value) => String(value).toLowerCase())
@@ -807,42 +844,91 @@ function contentCheckFields(input) {
   ];
 }
 
-function assertContentAllowed(input) {
-  const result = checkContentPolicy([
+async function assertContentAllowed(store, input, options = {}) {
+  const result = await checkContentPolicy(store, [
     input.title,
     input.description,
     input.location,
     ...input.tags
   ]);
   if (!result.allowed) {
+    if (typeof store.createRiskContent === "function") {
+      await store.createRiskContent(riskContentInput({
+        sourceType: options.sourceType ?? "request",
+        sourceId: options.sourceId ?? null,
+        userId: options.userId ?? null,
+        hits: result.hits,
+        title: options.title ?? input.title,
+        content: [
+          input.title,
+          input.description,
+          input.location,
+          ...input.tags
+        ].filter(Boolean).join("\n")
+      }));
+    }
     throw new HttpError(400, "SENSITIVE_CONTENT", contentBlockReason(result.hits), {
       hits: result.hits
     });
   }
 }
 
-function checkContentPolicy(fields) {
+async function checkContentPolicy(store, fields) {
   const text = fields
     .filter((value) => value !== undefined && value !== null)
     .map((value) => String(value).toLowerCase())
     .join("\n");
-  const hits = LOCAL_SENSITIVE_RULES
+  const rules = typeof store.listActiveSensitiveWords === "function"
+    ? await store.listActiveSensitiveWords()
+    : FALLBACK_SENSITIVE_RULES;
+  const hits = rules
     .filter((rule) => text.includes(rule.word.toLowerCase()))
     .map((rule) => ({
+      wordId: rule.wordId ?? null,
       word: rule.word,
       level: rule.level,
-      reason: rule.reason
+      reason: rule.reason,
+      category: rule.category ?? null
     }));
 
   return {
-    allowed: hits.length === 0,
+    allowed: hits.every((hit) => hit.level !== "block"),
     hits
   };
 }
 
 function contentBlockReason(hits) {
-  const first = hits[0];
+  const first = hits.find((hit) => hit.level === "block") ?? hits[0];
   return first ? `内容命中敏感词「${first.word}」：${first.reason}` : "内容未通过发布前检查。";
+}
+
+function riskContentInput(input) {
+  const score = riskScoreFromHits(input.hits);
+  return {
+    sourceType: input.sourceType,
+    sourceId: input.sourceId,
+    userId: input.userId,
+    title: input.title,
+    content: input.content,
+    hits: input.hits,
+    riskScore: score,
+    riskLevel: score >= 80 ? "high" : score >= 50 ? "medium" : "low",
+    status: "pending",
+    aiTip: "内容命中敏感词规则，已进入管理员风险审核队列。"
+  };
+}
+
+function riskScoreFromHits(hits) {
+  if (!Array.isArray(hits) || hits.length === 0) {
+    return 0;
+  }
+  if (hits.some((hit) => hit.level === "block")) {
+    return 90;
+  }
+  if (hits.some((hit) => hit.level === "review")) {
+    return 66;
+  }
+  return 42;
 }
 
 async function requestListPayload(store, searchParams) {

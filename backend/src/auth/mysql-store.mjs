@@ -17,6 +17,11 @@ export function createMysqlAuthStore(options = {}) {
   const requestExtras = new Map();
   const reviewExtras = new Map();
   const juryVoteExtras = new Map();
+  const managedTags = new Map();
+  const riskContents = new Map();
+  let systemSettings = normalizeSystemSettings(options.seedSystemSettings ?? options.systemSettings);
+  let nextManagedTagId = 69000;
+  let nextRiskContentId = 71000;
 
   return {
     createUserWithWallet,
@@ -28,6 +33,20 @@ export function createMysqlAuthStore(options = {}) {
     updateSettingsByUserId,
     listCategories,
     listTags,
+    listAdminCategories,
+    createAdminCategory,
+    updateAdminCategory,
+    createAdminTag,
+    updateAdminTag,
+    listSensitiveWords,
+    listActiveSensitiveWords,
+    createSensitiveWord,
+    updateSensitiveWord,
+    createRiskContent,
+    listRiskContents,
+    resolveRiskContent,
+    getSystemSettings,
+    updateSystemSettings,
     listServiceRequests,
     findServiceRequestById,
     createServiceRequest,
@@ -219,6 +238,7 @@ FROM (
   }
 
   async function listTags() {
+    await ensureManagedTagsLoaded();
     const sql = `
 SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(
   'skillTags', q.\`skill_tags\`
@@ -234,6 +254,23 @@ FROM (
 `;
     const rows = await mysqlJson(sql, { optional: true });
     const tagMap = new Map();
+    const activeCategoryIds = new Set((await listCategories()).map((category) => category.categoryId));
+    for (const tag of managedTags.values()) {
+      if (Number(tag.status) !== ACTIVE_STATUS || (tag.categoryId !== null && !activeCategoryIds.has(tag.categoryId))) {
+        continue;
+      }
+      tagMap.set(String(tag.name).toLowerCase(), {
+        tagId: tag.tagId,
+        categoryId: tag.categoryId,
+        name: tag.name,
+        status: tag.status,
+        sortOrder: tag.sortOrder,
+        userCount: 0,
+        requestCount: 0,
+        createdAt: tag.createdAt,
+        updatedAt: tag.updatedAt
+      });
+    }
     for (const row of Array.isArray(rows) ? rows : []) {
       for (const tag of parseSkillTags(row.skillTags)) {
         addTagCount(tagMap, tag, "userCount");
@@ -242,6 +279,381 @@ FROM (
     return Array.from(tagMap.values())
       .sort((left, right) => right.userCount - left.userCount || left.name.localeCompare(right.name))
       .map(clone);
+  }
+
+  async function listAllCategories() {
+    const sql = `
+SELECT COALESCE(JSON_ARRAYAGG(${categoryJsonObjectSql("q")}), JSON_ARRAY())
+FROM (
+  SELECT *
+  FROM \`category\`
+  ORDER BY \`sort_order\` ASC, \`category_id\` ASC
+) q;
+`;
+    const rows = await mysqlJson(sql, { optional: true });
+    return Array.isArray(rows) ? rows.map(normalizeCategory).filter(Boolean) : [];
+  }
+
+  async function findCategoryById(categoryId) {
+    const sql = `
+SELECT ${categoryJsonObjectSql("c")}
+FROM \`category\` c
+WHERE c.\`category_id\` = ${Number(categoryId)}
+LIMIT 1;
+`;
+    return normalizeCategory(await mysqlJson(sql, { optional: true }));
+  }
+
+  async function assertActiveCategory(categoryId) {
+    const category = await findCategoryById(categoryId);
+    if (!category || Number(category.status) !== ACTIVE_STATUS) {
+      throw storeError("CATEGORY_DISABLED", "Selected category is not available for publishing.");
+    }
+  }
+
+  async function ensureManagedTagsLoaded() {
+    if (managedTags.size > 0) {
+      return;
+    }
+    const stored = await readJsonConfig("admin_managed_tags");
+    const tags = Array.isArray(stored?.tags) ? stored.tags : [];
+    for (const rawTag of tags) {
+      const tag = normalizeManagedTag(rawTag);
+      if (tag.name) {
+        managedTags.set(tag.tagId, tag);
+        nextManagedTagId = Math.max(nextManagedTagId, tag.tagId + 1);
+      }
+    }
+  }
+
+  async function saveManagedTags() {
+    await writeJsonConfig("admin_managed_tags", {
+      tags: Array.from(managedTags.values()).map(clone)
+    }, "后台标签配置");
+  }
+
+  function assertUniqueManagedTag(tag, exceptId = null) {
+    const expected = tag.name.toLowerCase();
+    for (const item of managedTags.values()) {
+      if (exceptId !== null && Number(item.tagId) === Number(exceptId)) {
+        continue;
+      }
+      if (String(item.name ?? "").toLowerCase() === expected) {
+        throw storeError("TAG_DUPLICATE", "Tag already exists.");
+      }
+    }
+  }
+
+  async function readJsonConfig(configKey) {
+    const sql = `
+SELECT \`config_value\`
+FROM \`ai_config\`
+WHERE \`config_key\` = ${sqlString(configKey)}
+LIMIT 1;
+`;
+    return await mysqlJson(sql, { optional: true });
+  }
+
+  async function writeJsonConfig(configKey, value, description) {
+    const sql = `
+INSERT INTO \`ai_config\` (\`config_key\`, \`config_value\`, \`scope\`, \`description\`)
+VALUES (${sqlString(configKey)}, CAST(${sqlString(JSON.stringify(value))} AS JSON), 'global', ${sqlNullableString(description)})
+ON DUPLICATE KEY UPDATE
+  \`config_value\` = VALUES(\`config_value\`),
+  \`description\` = VALUES(\`description\`);
+SELECT JSON_OBJECT('ok', TRUE);
+`;
+    await mysqlJson(sql, { optional: true });
+  }
+
+  async function listAdminCategories() {
+    const categories = await listAllCategories();
+    await ensureManagedTagsLoaded();
+    const requests = await listServiceRequests();
+    const tagCounts = new Map();
+    for (const tag of managedTags.values()) {
+      tagCounts.set(tag.categoryId, (tagCounts.get(tag.categoryId) ?? 0) + 1);
+    }
+    const requestCounts = new Map();
+    for (const request of requests) {
+      requestCounts.set(request.categoryId, (requestCounts.get(request.categoryId) ?? 0) + 1);
+    }
+    return {
+      categories: categories.map((category) => ({
+        ...category,
+        tagCount: tagCounts.get(category.categoryId) ?? 0,
+        requestCount: requestCounts.get(category.categoryId) ?? 0
+      })),
+      tags: Array.from(managedTags.values())
+        .sort((left, right) => left.sortOrder - right.sortOrder || left.tagId - right.tagId)
+        .map((tag) => ({
+          ...clone(tag),
+          category: categories.find((category) => category.categoryId === tag.categoryId) ?? null,
+          requestCount: countRequestTag(requests, tag.name),
+          userCount: 0
+        }))
+    };
+  }
+
+  async function createAdminCategory(input) {
+    const sql = `
+INSERT INTO \`category\` (\`parent_id\`, \`name\`, \`code\`, \`description\`, \`sort_order\`, \`status\`)
+VALUES (
+  ${input.parentId === undefined || input.parentId === null ? "NULL" : Number(input.parentId)},
+  ${sqlString(input.name)},
+  ${sqlString(input.code ?? slugCode(input.name, "category"))},
+  ${sqlNullableString(input.description)},
+  ${Number(input.sortOrder ?? 0)},
+  ${Number(input.status ?? ACTIVE_STATUS)}
+);
+SET @created_category_id = LAST_INSERT_ID();
+SELECT ${categoryJsonObjectSql("c")}
+FROM \`category\` c
+WHERE c.\`category_id\` = @created_category_id
+LIMIT 1;
+`;
+    return normalizeCategory(await mysqlJson(sql));
+  }
+
+  async function updateAdminCategory(categoryId, input) {
+    const id = Number(categoryId);
+    const assignments = [];
+    if (hasOwn(input, "parentId")) {
+      assignments.push(`\`parent_id\` = ${input.parentId === null ? "NULL" : Number(input.parentId)}`);
+    }
+    if (hasOwn(input, "name")) {
+      assignments.push(`\`name\` = ${sqlString(input.name)}`);
+    }
+    if (hasOwn(input, "code")) {
+      assignments.push(`\`code\` = ${sqlString(input.code)}`);
+    }
+    if (hasOwn(input, "description")) {
+      assignments.push(`\`description\` = ${sqlNullableString(input.description)}`);
+    }
+    if (hasOwn(input, "sortOrder")) {
+      assignments.push(`\`sort_order\` = ${Number(input.sortOrder)}`);
+    }
+    if (hasOwn(input, "status")) {
+      assignments.push(`\`status\` = ${Number(input.status)}`);
+    }
+    if (assignments.length > 0) {
+      await mysqlJson(`
+UPDATE \`category\`
+SET ${assignments.join(", ")}
+WHERE \`category_id\` = ${id}
+LIMIT 1;
+SELECT ${categoryJsonObjectSql("c")}
+FROM \`category\` c
+WHERE c.\`category_id\` = ${id}
+LIMIT 1;
+`, { optional: true });
+    }
+    const category = await findCategoryById(id);
+    if (!category) {
+      throw storeError("CATEGORY_NOT_FOUND", "Category was not found.");
+    }
+    return category;
+  }
+
+  async function createAdminTag(input) {
+    await ensureManagedTagsLoaded();
+    const tag = normalizeManagedTag({
+      tagId: input.tagId ?? nextManagedTagId,
+      categoryId: input.categoryId ?? null,
+      name: input.name,
+      status: input.status ?? ACTIVE_STATUS,
+      sortOrder: input.sortOrder ?? managedTags.size * 10 + 10
+    });
+    assertUniqueManagedTag(tag);
+    managedTags.set(tag.tagId, tag);
+    nextManagedTagId = Math.max(nextManagedTagId, tag.tagId + 1);
+    await saveManagedTags();
+    return clone(tag);
+  }
+
+  async function updateAdminTag(tagId, input) {
+    await ensureManagedTagsLoaded();
+    const id = Number(tagId);
+    const existing = managedTags.get(id);
+    if (!existing) {
+      throw storeError("TAG_NOT_FOUND", "Tag was not found.");
+    }
+    const next = normalizeManagedTag({
+      ...existing,
+      ...input,
+      tagId: id,
+      updatedAt: new Date().toISOString()
+    });
+    assertUniqueManagedTag(next, id);
+    managedTags.set(id, next);
+    await saveManagedTags();
+    return clone(next);
+  }
+
+  async function listSensitiveWords(query = {}) {
+    const page = positiveInteger(query.page, 1);
+    const pageSize = Math.min(100, positiveInteger(query.pageSize, 20));
+    const offset = (page - 1) * pageSize;
+    const where = sensitiveWordWhere(query);
+    const sql = `
+SELECT JSON_OBJECT(
+  'items', COALESCE(JSON_ARRAYAGG(JSON_OBJECT(
+    'wordId', q.\`word_id\`,
+    'word', q.\`word\`,
+    'replacement', '***',
+    'level', q.\`level\`,
+    'category', '其他',
+    'reason', '内容命中平台内容安全规则。',
+    'status', q.\`status\`,
+    'hitCount', 0,
+    'createdBy', q.\`created_by\`,
+    'createdAt', q.\`created_at\`,
+    'updatedAt', q.\`updated_at\`
+  )), JSON_ARRAY()),
+  'total', (SELECT COUNT(*) FROM \`sensitive_word\` sw ${where.clause})
+)
+FROM (
+  SELECT
+    sw.\`word_id\`,
+    sw.\`word\`,
+    sw.\`level\`,
+    sw.\`status\`,
+    sw.\`created_by\`,
+    DATE_FORMAT(sw.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS \`created_at\`,
+    DATE_FORMAT(sw.\`updated_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS \`updated_at\`
+  FROM \`sensitive_word\` sw
+  ${where.clause}
+  ORDER BY sw.\`created_at\` DESC, sw.\`word_id\` DESC
+  LIMIT ${pageSize} OFFSET ${offset}
+) q;
+`;
+    const result = await mysqlJson(sql, { optional: true });
+    const items = Array.isArray(result?.items) ? result.items.map(normalizeSensitiveWord) : [];
+    return {
+      sensitiveWords: items,
+      total: Number(result?.total ?? 0),
+      summary: sensitiveWordSummary(items, Number(result?.total ?? 0))
+    };
+  }
+
+  async function listActiveSensitiveWords() {
+    const result = await listSensitiveWords({ page: 1, pageSize: 1000, status: "active" });
+    return result.sensitiveWords;
+  }
+
+  async function createSensitiveWord(input) {
+    const sql = `
+INSERT INTO \`sensitive_word\` (\`word\`, \`level\`, \`status\`, \`created_by\`)
+VALUES (${sqlString(input.word)}, ${sqlString(input.level ?? "review")}, ${Number(input.status ?? ACTIVE_STATUS)}, ${input.createdBy === undefined || input.createdBy === null ? "NULL" : Number(input.createdBy)});
+SET @created_word_id = LAST_INSERT_ID();
+SELECT ${sensitiveWordJsonObjectSql("sw")}
+FROM \`sensitive_word\` sw
+WHERE sw.\`word_id\` = @created_word_id
+LIMIT 1;
+`;
+    return normalizeSensitiveWord(await mysqlJson(sql));
+  }
+
+  async function updateSensitiveWord(wordId, input) {
+    const id = Number(wordId);
+    const assignments = [];
+    if (hasOwn(input, "word")) {
+      assignments.push(`\`word\` = ${sqlString(input.word)}`);
+    }
+    if (hasOwn(input, "level")) {
+      assignments.push(`\`level\` = ${sqlString(input.level)}`);
+    }
+    if (hasOwn(input, "status")) {
+      assignments.push(`\`status\` = ${Number(input.status)}`);
+    }
+    if (assignments.length > 0) {
+      await mysqlJson(`
+UPDATE \`sensitive_word\`
+SET ${assignments.join(", ")}
+WHERE \`word_id\` = ${id}
+LIMIT 1;
+SELECT ${sensitiveWordJsonObjectSql("sw")}
+FROM \`sensitive_word\` sw
+WHERE sw.\`word_id\` = ${id}
+LIMIT 1;
+`, { optional: true });
+    }
+    const word = await findSensitiveWordById(id);
+    if (!word) {
+      throw storeError("SENSITIVE_WORD_NOT_FOUND", "Sensitive word was not found.");
+    }
+    return word;
+  }
+
+  function createRiskContent(input) {
+    const now = input.createdAt ?? new Date().toISOString();
+    const existing = Array.from(riskContents.values()).find((item) => (
+      item.status === "pending"
+      && item.sourceType === String(input.sourceType ?? "content")
+      && String(item.sourceId ?? "") === String(input.sourceId ?? "")
+      && item.content === String(input.content ?? "")
+    ));
+    if (existing) {
+      existing.hits = mergeRiskHits(existing.hits, input.hits);
+      existing.riskScore = Math.max(existing.riskScore, Number(input.riskScore ?? riskScoreFromHits(existing.hits)));
+      existing.riskLevel = riskLevelForScore(existing.riskScore);
+      existing.updatedAt = now;
+      return clone(existing);
+    }
+    const item = normalizeRiskContent({
+      ...input,
+      riskId: input.riskId ?? nextRiskContentId,
+      createdAt: now,
+      updatedAt: now
+    });
+    riskContents.set(item.riskId, item);
+    nextRiskContentId = Math.max(nextRiskContentId, item.riskId + 1);
+    return clone(item);
+  }
+
+  function listRiskContents(query = {}) {
+    const keyword = normalizeOptionalString(query.keyword)?.toLowerCase() ?? null;
+    const status = String(query.status ?? "all").toLowerCase();
+    const riskLevel = String(query.riskLevel ?? query.level ?? "all").toLowerCase();
+    const sourceType = normalizeOptionalString(query.sourceType ?? query.source) ?? null;
+    const page = positiveInteger(query.page, 1);
+    const pageSize = Math.min(100, positiveInteger(query.pageSize, 20));
+    const filtered = Array.from(riskContents.values())
+      .filter((item) => status === "all" || item.status === status)
+      .filter((item) => riskLevel === "all" || item.riskLevel === riskLevel)
+      .filter((item) => !sourceType || item.sourceType === sourceType)
+      .filter((item) => !keyword || riskContentHaystack(item).includes(keyword))
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() || right.riskId - left.riskId);
+    const offset = (page - 1) * pageSize;
+    return {
+      riskContents: filtered.slice(offset, offset + pageSize).map(clone),
+      total: filtered.length,
+      summary: riskContentSummary(filtered)
+    };
+  }
+
+  function resolveRiskContent(riskId, input) {
+    const id = Number(riskId);
+    const item = riskContents.get(id);
+    if (!item) {
+      throw storeError("RISK_CONTENT_NOT_FOUND", "Risk content was not found.");
+    }
+    item.status = normalizeRiskResolution(input.status ?? input.resolution ?? input.action);
+    item.resolution = item.status;
+    item.resolutionNote = normalizeOptionalString(input.note ?? input.reason) ?? "";
+    item.resolvedBy = input.actorId === undefined || input.actorId === null ? null : Number(input.actorId);
+    item.resolvedAt = input.resolvedAt ?? new Date().toISOString();
+    item.updatedAt = item.resolvedAt;
+    return clone(item);
+  }
+
+  function getSystemSettings() {
+    return clone(systemSettings);
+  }
+
+  function updateSystemSettings(input) {
+    systemSettings = mergeSystemSettings(systemSettings, input);
+    return clone(systemSettings);
   }
 
   async function listServiceRequests() {
@@ -314,6 +726,7 @@ FROM (
   }
 
   async function createServiceRequest(input) {
+    await assertActiveCategory(input.categoryId);
     const tags = Array.isArray(input.tags) ? input.tags.map((item) => String(item).trim()).filter(Boolean).slice(0, 8) : [];
     const sql = `
 INSERT INTO \`service_request\` (
@@ -3101,6 +3514,36 @@ function auditLogJsonObjectSql(alias) {
   )`;
 }
 
+function categoryJsonObjectSql(alias) {
+  return `JSON_OBJECT(
+    'categoryId', ${alias}.\`category_id\`,
+    'parentId', ${alias}.\`parent_id\`,
+    'name', ${alias}.\`name\`,
+    'code', ${alias}.\`code\`,
+    'description', ${alias}.\`description\`,
+    'sortOrder', ${alias}.\`sort_order\`,
+    'status', ${alias}.\`status\`,
+    'createdAt', DATE_FORMAT(${alias}.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
+    'updatedAt', DATE_FORMAT(${alias}.\`updated_at\`, '%Y-%m-%dT%H:%i:%s.000Z')
+  )`;
+}
+
+function sensitiveWordJsonObjectSql(alias) {
+  return `JSON_OBJECT(
+    'wordId', ${alias}.\`word_id\`,
+    'word', ${alias}.\`word\`,
+    'replacement', '***',
+    'level', ${alias}.\`level\`,
+    'category', '其他',
+    'reason', '内容命中平台内容安全规则。',
+    'status', ${alias}.\`status\`,
+    'hitCount', 0,
+    'createdBy', ${alias}.\`created_by\`,
+    'createdAt', DATE_FORMAT(${alias}.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
+    'updatedAt', DATE_FORMAT(${alias}.\`updated_at\`, '%Y-%m-%dT%H:%i:%s.000Z')
+  )`;
+}
+
 function notificationJsonObjectSql(alias) {
   return `JSON_OBJECT(
     'notificationId', ${alias}.\`notification_id\`,
@@ -3155,6 +3598,82 @@ function normalizeCategory(category) {
     status: Number(category.status ?? ACTIVE_STATUS),
     createdAt: category.createdAt ?? null,
     updatedAt: category.updatedAt ?? category.createdAt ?? null
+  };
+}
+
+function normalizeManagedTag(input) {
+  const now = new Date().toISOString();
+  return {
+    tagId: Number(input.tagId ?? input.tag_id),
+    categoryId: input.categoryId === undefined || input.categoryId === null ? null : Number(input.categoryId),
+    name: String(input.name ?? "").trim(),
+    status: Number(input.status ?? ACTIVE_STATUS),
+    sortOrder: Number(input.sortOrder ?? input.sort_order ?? 0),
+    createdAt: input.createdAt ?? input.created_at ?? now,
+    updatedAt: input.updatedAt ?? input.updated_at ?? input.createdAt ?? input.created_at ?? now
+  };
+}
+
+function normalizeSensitiveWord(input) {
+  const now = new Date().toISOString();
+  return {
+    wordId: Number(input.wordId ?? input.word_id),
+    word: String(input.word ?? "").trim(),
+    replacement: normalizeOptionalString(input.replacement) ?? "***",
+    level: normalizeSensitiveLevel(input.level),
+    category: normalizeOptionalString(input.category) ?? "其他",
+    reason: normalizeOptionalString(input.reason) ?? "内容命中平台内容安全规则。",
+    status: Number(input.status ?? ACTIVE_STATUS),
+    hitCount: Number(input.hitCount ?? input.hit_count ?? 0),
+    createdBy: input.createdBy === undefined || input.createdBy === null ? null : Number(input.createdBy),
+    createdAt: input.createdAt ?? input.created_at ?? now,
+    updatedAt: input.updatedAt ?? input.updated_at ?? input.createdAt ?? input.created_at ?? now
+  };
+}
+
+function normalizeRiskContent(input) {
+  const now = new Date().toISOString();
+  const hits = Array.isArray(input.hits) ? input.hits.map(normalizeRiskHit).filter(Boolean) : [];
+  const score = Number(input.riskScore ?? input.risk_score ?? riskScoreFromHits(hits));
+  return {
+    riskId: Number(input.riskId ?? input.risk_id),
+    sourceType: String(input.sourceType ?? input.source_type ?? "content"),
+    sourceId: input.sourceId === undefined || input.sourceId === null ? null : Number(input.sourceId),
+    userId: input.userId === undefined || input.userId === null ? null : Number(input.userId),
+    title: normalizeOptionalString(input.title) ?? "风险内容",
+    content: normalizeOptionalString(input.content) ?? "",
+    hits,
+    riskLevel: normalizeRiskLevel(input.riskLevel ?? input.risk_level) ?? riskLevelForScore(score),
+    riskScore: score,
+    status: normalizeRiskStatus(input.status),
+    aiTip: normalizeOptionalString(input.aiTip ?? input.ai_tip) ?? "命中平台内容治理规则，需管理员复核。",
+    resolution: normalizeOptionalString(input.resolution),
+    resolutionNote: normalizeOptionalString(input.resolutionNote ?? input.resolution_note),
+    resolvedBy: input.resolvedBy === undefined || input.resolvedBy === null ? null : Number(input.resolvedBy),
+    resolvedAt: input.resolvedAt ?? input.resolved_at ?? null,
+    createdAt: input.createdAt ?? input.created_at ?? now,
+    updatedAt: input.updatedAt ?? input.updated_at ?? input.createdAt ?? input.created_at ?? now
+  };
+}
+
+function normalizeRiskHit(input) {
+  if (!input) {
+    return null;
+  }
+  if (typeof input !== "object") {
+    const word = String(input).trim();
+    return word ? { word, level: "review", reason: "命中内容规则" } : null;
+  }
+  const word = String(input.word ?? "").trim();
+  if (!word) {
+    return null;
+  }
+  return {
+    word,
+    wordId: input.wordId ?? null,
+    level: normalizeSensitiveLevel(input.level),
+    reason: normalizeOptionalString(input.reason) ?? "命中内容规则",
+    category: normalizeOptionalString(input.category)
   };
 }
 
@@ -3784,6 +4303,206 @@ function sqlNullableString(value) {
 
 function sqlLike(value) {
   return sqlString(`%${String(value).trim().toLowerCase().replace(/[%_]/g, "\\$&")}%`);
+}
+
+function sensitiveWordWhere(query = {}) {
+  const clauses = [];
+  const level = String(query.level ?? "all").trim().toLowerCase();
+  if (["block", "warn", "review"].includes(level)) {
+    clauses.push(`sw.\`level\` = ${sqlString(level)}`);
+  }
+  const status = String(query.status ?? "all").trim().toLowerCase();
+  if (status === "active") {
+    clauses.push("sw.`status` = 1");
+  } else if (status === "disabled") {
+    clauses.push("sw.`status` = 0");
+  }
+  const keyword = normalizeOptionalString(query.keyword);
+  if (keyword) {
+    clauses.push(`LOWER(sw.\`word\`) LIKE ${sqlLike(keyword)}`);
+  }
+  return {
+    clause: clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : ""
+  };
+}
+
+function countRequestTag(requests, tagName) {
+  const expected = String(tagName ?? "").trim().toLowerCase();
+  if (!expected) {
+    return 0;
+  }
+  return requests.filter((request) => Array.isArray(request.tags)
+    && request.tags.some((tag) => String(tag).trim().toLowerCase() === expected)).length;
+}
+
+function normalizeSensitiveLevel(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  const map = new Map([
+    ["strong", "block"],
+    ["block", "block"],
+    ["deny", "block"],
+    ["mild", "warn"],
+    ["warn", "warn"],
+    ["warning", "warn"],
+    ["review", "review"],
+    ["manual", "review"]
+  ]);
+  return map.get(text) ?? "review";
+}
+
+function normalizeRiskLevel(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  const map = new Map([
+    ["high", "high"],
+    ["medium", "medium"],
+    ["mid", "medium"],
+    ["low", "low"]
+  ]);
+  return map.get(text) ?? null;
+}
+
+function normalizeRiskStatus(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  return ["pending", "reviewing", "approved", "removed", "ignored", "resolved"].includes(text) ? text : "pending";
+}
+
+function normalizeRiskResolution(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  const map = new Map([
+    ["pass", "approved"],
+    ["approve", "approved"],
+    ["approved", "approved"],
+    ["remove", "removed"],
+    ["removed", "removed"],
+    ["reject", "removed"],
+    ["ignore", "ignored"],
+    ["ignored", "ignored"],
+    ["resolve", "resolved"],
+    ["resolved", "resolved"],
+    ["reviewing", "reviewing"]
+  ]);
+  return map.get(text) ?? "resolved";
+}
+
+function riskScoreFromHits(hits) {
+  if (!Array.isArray(hits) || hits.length === 0) {
+    return 0;
+  }
+  if (hits.some((hit) => hit.level === "block")) {
+    return 90;
+  }
+  if (hits.some((hit) => hit.level === "review")) {
+    return 66;
+  }
+  return 42;
+}
+
+function riskLevelForScore(score) {
+  const value = Number(score);
+  if (value >= 80) {
+    return "high";
+  }
+  if (value >= 50) {
+    return "medium";
+  }
+  return "low";
+}
+
+function mergeRiskHits(current, next) {
+  const map = new Map();
+  for (const hit of [...(Array.isArray(current) ? current : []), ...(Array.isArray(next) ? next : [])]) {
+    const normalized = normalizeRiskHit(hit);
+    if (normalized) {
+      map.set(`${normalized.word}:${normalized.level}`, normalized);
+    }
+  }
+  return Array.from(map.values());
+}
+
+function sensitiveWordSummary(items, total = null) {
+  const list = Array.isArray(items) ? items : [];
+  return {
+    total: Number(total ?? list.length),
+    activeCount: list.filter((item) => Number(item.status) === ACTIVE_STATUS).length,
+    blockCount: list.filter((item) => item.level === "block").length,
+    reviewCount: list.filter((item) => item.level === "review").length,
+    warnCount: list.filter((item) => item.level === "warn").length
+  };
+}
+
+function riskContentSummary(items) {
+  const list = Array.isArray(items) ? items : [];
+  return {
+    total: list.length,
+    pendingCount: list.filter((item) => ["pending", "reviewing"].includes(item.status)).length,
+    highCount: list.filter((item) => item.riskLevel === "high").length,
+    resolvedCount: list.filter((item) => ["approved", "removed", "ignored", "resolved"].includes(item.status)).length
+  };
+}
+
+function riskContentHaystack(item) {
+  return [
+    item.riskId,
+    item.sourceType,
+    item.sourceId,
+    item.userId,
+    item.title,
+    item.content,
+    item.riskLevel,
+    item.status,
+    ...(item.hits ?? []).map((hit) => hit.word)
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function normalizeSystemSettings(input = {}) {
+  const base = {
+    freezeDays: 7,
+    autoArchiveDays: 30,
+    newUserCoin: INITIAL_TIME_COIN_BALANCE,
+    maintenanceMode: false,
+    autoBackup: true,
+    aiHighRiskBlock: true,
+    safetyNotice: "高风险动作必须由管理员二次确认并写入审计日志。",
+    updatedAt: "2026-06-01T09:00:00.000Z"
+  };
+  return mergeSystemSettings(base, input);
+}
+
+function mergeSystemSettings(current, patch = {}) {
+  const numberPatch = (key, min, max, fallback) => {
+    if (!hasOwn(patch, key)) {
+      return fallback;
+    }
+    const value = Number(patch[key]);
+    return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+  };
+  return {
+    freezeDays: numberPatch("freezeDays", 1, 30, Number(current.freezeDays ?? 7)),
+    autoArchiveDays: numberPatch("autoArchiveDays", 7, 180, Number(current.autoArchiveDays ?? 30)),
+    newUserCoin: roundMoney(numberPatch("newUserCoin", 0, 20, Number(current.newUserCoin ?? INITIAL_TIME_COIN_BALANCE))),
+    maintenanceMode: hasOwn(patch, "maintenanceMode") ? Boolean(patch.maintenanceMode) : Boolean(current.maintenanceMode),
+    autoBackup: hasOwn(patch, "autoBackup") ? Boolean(patch.autoBackup) : Boolean(current.autoBackup),
+    aiHighRiskBlock: hasOwn(patch, "aiHighRiskBlock") ? Boolean(patch.aiHighRiskBlock) : Boolean(current.aiHighRiskBlock),
+    safetyNotice: normalizeOptionalString(patch.safetyNotice) ?? current.safetyNotice ?? "高风险动作必须由管理员二次确认并写入审计日志。",
+    updatedAt: patch.updatedAt ?? new Date().toISOString()
+  };
+}
+
+function slugCode(value, prefix = "item") {
+  const raw = String(value ?? "").trim().toLowerCase();
+  const ascii = raw.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (ascii) {
+    return ascii.slice(0, 50);
+  }
+  let hash = 0;
+  for (const char of raw) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  return `${prefix}_${hash.toString(36) || Date.now().toString(36)}`.slice(0, 50);
+}
+
+function roundMoney(value) {
+  return Math.round(Number(value) * 100) / 100;
 }
 
 function clone(value) {

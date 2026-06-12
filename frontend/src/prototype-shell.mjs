@@ -86,6 +86,9 @@ const NOTIFICATION_TYPE_LABEL = new Map([
 const ADMIN_USERS_PAGE_SIZE = 10;
 const ADMIN_TRANSACTIONS_PAGE_SIZE = 20;
 const ADMIN_DISPUTES_PAGE_SIZE = 20;
+const ADMIN_SENSITIVE_WORDS_PAGE_SIZE = 20;
+const ADMIN_RISK_CONTENT_PAGE_SIZE = 20;
+const ADMIN_AUDIT_LOG_PAGE_SIZE = 15;
 const ADMIN_USER_STATUS_LABEL = new Map([
   ["active", "正常"],
   ["disabled", "已禁用"]
@@ -443,6 +446,18 @@ async function hydrateCurrentRoute(session) {
       await hydrateAdminTransactionsRoute(session);
       return;
     }
+    if (route.id === "admin-categories") {
+      await hydrateAdminCategoriesRoute(session);
+      return;
+    }
+    if (route.id === "admin-sensitive-words") {
+      await hydrateAdminSensitiveWordsRoute(session);
+      return;
+    }
+    if (route.id === "admin-risk-content") {
+      await hydrateAdminRiskContentRoute(session);
+      return;
+    }
     if (route.id === "admin-disputes") {
       await hydrateAdminDisputesRoute(session);
       return;
@@ -453,6 +468,14 @@ async function hydrateCurrentRoute(session) {
     }
     if (route.id === "admin-stats") {
       await hydrateAdminStatsRoute(session);
+      return;
+    }
+    if (route.id === "admin-audit-log") {
+      await hydrateAdminAuditLogRoute(session);
+      return;
+    }
+    if (route.id === "admin-system") {
+      await hydrateAdminSystemRoute(session);
     }
   } catch (error) {
     showGlobalMessage(authErrorMessage(error), "error");
@@ -2724,6 +2747,56 @@ async function hydrateAdminTransactionsRoute(session) {
   await loadAdminTransactions(readAdminTransactionsQuery(), adminSession);
 }
 
+async function hydrateAdminCategoriesRoute(session) {
+  const adminSession = session ?? auth.readSession("admin");
+  if (!adminSession?.token) {
+    return;
+  }
+  applyAdminIdentity(adminSession.user);
+  installAdminCategoriesControls(adminSession);
+  await loadAdminCategories(adminSession);
+}
+
+async function hydrateAdminSensitiveWordsRoute(session) {
+  const adminSession = session ?? auth.readSession("admin");
+  if (!adminSession?.token) {
+    return;
+  }
+  applyAdminIdentity(adminSession.user);
+  installAdminSensitiveWordControls(adminSession);
+  await loadAdminSensitiveWords(readAdminSensitiveWordsQuery(), adminSession);
+}
+
+async function hydrateAdminRiskContentRoute(session) {
+  const adminSession = session ?? auth.readSession("admin");
+  if (!adminSession?.token) {
+    return;
+  }
+  applyAdminIdentity(adminSession.user);
+  installAdminRiskContentControls(adminSession);
+  await loadAdminRiskContent(readAdminRiskContentQuery(), adminSession);
+}
+
+async function hydrateAdminAuditLogRoute(session) {
+  const adminSession = session ?? auth.readSession("admin");
+  if (!adminSession?.token) {
+    return;
+  }
+  applyAdminIdentity(adminSession.user);
+  installAdminAuditLogControls(adminSession);
+  await loadAdminAuditLogs(readAdminAuditLogQuery(), adminSession);
+}
+
+async function hydrateAdminSystemRoute(session) {
+  const adminSession = session ?? auth.readSession("admin");
+  if (!adminSession?.token) {
+    return;
+  }
+  applyAdminIdentity(adminSession.user);
+  installAdminSystemControls(adminSession);
+  await loadAdminSystem(adminSession);
+}
+
 function applyAdminIdentity(user) {
   const name = user?.displayName || user?.username;
   if (!name) {
@@ -2810,6 +2883,676 @@ function adminActivityHtml(log) {
       <a class="ar-action" href="/admin/audit-log">审计 →</a>
     </div>
   `;
+}
+
+function installAdminCategoriesControls(adminSession) {
+  if (document.body.dataset.adminCategoriesBound === "true") {
+    return;
+  }
+  document.body.dataset.adminCategoriesBound = "true";
+  const addCategoryButton = document.querySelector("#newCatName")?.closest(".ct-add-row")?.querySelector("button");
+  addCategoryButton?.addEventListener("click", interceptSubmit(async () => {
+    const input = document.getElementById("newCatName");
+    const name = input?.value.trim();
+    if (!name) {
+      showAdminToast("请输入类别名称");
+      return;
+    }
+    await api.admin.createCategory(adminSession.token, { name, status: 1 });
+    input.value = "";
+    showAdminToast("类别已添加");
+    await loadAdminCategories(adminSession);
+  }), true);
+
+  const addTagButton = document.querySelector("#newTagName")?.closest(".ct-add-row")?.querySelector("button");
+  addTagButton?.addEventListener("click", interceptSubmit(async () => {
+    const nameInput = document.getElementById("newTagName");
+    const categorySelect = document.getElementById("newTagCat");
+    const name = nameInput?.value.trim();
+    if (!name) {
+      showAdminToast("请输入标签名称");
+      return;
+    }
+    await api.admin.createTag(adminSession.token, {
+      name,
+      categoryId: categorySelect?.value || null,
+      status: 1
+    });
+    nameInput.value = "";
+    showAdminToast("标签已添加");
+    await loadAdminCategories(adminSession);
+  }), true);
+}
+
+async function loadAdminCategories(adminSession) {
+  const catList = document.getElementById("catList");
+  const tagGrid = document.getElementById("tagGrid");
+  if (catList) {
+    catList.innerHTML = adminPanelLoadingHtml("正在加载类别。");
+  }
+  if (tagGrid) {
+    tagGrid.innerHTML = adminPanelLoadingHtml("正在加载标签。");
+  }
+  try {
+    const payload = await api.admin.categories(adminSession.token);
+    renderAdminCategories(payload, adminSession);
+  } catch (error) {
+    if (catList) {
+      catList.innerHTML = adminPanelLoadingHtml(adminErrorMessage(error), "error");
+    }
+    if (tagGrid) {
+      tagGrid.innerHTML = "";
+    }
+  }
+}
+
+function renderAdminCategories(payload, adminSession) {
+  const categories = Array.isArray(payload.categories) ? payload.categories : [];
+  const tags = Array.isArray(payload.tags) ? payload.tags : [];
+  const catCount = document.getElementById("catCount");
+  const tagCount = document.getElementById("tagCount");
+  if (catCount) {
+    catCount.textContent = `${categories.length} 个`;
+  }
+  if (tagCount) {
+    tagCount.textContent = `${tags.length} 个`;
+  }
+  const select = document.getElementById("newTagCat");
+  if (select) {
+    select.innerHTML = categories
+      .filter((item) => Number(item.status) === 1)
+      .map((item) => `<option value="${escapeHtml(item.categoryId)}">${escapeHtml(item.name)}</option>`)
+      .join("");
+  }
+  const catList = document.getElementById("catList");
+  if (catList) {
+    catList.innerHTML = categories.length === 0
+      ? adminPanelLoadingHtml("暂无类别。", "empty")
+      : categories.map(adminCategoryItemHtml).join("");
+    catList.querySelectorAll("[data-category-toggle]").forEach((button) => {
+      button.addEventListener("click", interceptSubmit(async () => {
+        const id = button.dataset.categoryToggle;
+        const status = button.dataset.status === "active" ? 0 : 1;
+        await api.admin.updateCategory(adminSession.token, id, { status });
+        showAdminToast(status === 1 ? "类别已启用" : "类别已禁用");
+        await loadAdminCategories(adminSession);
+      }));
+    });
+    catList.querySelectorAll("[data-category-save]").forEach((button) => {
+      button.addEventListener("click", interceptSubmit(async () => {
+        const id = button.dataset.categorySave;
+        const input = catList.querySelector(`[data-category-name="${id}"]`);
+        await api.admin.updateCategory(adminSession.token, id, { name: input?.value.trim() });
+        showAdminToast("类别已更新");
+        await loadAdminCategories(adminSession);
+      }));
+    });
+  }
+
+  const tagGrid = document.getElementById("tagGrid");
+  if (tagGrid) {
+    tagGrid.innerHTML = tags.length === 0
+      ? adminPanelLoadingHtml("暂无标签。", "empty")
+      : tags.map(adminTagItemHtml).join("");
+    tagGrid.querySelectorAll("[data-tag-toggle]").forEach((button) => {
+      button.addEventListener("click", interceptSubmit(async () => {
+        const id = button.dataset.tagToggle;
+        const status = button.dataset.status === "active" ? 0 : 1;
+        await api.admin.updateTag(adminSession.token, id, { status });
+        showAdminToast(status === 1 ? "标签已启用" : "标签已禁用");
+        await loadAdminCategories(adminSession);
+      }));
+    });
+  }
+}
+
+function adminCategoryItemHtml(category) {
+  const active = Number(category.status) === 1;
+  return `
+    <div class="ct-item">
+      <div class="ct-icon" style="background:${active ? "var(--accent-subtle)" : "var(--border-light)"}">#</div>
+      <div class="ct-info">
+        <input data-category-name="${escapeHtml(category.categoryId)}" value="${escapeHtml(category.name)}" style="border:1px solid var(--border);border-radius:8px;padding:7px 9px;font-weight:700;width:100%;">
+        <div class="ct-meta">${formatInteger(category.tagCount)} 个标签 · ${formatInteger(category.requestCount)} 条需求 · ${escapeHtml(category.code || "--")}</div>
+      </div>
+      <span class="ct-toggle ${active ? "on" : ""}" data-category-toggle="${escapeHtml(category.categoryId)}" data-status="${active ? "active" : "disabled"}"></span>
+      <div class="ct-actions">
+        <button class="ct-btn edit" type="button" data-category-save="${escapeHtml(category.categoryId)}">保存</button>
+      </div>
+    </div>
+  `;
+}
+
+function adminTagItemHtml(tag) {
+  const active = Number(tag.status) === 1;
+  return `
+    <span class="ct-tag ${active ? "active" : ""}" style="${active ? "" : "opacity:0.45;text-decoration:line-through"}">
+      ${escapeHtml(tag.name)}
+      <small>${escapeHtml(tag.category?.name || "未分类")} · ${formatInteger(tag.requestCount)} 需</small>
+      <button type="button" data-tag-toggle="${escapeHtml(tag.tagId)}" data-status="${active ? "active" : "disabled"}">${active ? "禁用" : "启用"}</button>
+    </span>
+  `;
+}
+
+function installAdminSensitiveWordControls(adminSession) {
+  if (document.body.dataset.adminSensitiveWordsBound === "true") {
+    return;
+  }
+  document.body.dataset.adminSensitiveWordsBound = "true";
+  document.querySelectorAll("#searchInput,#levelFilter").forEach((element) => {
+    element.addEventListener("input", debounce(() => {
+      updateAdminSensitiveWordsQuery(readAdminSensitiveWordsControls(), adminSession);
+    }, 250), true);
+  });
+  const addButton = document.querySelector("#newWord")?.closest(".sw-add-row")?.querySelector("button");
+  addButton?.addEventListener("click", interceptSubmit(async () => {
+    const word = document.getElementById("newWord")?.value.trim();
+    if (!word) {
+      showAdminToast("请输入敏感词");
+      return;
+    }
+    await api.admin.createSensitiveWord(adminSession.token, {
+      word,
+      replacement: document.getElementById("newReplace")?.value.trim() || "***",
+      level: adminSensitiveLevelValue(document.getElementById("newLevel")?.value),
+      category: document.getElementById("newCat")?.value || "其他",
+      status: 1
+    });
+    document.getElementById("newWord").value = "";
+    document.getElementById("newReplace").value = "";
+    showAdminToast("敏感词已添加");
+    await loadAdminSensitiveWords(readAdminSensitiveWordsQuery(), adminSession);
+  }), true);
+}
+
+function readAdminSensitiveWordsControls() {
+  return {
+    keyword: document.getElementById("searchInput")?.value.trim() || "",
+    level: adminSensitiveLevelValue(document.getElementById("levelFilter")?.value) || "all",
+    page: 1
+  };
+}
+
+function readAdminSensitiveWordsQuery() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    keyword: params.get("keyword") || "",
+    level: params.get("level") || "all",
+    status: params.get("status") || "all",
+    page: positiveInteger(params.get("page"), 1),
+    pageSize: ADMIN_SENSITIVE_WORDS_PAGE_SIZE
+  };
+}
+
+function updateAdminSensitiveWordsQuery(patch, adminSession) {
+  const next = { ...readAdminSensitiveWordsQuery(), ...patch };
+  const params = new URLSearchParams();
+  if (next.keyword) {
+    params.set("keyword", next.keyword);
+  }
+  if (next.level && next.level !== "all") {
+    params.set("level", next.level);
+  }
+  if (next.status && next.status !== "all") {
+    params.set("status", next.status);
+  }
+  if (next.page > 1) {
+    params.set("page", String(next.page));
+  }
+  history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
+  loadAdminSensitiveWords(readAdminSensitiveWordsQuery(), adminSession);
+}
+
+async function loadAdminSensitiveWords(state, adminSession) {
+  const table = document.getElementById("wordTable");
+  if (table) {
+    table.innerHTML = `<tr><td colspan="7">${adminPanelLoadingHtml("正在加载敏感词。")}</td></tr>`;
+  }
+  try {
+    const payload = await api.admin.sensitiveWords(adminSession.token, state);
+    renderAdminSensitiveWords(payload, state, adminSession);
+  } catch (error) {
+    if (table) {
+      table.innerHTML = `<tr><td colspan="7">${escapeHtml(adminErrorMessage(error))}</td></tr>`;
+    }
+  }
+}
+
+function renderAdminSensitiveWords(payload, state, adminSession) {
+  const summary = payload.summary ?? {};
+  document.querySelectorAll(".sw-stat .sw-num").forEach((element, index) => {
+    const values = [summary.blockCount, summary.warnCount, summary.reviewCount, summary.total, summary.activeCount];
+    element.textContent = formatInteger(values[index] ?? 0);
+  });
+  const table = document.getElementById("wordTable");
+  const words = Array.isArray(payload.sensitiveWords) ? payload.sensitiveWords : [];
+  if (!table) {
+    return;
+  }
+  if (words.length === 0) {
+    table.innerHTML = `<tr><td colspan="7">暂无符合条件的敏感词。</td></tr>`;
+    return;
+  }
+  table.innerHTML = words.map(adminSensitiveWordRowHtml).join("");
+  table.querySelectorAll("[data-word-toggle]").forEach((button) => {
+    button.addEventListener("click", interceptSubmit(async () => {
+      const status = button.dataset.status === "active" ? 0 : 1;
+      await api.admin.updateSensitiveWord(adminSession.token, button.dataset.wordToggle, { status });
+      showAdminToast(status === 1 ? "敏感词已启用" : "敏感词已禁用");
+      await loadAdminSensitiveWords(state, adminSession);
+    }));
+  });
+}
+
+function adminSensitiveWordRowHtml(word) {
+  const active = Number(word.status) === 1;
+  return `
+    <tr>
+      <td><span class="sw-word ${escapeHtml(word.level)}">${escapeHtml(word.word)}</span></td>
+      <td>${escapeHtml(word.replacement || "***")}</td>
+      <td>${adminSensitiveLevelBadge(word.level)}</td>
+      <td><span class="cat-badge">${escapeHtml(word.category || "其他")}</span></td>
+      <td><span class="sw-toggle ${active ? "on" : ""}" data-word-toggle="${escapeHtml(word.wordId)}" data-status="${active ? "active" : "disabled"}"></span></td>
+      <td class="muted">${escapeHtml(formatDateTime(word.updatedAt || word.createdAt))}</td>
+      <td><div class="sw-actions"><button class="sw-action-btn del" type="button" data-word-toggle="${escapeHtml(word.wordId)}" data-status="${active ? "active" : "disabled"}">${active ? "禁用" : "启用"}</button></div></td>
+    </tr>
+  `;
+}
+
+function adminSensitiveLevelBadge(level) {
+  if (level === "block") {
+    return '<span class="level-badge strong">强拦截</span>';
+  }
+  if (level === "warn") {
+    return '<span class="level-badge mild">弱警告</span>';
+  }
+  return '<span class="level-badge review">人工复核</span>';
+}
+
+function adminSensitiveLevelValue(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (text === "strong") {
+    return "block";
+  }
+  if (text === "mild") {
+    return "warn";
+  }
+  if (["block", "warn", "review", "all"].includes(text)) {
+    return text;
+  }
+  return "review";
+}
+
+function installAdminRiskContentControls(adminSession) {
+  if (document.body.dataset.adminRiskContentBound === "true") {
+    return;
+  }
+  document.body.dataset.adminRiskContentBound = "true";
+  document.querySelectorAll("#searchInput,#sourceFilter,#riskFilter").forEach((element) => {
+    element.addEventListener("input", debounce(() => {
+      updateAdminRiskContentQuery(readAdminRiskContentControls(), adminSession);
+    }, 250), true);
+  });
+  document.querySelector('[data-action="refresh"]')?.addEventListener("click", (event) => {
+    event.preventDefault();
+    loadAdminRiskContent(readAdminRiskContentQuery(), adminSession);
+  }, true);
+}
+
+function readAdminRiskContentControls() {
+  return {
+    keyword: document.getElementById("searchInput")?.value.trim() || "",
+    sourceType: document.getElementById("sourceFilter")?.value || "",
+    riskLevel: document.getElementById("riskFilter")?.value || "all",
+    page: 1
+  };
+}
+
+function readAdminRiskContentQuery() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    keyword: params.get("keyword") || "",
+    sourceType: params.get("sourceType") || "",
+    riskLevel: params.get("riskLevel") || params.get("level") || "all",
+    status: params.get("status") || "all",
+    page: positiveInteger(params.get("page"), 1),
+    pageSize: ADMIN_RISK_CONTENT_PAGE_SIZE
+  };
+}
+
+function updateAdminRiskContentQuery(patch, adminSession) {
+  const next = { ...readAdminRiskContentQuery(), ...patch };
+  const params = new URLSearchParams();
+  if (next.keyword) {
+    params.set("keyword", next.keyword);
+  }
+  if (next.sourceType) {
+    params.set("sourceType", next.sourceType);
+  }
+  if (next.riskLevel && next.riskLevel !== "all") {
+    params.set("riskLevel", next.riskLevel);
+  }
+  history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
+  loadAdminRiskContent(readAdminRiskContentQuery(), adminSession);
+}
+
+async function loadAdminRiskContent(state, adminSession) {
+  const table = document.getElementById("riskRows");
+  if (table) {
+    table.innerHTML = `<tr><td colspan="7">${adminPanelLoadingHtml("正在加载风险队列。")}</td></tr>`;
+  }
+  try {
+    const payload = await api.admin.riskContent(adminSession.token, state);
+    renderAdminRiskContent(payload, state, adminSession);
+  } catch (error) {
+    if (table) {
+      table.innerHTML = `<tr><td colspan="7">${escapeHtml(adminErrorMessage(error))}</td></tr>`;
+    }
+  }
+}
+
+function renderAdminRiskContent(payload, state, adminSession) {
+  const items = Array.isArray(payload.riskContents) ? payload.riskContents : [];
+  const summary = payload.summary ?? {};
+  document.querySelectorAll(".metric-card .value").forEach((element, index) => {
+    const values = [summary.pendingCount, summary.highCount, summary.total, summary.resolvedCount];
+    element.textContent = formatInteger(values[index] ?? 0);
+  });
+  const table = document.getElementById("riskRows");
+  if (!table) {
+    return;
+  }
+  if (items.length === 0) {
+    table.innerHTML = `<tr><td colspan="7" class="muted">没有匹配的风险内容。</td></tr>`;
+    renderAdminRiskDetail(null, adminSession, state);
+    return;
+  }
+  table.innerHTML = items.map(adminRiskContentRowHtml).join("");
+  table.querySelectorAll("[data-risk-select]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      const item = items.find((entry) => String(entry.riskId) === button.dataset.riskSelect);
+      renderAdminRiskDetail(item, adminSession, state);
+    });
+  });
+  renderAdminRiskDetail(items[0], adminSession, state);
+}
+
+function adminRiskContentRowHtml(item) {
+  return `
+    <tr>
+      <td><div class="person-cell"><span class="risk-score ${escapeHtml(item.riskLevel)}">${formatInteger(item.riskScore)}</span><div><strong>${escapeHtml(item.riskLevelText || item.riskLevel)}</strong><div class="mono muted small">#${escapeHtml(item.riskId)}</div></div></div></td>
+      <td><strong>${escapeHtml(item.sourceText || item.sourceType)}</strong><div class="mono muted small">${escapeHtml(item.sourceId || "--")}</div></td>
+      <td><div class="person-cell"><div class="avatar-mini">U</div><strong>#${escapeHtml(item.userId || "--")}</strong></div></td>
+      <td><div class="hit-list">${(item.hits ?? []).map((hit) => `<span class="hit">${escapeHtml(hit.word || hit)}</span>`).join("")}</div></td>
+      <td><span class="badge-state ${escapeHtml(item.status === "pending" ? "warning" : "success")}">${escapeHtml(item.statusText || item.status)}</span></td>
+      <td class="muted small">${escapeHtml(formatDateTime(item.createdAt))}</td>
+      <td><button class="link-btn" type="button" data-risk-select="${escapeHtml(item.riskId)}">审核</button></td>
+    </tr>
+  `;
+}
+
+function renderAdminRiskDetail(item, adminSession, state) {
+  const panel = document.getElementById("detailPanel");
+  if (!panel) {
+    return;
+  }
+  if (!item) {
+    panel.innerHTML = `<div class="panel-head"><h3>风险详情</h3></div><p class="muted">暂无待审核内容。</p>`;
+    return;
+  }
+  panel.innerHTML = `
+    <div class="panel-head"><h3>风险详情 #${escapeHtml(item.riskId)}</h3></div>
+    <div class="detail-list">
+      <div class="detail-item"><div class="label">内容标题</div><div class="value"><strong>${escapeHtml(item.title || "风险内容")}</strong><div class="mono muted small">${escapeHtml(item.sourceText || item.sourceType)}</div></div></div>
+      <div class="detail-item"><div class="label">原始内容</div><div class="value content-card">${escapeHtml(item.content || "")}</div></div>
+      <div class="detail-item"><div class="label">敏感命中</div><div class="value hit-list">${(item.hits ?? []).map((hit) => `<span class="hit">${escapeHtml(hit.word || hit)}</span>`).join("")}</div></div>
+      <div class="detail-item"><div class="label">AI 风险提示</div><div class="value">${escapeHtml(item.aiTip || "命中平台内容治理规则。")}</div></div>
+      <div class="detail-item"><div class="label">审核备注</div><div class="value"><textarea class="textarea-field" id="risk-resolution-note" placeholder="记录判断依据"></textarea></div></div>
+      <div class="detail-item"><div class="label">人工处理动作</div><div class="value decision-grid">
+        <button class="link-btn" type="button" data-risk-action="approved">通过内容</button>
+        <button class="link-btn" type="button" data-risk-action="reviewing">要求修改</button>
+        <button class="link-btn" type="button" data-risk-action="removed">下架内容</button>
+        <button class="link-btn" type="button" data-risk-action="ignored">忽略风险</button>
+      </div></div>
+    </div>
+  `;
+  panel.querySelectorAll("[data-risk-action]").forEach((button) => {
+    button.addEventListener("click", interceptSubmit(async () => {
+      await api.admin.resolveRiskContent(adminSession.token, item.riskId, {
+        status: button.dataset.riskAction,
+        note: document.getElementById("risk-resolution-note")?.value.trim() || ""
+      });
+      showAdminToast("审核处理已写入审计日志");
+      await loadAdminRiskContent(state, adminSession);
+    }));
+  });
+}
+
+function installAdminAuditLogControls(adminSession) {
+  if (document.body.dataset.adminAuditLogBound === "true") {
+    return;
+  }
+  document.body.dataset.adminAuditLogBound = "true";
+  document.querySelectorAll("#searchInput,#actionFilter").forEach((element) => {
+    element.addEventListener("input", debounce(() => {
+      updateAdminAuditLogQuery(readAdminAuditLogControls(), adminSession);
+    }, 250), true);
+  });
+}
+
+function readAdminAuditLogControls() {
+  return {
+    keyword: document.getElementById("searchInput")?.value.trim() || "",
+    action: document.getElementById("actionFilter")?.value || "",
+    page: 1
+  };
+}
+
+function readAdminAuditLogQuery() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    keyword: params.get("keyword") || "",
+    action: params.get("action") || "",
+    page: positiveInteger(params.get("page"), 1),
+    pageSize: ADMIN_AUDIT_LOG_PAGE_SIZE
+  };
+}
+
+function updateAdminAuditLogQuery(patch, adminSession) {
+  const next = { ...readAdminAuditLogQuery(), ...patch };
+  const params = new URLSearchParams();
+  if (next.keyword) {
+    params.set("keyword", next.keyword);
+  }
+  if (next.action && next.action !== "all") {
+    params.set("action", next.action);
+  }
+  if (next.page > 1) {
+    params.set("page", String(next.page));
+  }
+  history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
+  loadAdminAuditLogs(readAdminAuditLogQuery(), adminSession);
+}
+
+async function loadAdminAuditLogs(state, adminSession) {
+  const table = document.getElementById("logTable");
+  if (table) {
+    table.innerHTML = `<tr><td colspan="8">${adminPanelLoadingHtml("正在加载审计日志。")}</td></tr>`;
+  }
+  try {
+    const payload = await api.admin.auditLogs(adminSession.token, state);
+    renderAdminAuditLogs(payload, state, adminSession);
+  } catch (error) {
+    if (table) {
+      table.innerHTML = `<tr><td colspan="8">${escapeHtml(adminErrorMessage(error))}</td></tr>`;
+    }
+  }
+}
+
+function renderAdminAuditLogs(payload, state, adminSession) {
+  const logs = Array.isArray(payload.auditLogs) ? payload.auditLogs : [];
+  const summary = payload.summary ?? {};
+  document.querySelectorAll(".al-sum-card .al-num").forEach((element, index) => {
+    const values = [summary.total, summary.highRiskCount, summary.systemCount, summary.shown, Math.max(0, Number(summary.total ?? 0) - Number(summary.shown ?? 0))];
+    element.textContent = formatInteger(values[index] ?? 0);
+  });
+  const table = document.getElementById("logTable");
+  if (!table) {
+    return;
+  }
+  if (logs.length === 0) {
+    table.innerHTML = `<tr><td colspan="8">暂无符合条件的审计日志。</td></tr>`;
+  } else {
+    table.innerHTML = logs.map(adminAuditLogRowHtml).join("");
+    table.querySelectorAll("[data-audit-detail]").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.getElementById(`audit-detail-${button.dataset.auditDetail}`)?.classList.toggle("show");
+      });
+    });
+  }
+  const pageInfo = document.getElementById("pageInfo");
+  if (pageInfo) {
+    const total = Number(payload.pagination?.total ?? logs.length);
+    const start = total === 0 ? 0 : (state.page - 1) * state.pageSize + 1;
+    const end = Math.min(total, start + logs.length - 1);
+    pageInfo.textContent = `共 ${formatInteger(total)} 条，显示第 ${formatInteger(start)}-${formatInteger(end)} 条`;
+  }
+  renderAdminSimplePager(document.querySelector(".au-page-btns"), payload.pagination, state, adminSession, updateAdminAuditLogQuery);
+}
+
+function adminAuditLogRowHtml(log) {
+  const detail = JSON.stringify(log.detail ?? {}, null, 2);
+  const risk = adminAuditRisk(log.action);
+  return `
+    <tr>
+      <td><span class="au-log-id">#${escapeHtml(log.auditId)}</span></td>
+      <td>${escapeHtml(formatDateTime(log.createdAt))}</td>
+      <td><span class="au-operator">#${escapeHtml(log.actorId || "--")}</span> <span style="font-size:11px;color:var(--muted)">${escapeHtml(log.actorRole || "admin")}</span></td>
+      <td><span class="action-badge ${escapeHtml(log.targetType || "system")}">${escapeHtml(adminAuditActionLabel(log.action))}</span></td>
+      <td>${escapeHtml(log.targetType || "system")} #${escapeHtml(log.targetId || "--")}</td>
+      <td><span class="risk-badge ${escapeHtml(risk)}">${risk === "high" ? "高风险" : risk === "medium" ? "中风险" : "低风险"}</span></td>
+      <td class="muted">${escapeHtml(log.ipAddress || "--")}</td>
+      <td><button class="au-expand-btn" type="button" data-audit-detail="${escapeHtml(log.auditId)}">查看详情</button></td>
+    </tr>
+    <tr class="au-detail-row" id="audit-detail-${escapeHtml(log.auditId)}"><td colspan="8"><div class="au-detail-content"><div class="diff-block">${escapeHtml(detail)}</div></div></td></tr>
+  `;
+}
+
+function adminAuditRisk(action) {
+  if (["admin.system.update", "admin.dispute.finalize", "admin.user.status", "admin.risk_content.resolve"].includes(action)) {
+    return "high";
+  }
+  if (String(action ?? "").startsWith("admin.")) {
+    return "medium";
+  }
+  return "low";
+}
+
+function renderAdminSimplePager(container, pagination, state, adminSession, updateFn) {
+  if (!container || !pagination) {
+    return;
+  }
+  const page = Number(pagination.page ?? state.page);
+  const totalPages = Math.max(1, Number(pagination.totalPages ?? 1));
+  container.innerHTML = `
+    <button class="au-page-btn ${page <= 1 ? "disabled" : ""}" type="button" data-page="${page - 1}">←</button>
+    <button class="au-page-btn active" type="button">${page}</button>
+    <button class="au-page-btn ${page >= totalPages ? "disabled" : ""}" type="button" data-page="${page + 1}">→</button>
+  `;
+  container.querySelectorAll("[data-page]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.classList.contains("disabled")) {
+        return;
+      }
+      updateFn({ page: Number(button.dataset.page) }, adminSession);
+    });
+  });
+}
+
+function installAdminSystemControls(adminSession) {
+  if (document.body.dataset.adminSystemBound === "true") {
+    return;
+  }
+  document.body.dataset.adminSystemBound = "true";
+  document.querySelectorAll(".switch").forEach((button) => {
+    button.addEventListener("click", () => {
+      button.classList.toggle("on");
+    }, true);
+  });
+  document.getElementById("save-settings")?.addEventListener("click", interceptSubmit(async () => {
+    await api.admin.updateSystem(adminSession.token, readAdminSystemForm());
+    showAdminToast("系统参数已保存，并写入审计日志");
+    await loadAdminSystem(adminSession);
+  }), true);
+}
+
+async function loadAdminSystem(adminSession) {
+  try {
+    const [systemPayload, auditPayload] = await Promise.all([
+      api.admin.system(adminSession.token),
+      api.admin.auditLogs(adminSession.token, { page: 1, pageSize: 4, targetType: "system" })
+    ]);
+    renderAdminSystem(systemPayload, auditPayload);
+  } catch (error) {
+    showGlobalMessage(adminErrorMessage(error), "error");
+  }
+}
+
+function renderAdminSystem(systemPayload, auditPayload) {
+  const settings = systemPayload.settings ?? {};
+  setInputValue("freeze-days", settings.freezeDays);
+  setInputValue("auto-archive", settings.autoArchiveDays);
+  setInputValue("new-user-coin", settings.newUserCoin);
+  setSwitchState("维护模式", settings.maintenanceMode);
+  setSwitchState("自动备份", settings.autoBackup);
+  setSwitchState("AI 高风险拦截", settings.aiHighRiskBlock);
+  const metrics = document.querySelectorAll(".metric-card .value");
+  if (metrics[2]) {
+    metrics[2].textContent = settings.maintenanceMode ? "维护中" : "正常";
+  }
+  const auditMini = document.querySelector(".audit-mini");
+  const logs = Array.isArray(auditPayload?.auditLogs) ? auditPayload.auditLogs : [];
+  if (auditMini) {
+    auditMini.innerHTML = logs.length === 0
+      ? '<div class="audit-row"><strong>暂无系统审计</strong><span>保存系统参数后会记录在这里</span></div>'
+      : logs.map((log) => `<div class="audit-row"><strong>${escapeHtml(adminAuditActionLabel(log.action))}</strong><span>${escapeHtml(formatDateTime(log.createdAt))} · #${escapeHtml(log.actorId || "--")} · ${escapeHtml(log.targetType || "system")}</span></div>`).join("");
+  }
+}
+
+function readAdminSystemForm() {
+  return {
+    freezeDays: Number(document.getElementById("freeze-days")?.value || 7),
+    autoArchiveDays: Number(document.getElementById("auto-archive")?.value || 30),
+    newUserCoin: Number(document.getElementById("new-user-coin")?.value || 5),
+    maintenanceMode: readSwitchState("维护模式"),
+    autoBackup: readSwitchState("自动备份"),
+    aiHighRiskBlock: readSwitchState("AI 高风险拦截")
+  };
+}
+
+function setSwitchState(label, enabled) {
+  const button = Array.from(document.querySelectorAll(".switch")).find((item) => item.dataset.label === label);
+  button?.classList.toggle("on", Boolean(enabled));
+}
+
+function readSwitchState(label) {
+  return Boolean(Array.from(document.querySelectorAll(".switch")).find((item) => item.dataset.label === label)?.classList.contains("on"));
+}
+
+function adminPanelLoadingHtml(message, kind = "loading") {
+  return `<div data-runtime-state="${escapeHtml(kind)}" style="padding:16px;color:var(--muted);">${escapeHtml(message)}</div>`;
+}
+
+function showAdminToast(message) {
+  const toast = document.getElementById("toast");
+  if (!toast) {
+    showGlobalMessage(message, "success");
+    return;
+  }
+  toast.textContent = message;
+  toast.classList.add("show");
+  window.setTimeout(() => toast.classList.remove("show"), 1800);
 }
 
 function installAdminUsersControls(adminSession) {

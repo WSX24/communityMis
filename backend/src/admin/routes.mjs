@@ -2,11 +2,18 @@ import { ACTIVE_STATUS, DISABLED_STATUS } from "../auth/store.mjs";
 import { HttpError, methodNotAllowed, readJsonBody, sendJson } from "../http.mjs";
 
 const ADMIN_USER_STATUS_RE = /^\/api\/admin\/users\/([^/]+)\/status$/;
+const ADMIN_CATEGORY_DETAIL_RE = /^\/api\/admin\/categories\/([^/]+)$/;
+const ADMIN_TAG_DETAIL_RE = /^\/api\/admin\/tags\/([^/]+)$/;
+const ADMIN_SENSITIVE_WORD_DETAIL_RE = /^\/api\/admin\/sensitive-words\/([^/]+)$/;
+const ADMIN_RISK_CONTENT_RESOLVE_RE = /^\/api\/admin\/risk-content\/([^/]+)\/resolve$/;
 const ADMIN_DISPUTE_DETAIL_RE = /^\/api\/admin\/disputes\/([^/]+)$/;
 const ADMIN_DISPUTE_FINALIZE_RE = /^\/api\/admin\/disputes\/([^/]+)\/finalize$/;
 const ADMIN_TRANSACTION_TYPES = new Set(["all", "income", "expense", "system_fee", "freeze", "release", "refund"]);
 const ADMIN_DISPUTE_STATUSES = new Set(["all", "pending", "todo", "in_progress", "processing", "reviewing", "resolved", "ruled", "closed"]);
 const USER_STATUSES = new Set(["all", "active", "disabled"]);
+const SENSITIVE_LEVELS = new Set(["all", "block", "warn", "review"]);
+const RISK_CONTENT_STATUSES = new Set(["all", "pending", "reviewing", "approved", "removed", "ignored", "resolved"]);
+const RISK_LEVELS = new Set(["all", "high", "medium", "low"]);
 const REQUEST_BODY_MAX_BYTES = 64 * 1024;
 
 export async function handleAdminRoutes({ request, response, url, authService }) {
@@ -79,6 +86,84 @@ export async function handleAdminRoutes({ request, response, url, authService })
     return true;
   }
 
+  if (url.pathname === "/api/admin/categories") {
+    allowOnly(request, response, ["GET", "POST"]);
+    const context = await requireAdmin(request, authService);
+    if (request.method === "POST") {
+      const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+      const result = await createAdminCategoryPayload(authService.store, body, context, request);
+      sendJson(response, 201, result);
+      return true;
+    }
+    sendJson(response, 200, await adminCategoriesPayload(authService.store));
+    return true;
+  }
+
+  const categoryMatch = url.pathname.match(ADMIN_CATEGORY_DETAIL_RE);
+  if (categoryMatch) {
+    allowOnly(request, response, ["PUT"]);
+    const context = await requireAdmin(request, authService);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    sendJson(response, 200, await updateAdminCategoryPayload(authService.store, categoryMatch[1], body, context, request));
+    return true;
+  }
+
+  if (url.pathname === "/api/admin/tags") {
+    allowOnly(request, response, ["POST"]);
+    const context = await requireAdmin(request, authService);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    const result = await createAdminTagPayload(authService.store, body, context, request);
+    sendJson(response, 201, result);
+    return true;
+  }
+
+  const tagMatch = url.pathname.match(ADMIN_TAG_DETAIL_RE);
+  if (tagMatch) {
+    allowOnly(request, response, ["PUT"]);
+    const context = await requireAdmin(request, authService);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    sendJson(response, 200, await updateAdminTagPayload(authService.store, tagMatch[1], body, context, request));
+    return true;
+  }
+
+  if (url.pathname === "/api/admin/sensitive-words") {
+    allowOnly(request, response, ["GET", "POST"]);
+    const context = await requireAdmin(request, authService);
+    if (request.method === "POST") {
+      const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+      const result = await createSensitiveWordPayload(authService.store, body, context, request);
+      sendJson(response, 201, result);
+      return true;
+    }
+    sendJson(response, 200, await sensitiveWordsPayload(authService.store, url.searchParams));
+    return true;
+  }
+
+  const sensitiveWordMatch = url.pathname.match(ADMIN_SENSITIVE_WORD_DETAIL_RE);
+  if (sensitiveWordMatch) {
+    allowOnly(request, response, ["PUT"]);
+    const context = await requireAdmin(request, authService);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    sendJson(response, 200, await updateSensitiveWordPayload(authService.store, sensitiveWordMatch[1], body, context, request));
+    return true;
+  }
+
+  if (url.pathname === "/api/admin/risk-content") {
+    allowOnly(request, response, ["GET"]);
+    await requireAdmin(request, authService);
+    sendJson(response, 200, await riskContentPayload(authService.store, url.searchParams));
+    return true;
+  }
+
+  const riskResolveMatch = url.pathname.match(ADMIN_RISK_CONTENT_RESOLVE_RE);
+  if (riskResolveMatch) {
+    allowOnly(request, response, ["POST"]);
+    const context = await requireAdmin(request, authService);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    sendJson(response, 200, await resolveRiskContentPayload(authService.store, riskResolveMatch[1], body, context, request));
+    return true;
+  }
+
   if (url.pathname === "/api/admin/disputes") {
     allowOnly(request, response, ["GET"]);
     await requireAdmin(request, authService);
@@ -129,6 +214,25 @@ export async function handleAdminRoutes({ request, response, url, authService })
     allowOnly(request, response, ["GET"]);
     await requireAdmin(request, authService);
     sendJson(response, 200, await statsPayload(authService.store));
+    return true;
+  }
+
+  if (url.pathname === "/api/admin/audit-logs") {
+    allowOnly(request, response, ["GET"]);
+    await requireAdmin(request, authService);
+    sendJson(response, 200, await auditLogsPayload(authService.store, url.searchParams));
+    return true;
+  }
+
+  if (url.pathname === "/api/admin/system") {
+    allowOnly(request, response, ["GET", "PUT"]);
+    const context = await requireAdmin(request, authService);
+    if (request.method === "PUT") {
+      const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+      sendJson(response, 200, await updateSystemPayload(authService.store, body, context, request));
+      return true;
+    }
+    sendJson(response, 200, await systemPayload(authService.store));
     return true;
   }
 
@@ -204,6 +308,210 @@ async function transactionsPayload(store, searchParams) {
   };
 }
 
+async function adminCategoriesPayload(store) {
+  if (typeof store.listAdminCategories !== "function") {
+    throw new HttpError(500, "ADMIN_CATEGORY_STORE_UNAVAILABLE", "Admin category listing is not available.");
+  }
+  const result = await store.listAdminCategories();
+  return {
+    categories: (result.categories ?? []).map(adminCategoryDto),
+    tags: (result.tags ?? []).map(adminTagDto),
+    summary: {
+      categoryCount: Number(result.categories?.length ?? 0),
+      activeCategoryCount: (result.categories ?? []).filter((item) => Number(item.status) === ACTIVE_STATUS).length,
+      tagCount: Number(result.tags?.length ?? 0),
+      activeTagCount: (result.tags ?? []).filter((item) => Number(item.status) === ACTIVE_STATUS).length
+    }
+  };
+}
+
+async function createAdminCategoryPayload(store, body, context, request) {
+  ensureStoreMethod(store, "createAdminCategory", "ADMIN_CATEGORY_STORE_UNAVAILABLE");
+  const input = normalizeAdminCategoryInput(body, { partial: false });
+  let category;
+  try {
+    category = await store.createAdminCategory(input);
+  } catch (error) {
+    throw adminCategoryError(error);
+  }
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.category.create",
+    targetType: "category",
+    targetId: category.categoryId,
+    detail: { name: category.name, code: category.code, status: category.status }
+  });
+  return {
+    category: adminCategoryDto(category),
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
+async function updateAdminCategoryPayload(store, rawCategoryId, body, context, request) {
+  ensureStoreMethod(store, "updateAdminCategory", "ADMIN_CATEGORY_STORE_UNAVAILABLE");
+  const categoryId = parsePositiveResourceId(rawCategoryId, "CATEGORY_NOT_FOUND", "Category was not found.");
+  const input = normalizeAdminCategoryInput(body, { partial: true });
+  let category;
+  try {
+    category = await store.updateAdminCategory(categoryId, input);
+  } catch (error) {
+    throw adminCategoryError(error);
+  }
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.category.update",
+    targetType: "category",
+    targetId: category.categoryId,
+    detail: { patch: input, name: category.name, status: category.status }
+  });
+  return {
+    category: adminCategoryDto(category),
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
+async function createAdminTagPayload(store, body, context, request) {
+  ensureStoreMethod(store, "createAdminTag", "ADMIN_TAG_STORE_UNAVAILABLE");
+  const input = normalizeAdminTagInput(body, { partial: false });
+  let tag;
+  try {
+    tag = await store.createAdminTag(input);
+  } catch (error) {
+    throw adminCategoryError(error);
+  }
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.tag.create",
+    targetType: "tag",
+    targetId: tag.tagId,
+    detail: { name: tag.name, categoryId: tag.categoryId, status: tag.status }
+  });
+  return {
+    tag: adminTagDto(tag),
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
+async function updateAdminTagPayload(store, rawTagId, body, context, request) {
+  ensureStoreMethod(store, "updateAdminTag", "ADMIN_TAG_STORE_UNAVAILABLE");
+  const tagId = parsePositiveResourceId(rawTagId, "TAG_NOT_FOUND", "Tag was not found.");
+  const input = normalizeAdminTagInput(body, { partial: true });
+  let tag;
+  try {
+    tag = await store.updateAdminTag(tagId, input);
+  } catch (error) {
+    throw adminCategoryError(error);
+  }
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.tag.update",
+    targetType: "tag",
+    targetId: tag.tagId,
+    detail: { patch: input, name: tag.name, status: tag.status }
+  });
+  return {
+    tag: adminTagDto(tag),
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
+async function sensitiveWordsPayload(store, searchParams) {
+  ensureStoreMethod(store, "listSensitiveWords", "ADMIN_SENSITIVE_WORD_STORE_UNAVAILABLE");
+  const query = normalizeSensitiveWordQuery(searchParams);
+  const result = await store.listSensitiveWords(query);
+  const words = Array.isArray(result?.sensitiveWords) ? result.sensitiveWords : [];
+  const total = Number(result?.total ?? words.length);
+  return {
+    sensitiveWords: words.map(sensitiveWordDto),
+    pagination: paginationDto(query.page, query.pageSize, total),
+    summary: sensitiveWordSummaryDto(result?.summary, words),
+    filters: query
+  };
+}
+
+async function createSensitiveWordPayload(store, body, context, request) {
+  ensureStoreMethod(store, "createSensitiveWord", "ADMIN_SENSITIVE_WORD_STORE_UNAVAILABLE");
+  const input = normalizeSensitiveWordInput(body, { partial: false, actorId: context.user.userId });
+  let word;
+  try {
+    word = await store.createSensitiveWord(input);
+  } catch (error) {
+    throw sensitiveWordError(error);
+  }
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.sensitive_word.create",
+    targetType: "sensitive_word",
+    targetId: word.wordId,
+    detail: { word: word.word, level: word.level, category: word.category }
+  });
+  return {
+    sensitiveWord: sensitiveWordDto(word),
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
+async function updateSensitiveWordPayload(store, rawWordId, body, context, request) {
+  ensureStoreMethod(store, "updateSensitiveWord", "ADMIN_SENSITIVE_WORD_STORE_UNAVAILABLE");
+  const wordId = parsePositiveResourceId(rawWordId, "SENSITIVE_WORD_NOT_FOUND", "Sensitive word was not found.");
+  const input = normalizeSensitiveWordInput(body, { partial: true, actorId: context.user.userId });
+  let word;
+  try {
+    word = await store.updateSensitiveWord(wordId, input);
+  } catch (error) {
+    throw sensitiveWordError(error);
+  }
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.sensitive_word.update",
+    targetType: "sensitive_word",
+    targetId: word.wordId,
+    detail: { patch: input, word: word.word, status: word.status }
+  });
+  return {
+    sensitiveWord: sensitiveWordDto(word),
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
+async function riskContentPayload(store, searchParams) {
+  ensureStoreMethod(store, "listRiskContents", "ADMIN_RISK_CONTENT_STORE_UNAVAILABLE");
+  const query = normalizeRiskContentQuery(searchParams);
+  const result = await store.listRiskContents(query);
+  const items = Array.isArray(result?.riskContents) ? result.riskContents : [];
+  const total = Number(result?.total ?? items.length);
+  return {
+    riskContents: items.map(riskContentDto),
+    pagination: paginationDto(query.page, query.pageSize, total),
+    summary: riskContentSummaryDto(result?.summary, items),
+    filters: query
+  };
+}
+
+async function resolveRiskContentPayload(store, rawRiskId, body, context, request) {
+  ensureStoreMethod(store, "resolveRiskContent", "ADMIN_RISK_CONTENT_STORE_UNAVAILABLE");
+  const riskId = parsePositiveResourceId(rawRiskId, "RISK_CONTENT_NOT_FOUND", "Risk content was not found.");
+  const input = normalizeRiskResolveInput(body, context.user.userId);
+  let riskContent;
+  try {
+    riskContent = await store.resolveRiskContent(riskId, input);
+  } catch (error) {
+    if (error?.code === "RISK_CONTENT_NOT_FOUND") {
+      throw new HttpError(404, "RISK_CONTENT_NOT_FOUND", "Risk content was not found.");
+    }
+    throw error;
+  }
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.risk_content.resolve",
+    targetType: "risk_content",
+    targetId: riskContent.riskId,
+    detail: {
+      status: riskContent.status,
+      sourceType: riskContent.sourceType,
+      sourceId: riskContent.sourceId,
+      note: riskContent.resolutionNote
+    }
+  });
+  return {
+    riskContent: riskContentDto(riskContent),
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
 async function disputesPayload(store, searchParams) {
   if (typeof store.listAdminDisputes !== "function") {
     throw new HttpError(500, "ADMIN_DISPUTE_STORE_UNAVAILABLE", "Admin dispute listing is not available.");
@@ -248,6 +556,47 @@ async function statsPayload(store) {
     return adminStatsDto(await store.adminStats());
   }
   return adminStatsDto(await fallbackStats(store));
+}
+
+async function auditLogsPayload(store, searchParams) {
+  ensureStoreMethod(store, "listAuditLogs", "ADMIN_AUDIT_LOG_STORE_UNAVAILABLE");
+  const query = normalizeAuditLogQuery(searchParams);
+  const result = await store.listAuditLogs(query);
+  let logs = Array.isArray(result?.auditLogs) ? result.auditLogs : [];
+  const total = Number(result?.total ?? logs.length);
+  logs = logs.filter((item) => auditLogMatches(item, query));
+  return {
+    auditLogs: logs.map(auditLogDto),
+    pagination: paginationDto(query.page, query.pageSize, total),
+    summary: auditLogSummaryDto(logs, total),
+    filters: query
+  };
+}
+
+async function systemPayload(store) {
+  ensureStoreMethod(store, "getSystemSettings", "ADMIN_SYSTEM_STORE_UNAVAILABLE");
+  const settings = await store.getSystemSettings();
+  return {
+    settings: systemSettingsDto(settings),
+    safetyBoundaries: systemSafetyBoundaries()
+  };
+}
+
+async function updateSystemPayload(store, body, context, request) {
+  ensureStoreMethod(store, "updateSystemSettings", "ADMIN_SYSTEM_STORE_UNAVAILABLE");
+  const input = normalizeSystemInput(body);
+  const settings = await store.updateSystemSettings(input);
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.system.update",
+    targetType: "system",
+    targetId: null,
+    detail: { patch: input }
+  });
+  return {
+    settings: systemSettingsDto(settings),
+    safetyBoundaries: systemSafetyBoundaries(),
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
 }
 
 async function fallbackDashboardMetrics(store) {
@@ -367,6 +716,82 @@ function adminTransactionOrderDto(order) {
   };
 }
 
+function adminCategoryDto(category) {
+  return {
+    categoryId: category.categoryId,
+    parentId: category.parentId ?? null,
+    name: category.name,
+    code: category.code,
+    description: category.description ?? null,
+    sortOrder: Number(category.sortOrder ?? 0),
+    status: Number(category.status ?? ACTIVE_STATUS),
+    statusText: Number(category.status ?? ACTIVE_STATUS) === ACTIVE_STATUS ? "active" : "disabled",
+    tagCount: Number(category.tagCount ?? 0),
+    requestCount: Number(category.requestCount ?? 0),
+    createdAt: category.createdAt,
+    updatedAt: category.updatedAt ?? null
+  };
+}
+
+function adminTagDto(tag) {
+  return {
+    tagId: tag.tagId,
+    categoryId: tag.categoryId ?? null,
+    category: tag.category ? adminCategoryDto(tag.category) : null,
+    name: tag.name,
+    status: Number(tag.status ?? ACTIVE_STATUS),
+    statusText: Number(tag.status ?? ACTIVE_STATUS) === ACTIVE_STATUS ? "active" : "disabled",
+    sortOrder: Number(tag.sortOrder ?? 0),
+    userCount: Number(tag.userCount ?? 0),
+    requestCount: Number(tag.requestCount ?? 0),
+    createdAt: tag.createdAt,
+    updatedAt: tag.updatedAt ?? null
+  };
+}
+
+function sensitiveWordDto(item) {
+  return {
+    wordId: item.wordId,
+    word: item.word,
+    replacement: item.replacement ?? "***",
+    level: item.level,
+    levelText: sensitiveLevelText(item.level),
+    category: item.category ?? "其他",
+    reason: item.reason ?? "",
+    status: Number(item.status ?? ACTIVE_STATUS),
+    statusText: Number(item.status ?? ACTIVE_STATUS) === ACTIVE_STATUS ? "active" : "disabled",
+    hitCount: Number(item.hitCount ?? 0),
+    createdBy: item.createdBy ?? null,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt ?? null
+  };
+}
+
+function riskContentDto(item) {
+  return {
+    riskId: item.riskId,
+    sourceType: item.sourceType,
+    sourceText: riskSourceText(item.sourceType),
+    sourceId: item.sourceId ?? null,
+    userId: item.userId ?? null,
+    title: item.title,
+    content: item.content,
+    hits: Array.isArray(item.hits) ? item.hits : [],
+    riskLevel: item.riskLevel,
+    riskLevelText: riskLevelText(item.riskLevel),
+    riskScore: Number(item.riskScore ?? 0),
+    status: item.status,
+    statusText: riskStatusText(item.status),
+    aiTip: item.aiTip ?? "",
+    resolution: item.resolution ?? null,
+    resolutionNote: item.resolutionNote ?? null,
+    resolvedBy: item.resolvedBy ?? null,
+    resolvedAt: item.resolvedAt ?? null,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt ?? null
+  };
+}
+
 function auditLogDto(item) {
   return {
     auditId: item.auditId,
@@ -378,6 +803,58 @@ function auditLogDto(item) {
     ipAddress: item.ipAddress ?? null,
     detail: item.detail ?? null,
     createdAt: item.createdAt
+  };
+}
+
+function systemSettingsDto(settings = {}) {
+  return {
+    freezeDays: Number(settings.freezeDays ?? 7),
+    autoArchiveDays: Number(settings.autoArchiveDays ?? 30),
+    newUserCoin: roundMoney(settings.newUserCoin ?? 5),
+    maintenanceMode: Boolean(settings.maintenanceMode),
+    autoBackup: Boolean(settings.autoBackup),
+    aiHighRiskBlock: Boolean(settings.aiHighRiskBlock),
+    safetyNotice: settings.safetyNotice ?? "高风险动作必须由管理员二次确认并写入审计日志。",
+    updatedAt: settings.updatedAt ?? null
+  };
+}
+
+function systemSafetyBoundaries() {
+  return {
+    aiCan: ["解释备份策略", "生成操作摘要", "提醒风险", "帮助查找审计记录"],
+    aiCannot: ["自动恢复备份", "删除数据", "修改时间币余额", "绕过管理员确认"],
+    manualConfirmRequired: ["恢复", "清理", "维护模式", "AI 高风险拦截关闭", "纠纷终审"]
+  };
+}
+
+function sensitiveWordSummaryDto(summary, words) {
+  const list = Array.isArray(words) ? words : [];
+  return {
+    total: Number(summary?.total ?? list.length),
+    activeCount: Number(summary?.activeCount ?? list.filter((item) => Number(item.status) === ACTIVE_STATUS).length),
+    blockCount: Number(summary?.blockCount ?? list.filter((item) => item.level === "block").length),
+    reviewCount: Number(summary?.reviewCount ?? list.filter((item) => item.level === "review").length),
+    warnCount: Number(summary?.warnCount ?? list.filter((item) => item.level === "warn").length)
+  };
+}
+
+function riskContentSummaryDto(summary, items) {
+  const list = Array.isArray(items) ? items : [];
+  return {
+    total: Number(summary?.total ?? list.length),
+    pendingCount: Number(summary?.pendingCount ?? list.filter((item) => ["pending", "reviewing"].includes(item.status)).length),
+    highCount: Number(summary?.highCount ?? list.filter((item) => item.riskLevel === "high").length),
+    resolvedCount: Number(summary?.resolvedCount ?? list.filter((item) => ["approved", "removed", "ignored", "resolved"].includes(item.status)).length)
+  };
+}
+
+function auditLogSummaryDto(logs, total) {
+  const list = Array.isArray(logs) ? logs : [];
+  return {
+    total: Number(total ?? list.length),
+    shown: list.length,
+    highRiskCount: list.filter((item) => isHighRiskAudit(item)).length,
+    systemCount: list.filter((item) => item.targetType === "system").length
   };
 }
 
@@ -685,6 +1162,194 @@ function normalizeDisputeQuery(searchParams) {
   };
 }
 
+function normalizeSensitiveWordQuery(searchParams) {
+  const level = optionalLower(searchParams.get("level") ?? "all", 20) ?? "all";
+  if (!SENSITIVE_LEVELS.has(level)) {
+    throw new HttpError(400, "INVALID_SENSITIVE_LEVEL", "Unsupported sensitive word level.");
+  }
+  const status = optionalLower(searchParams.get("status") ?? "all", 20) ?? "all";
+  if (!USER_STATUSES.has(status)) {
+    throw new HttpError(400, "INVALID_SENSITIVE_STATUS", "Unsupported sensitive word status.");
+  }
+  return {
+    level,
+    status,
+    keyword: optionalText(searchParams.get("keyword") ?? searchParams.get("q"), 100),
+    page: parsePositiveInt(searchParams.get("page") ?? "1", "INVALID_PAGE", 1, 1000),
+    pageSize: parsePositiveInt(searchParams.get("pageSize") ?? searchParams.get("limit") ?? "20", "INVALID_PAGE_SIZE", 1, 100)
+  };
+}
+
+function normalizeRiskContentQuery(searchParams) {
+  const status = optionalLower(searchParams.get("status") ?? "all", 20) ?? "all";
+  if (!RISK_CONTENT_STATUSES.has(status)) {
+    throw new HttpError(400, "INVALID_RISK_STATUS", "Unsupported risk content status.");
+  }
+  const riskLevel = optionalLower(searchParams.get("riskLevel") ?? searchParams.get("level") ?? "all", 20) ?? "all";
+  if (!RISK_LEVELS.has(riskLevel)) {
+    throw new HttpError(400, "INVALID_RISK_LEVEL", "Unsupported risk level.");
+  }
+  return {
+    status,
+    riskLevel,
+    sourceType: optionalLower(searchParams.get("sourceType") ?? searchParams.get("source"), 40),
+    keyword: optionalText(searchParams.get("keyword") ?? searchParams.get("q"), 100),
+    page: parsePositiveInt(searchParams.get("page") ?? "1", "INVALID_PAGE", 1, 1000),
+    pageSize: parsePositiveInt(searchParams.get("pageSize") ?? searchParams.get("limit") ?? "20", "INVALID_PAGE_SIZE", 1, 100)
+  };
+}
+
+function normalizeAuditLogQuery(searchParams) {
+  return {
+    actorId: parseOptionalPositiveInt(searchParams.get("actorId") ?? searchParams.get("actor_id"), "INVALID_ACTOR_ID"),
+    action: optionalText(searchParams.get("action"), 80),
+    targetType: optionalText(searchParams.get("targetType") ?? searchParams.get("target_type"), 50),
+    targetId: parseOptionalPositiveInt(searchParams.get("targetId") ?? searchParams.get("target_id"), "INVALID_TARGET_ID"),
+    keyword: optionalLower(searchParams.get("keyword") ?? searchParams.get("q"), 100),
+    page: parsePositiveInt(searchParams.get("page") ?? "1", "INVALID_PAGE", 1, 1000),
+    pageSize: parsePositiveInt(searchParams.get("pageSize") ?? searchParams.get("limit") ?? "20", "INVALID_PAGE_SIZE", 1, 100)
+  };
+}
+
+function normalizeAdminCategoryInput(input, options = {}) {
+  const partial = Boolean(options.partial);
+  const output = {};
+  if (hasPatchValue(input, "name")) {
+    const name = optionalText(input.name, 50);
+    if (!name) {
+      throw new HttpError(400, "INVALID_CATEGORY_NAME", "Category name is required.");
+    }
+    output.name = name;
+  } else if (!partial) {
+    throw new HttpError(400, "INVALID_CATEGORY_NAME", "Category name is required.");
+  }
+  if (hasPatchValue(input, "code")) {
+    const code = optionalLower(input.code, 50);
+    if (!code) {
+      throw new HttpError(400, "INVALID_CATEGORY_CODE", "Category code is required.");
+    }
+    output.code = code.replace(/[^a-z0-9_:-]+/g, "_").replace(/^_+|_+$/g, "");
+  }
+  if (hasPatchValue(input, "description")) {
+    output.description = optionalText(input.description, 255);
+  }
+  if (hasPatchValue(input, "parentId")) {
+    output.parentId = input.parentId === null || input.parentId === "" ? null : parsePositiveInt(input.parentId, "INVALID_PARENT_ID", 1);
+  }
+  if (hasPatchValue(input, "sortOrder")) {
+    output.sortOrder = parseInteger(input.sortOrder, "INVALID_SORT_ORDER", 0, 9999);
+  }
+  if (hasPatchValue(input, "status")) {
+    output.status = normalizeBinaryStatus(input.status, "INVALID_CATEGORY_STATUS");
+  }
+  return output;
+}
+
+function normalizeAdminTagInput(input, options = {}) {
+  const partial = Boolean(options.partial);
+  const output = {};
+  if (hasPatchValue(input, "name")) {
+    const name = optionalText(input.name, 50);
+    if (!name) {
+      throw new HttpError(400, "INVALID_TAG_NAME", "Tag name is required.");
+    }
+    output.name = name;
+  } else if (!partial) {
+    throw new HttpError(400, "INVALID_TAG_NAME", "Tag name is required.");
+  }
+  if (hasPatchValue(input, "categoryId")) {
+    output.categoryId = input.categoryId === null || input.categoryId === "" ? null : parsePositiveInt(input.categoryId, "INVALID_CATEGORY_ID", 1);
+  }
+  if (hasPatchValue(input, "categoryName")) {
+    output.categoryName = optionalText(input.categoryName, 50);
+  }
+  if (hasPatchValue(input, "sortOrder")) {
+    output.sortOrder = parseInteger(input.sortOrder, "INVALID_SORT_ORDER", 0, 9999);
+  }
+  if (hasPatchValue(input, "status")) {
+    output.status = normalizeBinaryStatus(input.status, "INVALID_TAG_STATUS");
+  }
+  return output;
+}
+
+function normalizeSensitiveWordInput(input, options = {}) {
+  const partial = Boolean(options.partial);
+  const output = {};
+  if (hasPatchValue(input, "word")) {
+    const word = optionalText(input.word, 100);
+    if (!word) {
+      throw new HttpError(400, "INVALID_SENSITIVE_WORD", "Sensitive word is required.");
+    }
+    output.word = word;
+  } else if (!partial) {
+    throw new HttpError(400, "INVALID_SENSITIVE_WORD", "Sensitive word is required.");
+  }
+  if (hasPatchValue(input, "replacement")) {
+    output.replacement = optionalText(input.replacement, 40) ?? "***";
+  }
+  if (hasPatchValue(input, "level")) {
+    const level = optionalLower(input.level, 20);
+    if (!["block", "warn", "review"].includes(level)) {
+      throw new HttpError(400, "INVALID_SENSITIVE_LEVEL", "Sensitive word level must be block, warn, or review.");
+    }
+    output.level = level;
+  }
+  if (hasPatchValue(input, "category")) {
+    output.category = optionalText(input.category, 50) ?? "其他";
+  }
+  if (hasPatchValue(input, "reason")) {
+    output.reason = optionalText(input.reason, 255) ?? "内容命中平台内容安全规则。";
+  }
+  if (hasPatchValue(input, "status")) {
+    output.status = normalizeBinaryStatus(input.status, "INVALID_SENSITIVE_STATUS");
+  }
+  if (!partial && !hasPatchValue(input, "status")) {
+    output.status = ACTIVE_STATUS;
+  }
+  if (options.actorId !== undefined && options.actorId !== null && !partial) {
+    output.createdBy = Number(options.actorId);
+  }
+  return output;
+}
+
+function normalizeRiskResolveInput(input, actorId) {
+  const status = optionalLower(input?.status ?? input?.resolution ?? input?.action ?? "resolved", 20) ?? "resolved";
+  if (!["approved", "removed", "ignored", "resolved", "reviewing"].includes(status)) {
+    throw new HttpError(400, "INVALID_RISK_RESOLUTION", "Unsupported risk content resolution.");
+  }
+  return {
+    status,
+    note: optionalText(input?.note ?? input?.reason, 500) ?? "",
+    actorId
+  };
+}
+
+function normalizeSystemInput(input) {
+  const output = {};
+  if (hasPatchValue(input, "freezeDays")) {
+    output.freezeDays = parseInteger(input.freezeDays, "INVALID_FREEZE_DAYS", 1, 30);
+  }
+  if (hasPatchValue(input, "autoArchiveDays")) {
+    output.autoArchiveDays = parseInteger(input.autoArchiveDays, "INVALID_AUTO_ARCHIVE_DAYS", 7, 180);
+  }
+  if (hasPatchValue(input, "newUserCoin")) {
+    output.newUserCoin = parseNumber(input.newUserCoin, "INVALID_NEW_USER_COIN", 0, 20);
+  }
+  if (hasPatchValue(input, "maintenanceMode")) {
+    output.maintenanceMode = Boolean(input.maintenanceMode);
+  }
+  if (hasPatchValue(input, "autoBackup")) {
+    output.autoBackup = Boolean(input.autoBackup);
+  }
+  if (hasPatchValue(input, "aiHighRiskBlock")) {
+    output.aiHighRiskBlock = Boolean(input.aiHighRiskBlock);
+  }
+  if (hasPatchValue(input, "safetyNotice")) {
+    output.safetyNotice = optionalText(input.safetyNotice, 255) ?? "";
+  }
+  return output;
+}
+
 function normalizeFinalizeDisputeInput(input) {
   const result = String(input?.result ?? input?.finalResult ?? "").trim().toLowerCase();
   const mapped = new Map([
@@ -748,11 +1413,29 @@ function parseDisputeId(raw) {
   return Number(raw);
 }
 
+function parsePositiveResourceId(raw, code, message) {
+  if (!/^\d+$/.test(String(raw))) {
+    throw new HttpError(404, code, message);
+  }
+  return Number(raw);
+}
+
 function parseOptionalPositiveInt(raw, code) {
   if (raw === undefined || raw === null || raw === "") {
     return null;
   }
   return parsePositiveInt(raw, code, 1, Number.MAX_SAFE_INTEGER);
+}
+
+function parseInteger(raw, code, min = Number.MIN_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER) {
+  if (!/^-?\d+$/.test(String(raw ?? ""))) {
+    throw new HttpError(400, code, "Expected an integer.");
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new HttpError(400, code, "Expected an integer in the supported range.");
+  }
+  return value;
 }
 
 function parsePositiveInt(raw, code, min = 1, max = Number.MAX_SAFE_INTEGER) {
@@ -762,6 +1445,14 @@ function parsePositiveInt(raw, code, min = 1, max = Number.MAX_SAFE_INTEGER) {
   const value = Number(raw);
   if (!Number.isInteger(value) || value < min || value > max) {
     throw new HttpError(400, code, "Expected a positive integer in the supported range.");
+  }
+  return value;
+}
+
+function parseNumber(raw, code, min = -Infinity, max = Infinity) {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new HttpError(400, code, "Expected a number in the supported range.");
   }
   return value;
 }
@@ -792,6 +1483,21 @@ function optionalLower(value, maxLength) {
   return optionalText(value, maxLength)?.toLowerCase() ?? null;
 }
 
+function normalizeBinaryStatus(raw, code) {
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : raw;
+  if (value === "active" || value === "enabled" || value === true || value === 1 || value === "1") {
+    return ACTIVE_STATUS;
+  }
+  if (value === "disabled" || value === "inactive" || value === false || value === 0 || value === "0") {
+    return DISABLED_STATUS;
+  }
+  throw new HttpError(400, code, "Status must be active or disabled.");
+}
+
+function hasPatchValue(input, key) {
+  return Object.prototype.hasOwnProperty.call(input ?? {}, key);
+}
+
 function paginationDto(page, pageSize, total) {
   const totalPages = Math.ceil(total / pageSize);
   return {
@@ -819,6 +1525,132 @@ function transactionRisk(item) {
     return "mid";
   }
   return "low";
+}
+
+function ensureStoreMethod(store, method, code) {
+  if (typeof store?.[method] !== "function") {
+    throw new HttpError(500, code, "Required admin store capability is not available.");
+  }
+}
+
+async function createAudit(store, context, request, input) {
+  if (typeof store.createAuditLog !== "function") {
+    return null;
+  }
+  return store.createAuditLog({
+    actorId: context.user.userId,
+    actorRole: context.user.role,
+    action: input.action,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    ipAddress: clientIp(request),
+    detail: input.detail ?? {},
+    createdAt: new Date().toISOString()
+  });
+}
+
+function adminCategoryError(error) {
+  if (error?.code === "CATEGORY_NOT_FOUND") {
+    return new HttpError(404, "CATEGORY_NOT_FOUND", "Category was not found.");
+  }
+  if (error?.code === "TAG_NOT_FOUND") {
+    return new HttpError(404, "TAG_NOT_FOUND", "Tag was not found.");
+  }
+  if (error?.code === "CATEGORY_DUPLICATE" || error?.code === "TAG_DUPLICATE" || error?.code === "DUPLICATE_ENTRY") {
+    return new HttpError(409, "CATEGORY_DUPLICATE", "Category or tag already exists.");
+  }
+  return error;
+}
+
+function sensitiveWordError(error) {
+  if (error?.code === "SENSITIVE_WORD_NOT_FOUND") {
+    return new HttpError(404, "SENSITIVE_WORD_NOT_FOUND", "Sensitive word was not found.");
+  }
+  if (error?.code === "SENSITIVE_WORD_DUPLICATE" || error?.code === "DUPLICATE_ENTRY") {
+    return new HttpError(409, "SENSITIVE_WORD_DUPLICATE", "Sensitive word already exists.");
+  }
+  return error;
+}
+
+function auditLogMatches(item, query) {
+  if (query.actorId !== null && Number(item.actorId) !== Number(query.actorId)) {
+    return false;
+  }
+  if (query.targetId !== null && Number(item.targetId) !== Number(query.targetId)) {
+    return false;
+  }
+  if (query.action && item.action !== query.action) {
+    return false;
+  }
+  if (query.targetType && item.targetType !== query.targetType) {
+    return false;
+  }
+  if (query.keyword && !auditLogHaystack(item).includes(query.keyword)) {
+    return false;
+  }
+  return true;
+}
+
+function auditLogHaystack(item) {
+  return [
+    item.auditId,
+    item.actorId,
+    item.actorRole,
+    item.action,
+    item.targetType,
+    item.targetId,
+    item.ipAddress,
+    JSON.stringify(item.detail ?? {})
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function isHighRiskAudit(item) {
+  return [
+    "admin.user.status",
+    "admin.dispute.finalize",
+    "admin.risk_content.resolve",
+    "admin.system.update"
+  ].includes(String(item.action ?? ""));
+}
+
+function sensitiveLevelText(level) {
+  const map = new Map([
+    ["block", "拦截"],
+    ["review", "复核"],
+    ["warn", "提醒"]
+  ]);
+  return map.get(level) ?? "复核";
+}
+
+function riskSourceText(sourceType) {
+  const map = new Map([
+    ["request", "需求发布"],
+    ["content_check", "内容检测"],
+    ["comment", "评论"],
+    ["profile", "资料"]
+  ]);
+  return map.get(sourceType) ?? "内容";
+}
+
+function riskLevelText(level) {
+  const map = new Map([
+    ["high", "高风险"],
+    ["medium", "中风险"],
+    ["low", "低风险"]
+  ]);
+  return map.get(level) ?? "低风险";
+}
+
+function riskStatusText(status) {
+  const map = new Map([
+    ["pending", "待审核"],
+    ["reviewing", "审核中"],
+    ["approved", "已通过"],
+    ["removed", "已移除"],
+    ["ignored", "已忽略"],
+    ["resolved", "已处理"]
+  ]);
+  return map.get(status) ?? "待审核";
 }
 
 function finalizeDisputeError(error) {

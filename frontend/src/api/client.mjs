@@ -182,6 +182,44 @@ export function createApiClient(options = {}) {
         body: payload
       }),
       transactions: (token, params = {}) => request(withQuery("/api/admin/transactions", params), { token }),
+      categories: (token) => request("/api/admin/categories", { token }),
+      createCategory: (token, payload) => request("/api/admin/categories", {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      updateCategory: (token, categoryId, payload) => request(`/api/admin/categories/${encodeURIComponent(categoryId)}`, {
+        method: "PUT",
+        token,
+        body: payload
+      }),
+      createTag: (token, payload) => request("/api/admin/tags", {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      updateTag: (token, tagId, payload) => request(`/api/admin/tags/${encodeURIComponent(tagId)}`, {
+        method: "PUT",
+        token,
+        body: payload
+      }),
+      sensitiveWords: (token, params = {}) => request(withQuery("/api/admin/sensitive-words", params), { token }),
+      createSensitiveWord: (token, payload) => request("/api/admin/sensitive-words", {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      updateSensitiveWord: (token, wordId, payload) => request(`/api/admin/sensitive-words/${encodeURIComponent(wordId)}`, {
+        method: "PUT",
+        token,
+        body: payload
+      }),
+      riskContent: (token, params = {}) => request(withQuery("/api/admin/risk-content", params), { token }),
+      resolveRiskContent: (token, riskId, payload) => request(`/api/admin/risk-content/${encodeURIComponent(riskId)}/resolve`, {
+        method: "POST",
+        token,
+        body: payload
+      }),
       disputes: (token, params = {}) => request(withQuery("/api/admin/disputes", params), { token }),
       dispute: (token, disputeId) => request(`/api/admin/disputes/${encodeURIComponent(disputeId)}`, { token }),
       finalizeDispute: (token, disputeId, payload) => request(`/api/admin/disputes/${encodeURIComponent(disputeId)}/finalize`, {
@@ -189,7 +227,14 @@ export function createApiClient(options = {}) {
         token,
         body: payload
       }),
-      stats: (token) => request("/api/admin/stats", { token })
+      stats: (token) => request("/api/admin/stats", { token }),
+      auditLogs: (token, params = {}) => request(withQuery("/api/admin/audit-logs", params), { token }),
+      system: (token) => request("/api/admin/system", { token }),
+      updateSystem: (token, payload) => request("/api/admin/system", {
+        method: "PUT",
+        token,
+        body: payload
+      })
     }
   };
 }

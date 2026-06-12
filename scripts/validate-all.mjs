@@ -18,7 +18,8 @@ const scripts = [
   "scripts/validate-stage-15.mjs",
   "scripts/validate-stage-16.mjs",
   "scripts/validate-stage-17.mjs",
-  "scripts/validate-stage-18.mjs"
+  "scripts/validate-stage-18.mjs",
+  "scripts/validate-stage-19.mjs"
 ];
 
 for (const script of scripts) {
