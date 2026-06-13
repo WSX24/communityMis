@@ -46,8 +46,14 @@ export function domainForRoute(routeId) {
   return ROUTE_DOMAINS.get(routeId) ?? "feed";
 }
 
-export async function hydrateLegacyShell() {
+export async function hydratePrototypeDomain(context = {}, domain = "feed") {
+  window.__NEIGHBOR_ACTIVE_DOMAIN__ = domain;
+  window.__NEIGHBOR_ROUTE_CONTEXT__ = context;
   await import("/assets/app/prototype-shell.mjs");
+}
+
+export async function hydrateLegacyShell() {
+  await hydratePrototypeDomain({}, "legacy");
 }
 
 export function installGlobalUiStateHandlers() {

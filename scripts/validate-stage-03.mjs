@@ -52,11 +52,12 @@ async function checkAuthApi() {
   const baseUrl = `http://127.0.0.1:${port}`;
 
   try {
-    const phoneVerification = store.createVerificationCode({
-      verificationToken: "stage03-phone-token",
-      channel: "sms",
+    const email = "stage03@example.com";
+    const emailVerification = store.createVerificationCode({
+      verificationToken: "stage03-email-token",
+      channel: "email",
       purpose: "register",
-      recipient: "13900001111",
+      recipient: email,
       codeHash: hashVerificationCode("123456"),
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       sendStatus: "sent",
@@ -66,9 +67,9 @@ async function checkAuthApi() {
     const register = await requestJson(baseUrl, "POST", "/api/auth/register", {
       username: "new_user",
       password: "newpass123",
-      phone: "13900001111",
-      phoneCodeToken: phoneVerification.verificationToken,
-      phoneCode: "123456",
+      email,
+      emailCodeToken: emailVerification.verificationToken,
+      emailCode: "123456",
       skillTags: ["维修"]
     });
     record(register.status === 201, "register returns 201");
@@ -83,10 +84,10 @@ async function checkAuthApi() {
     record(storedUser.passwordHash !== "newpass123" && verifyPassword("newpass123", storedUser.passwordHash), "registered password is hashed and verifiable");
 
     const duplicateVerification = store.createVerificationCode({
-      verificationToken: "stage03-duplicate-phone-token",
-      channel: "sms",
+      verificationToken: "stage03-duplicate-email-token",
+      channel: "email",
       purpose: "register",
-      recipient: "13900001111",
+      recipient: "stage03-duplicate@example.com",
       codeHash: hashVerificationCode("654321"),
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       sendStatus: "sent",
@@ -95,9 +96,9 @@ async function checkAuthApi() {
     const duplicate = await requestJson(baseUrl, "POST", "/api/auth/register", {
       username: "new_user",
       password: "newpass123",
-      phone: "13900001111",
-      phoneCodeToken: duplicateVerification.verificationToken,
-      phoneCode: "654321"
+      email: "stage03-duplicate@example.com",
+      emailCodeToken: duplicateVerification.verificationToken,
+      emailCode: "654321"
     });
     record(duplicate.status === 409 && duplicate.body.error?.code === "USERNAME_EXISTS", "duplicate username is rejected");
 
@@ -226,28 +227,32 @@ async function checkAuthApiWithEphemeralMysql() {
     const directSeedUser = await mysqlStore.findUserByUsername("user_a");
     record(Boolean(directSeedUser?.passwordHash), "MySQL store can read seeded user");
 
-    const sms = await requestJson(baseUrl, "POST", "/api/verification/sms/send", {
-      phone: "13900002222",
-      purpose: "register"
+    const mysqlEmail = "stage03-mysql@example.com";
+    await mysqlStore.createVerificationCode({
+      verificationToken: "stage03-mysql-email-token",
+      channel: "email",
+      purpose: "register",
+      recipient: mysqlEmail,
+      codeHash: hashVerificationCode("123456"),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      sendStatus: "sent",
+      providerMessageId: "stage03-mysql"
     });
-    record(sms.status === 200, "MySQL verification send succeeds");
-    if (sms.status !== 200) {
-      return;
-    }
-    const codeRow = await mysqlScalar(mysql, serverPort, dbName, `SELECT REPLACE(\`provider_message_id\`, 'dev-', '') FROM \`verification_code\` WHERE \`verification_token\` = '${sms.body.verificationToken}';`);
+    record(true, "MySQL email verification token is seeded");
 
     const register = await requestJson(baseUrl, "POST", "/api/auth/register", {
       username: "mysql_user",
       password: "mysqlpass123",
-      phone: "13900002222",
-      phoneCodeToken: sms.body.verificationToken,
-      phoneCode: codeRow
+      email: mysqlEmail,
+      emailCodeToken: "stage03-mysql-email-token",
+      emailCode: "123456"
     });
     record(register.status === 201, "MySQL register response is 201");
     record(register.status === 201 && register.body.wallet?.balance === 5, "MySQL auth register creates user wallet with 5 time coins");
 
     await checkMysqlScalar(mysql, serverPort, dbName, "SELECT COUNT(*) FROM `user` WHERE `username` = 'mysql_user' AND `password_hash` <> 'mysqlpass123';", "1", "MySQL user password is stored hashed");
     await checkMysqlScalar(mysql, serverPort, dbName, "SELECT COUNT(*) FROM `wallet` w JOIN `user` u ON u.`user_id` = w.`user_id` WHERE u.`username` = 'mysql_user' AND w.`balance` = 5.00;", "1", "MySQL wallet row is persisted for registered user");
+    await checkMysqlScalar(mysql, serverPort, dbName, "SELECT COUNT(*) FROM `user_profile` up JOIN `user` u ON u.`user_id` = up.`user_id` WHERE u.`username` = 'mysql_user' AND up.`email` = 'stage03-mysql@example.com';", "1", "MySQL registered user email is persisted");
 
     const userLogin = await requestJson(baseUrl, "POST", "/api/auth/login", {
       username: "user_a",

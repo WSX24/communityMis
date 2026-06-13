@@ -1,5 +1,5 @@
-import { hydrateLegacyShell } from "/assets/app/modules/shared-ui.mjs";
+import { hydratePrototypeDomain } from "/assets/app/modules/shared-ui.mjs";
 
-export async function hydrateRoute() {
-  await hydrateLegacyShell();
+export async function hydrateRoute(context) {
+  await hydratePrototypeDomain(context, "tasks");
 }

@@ -58,6 +58,9 @@ CREATE TABLE IF NOT EXISTS \`schema_migrations\` (
       if (options.recordMigrations) {
         const [rows] = await pool.execute("SELECT `checksum` FROM `schema_migrations` WHERE `filename` = ? LIMIT 1", [filename]);
         if (Array.isArray(rows) && rows.length > 0) {
+          if (rows[0].checksum !== checksum) {
+            throw new Error(`Migration checksum mismatch for ${filename}.`);
+          }
           applied.push({ file, skipped: true });
           continue;
         }
@@ -73,6 +76,70 @@ CREATE TABLE IF NOT EXISTS \`schema_migrations\` (
     return applied;
   } finally {
     await pool.end();
+  }
+}
+
+export async function migrationStatus(config, files) {
+  const pool = await createMysqlPool(config);
+  try {
+    const expected = await Promise.all(files.map(async (file) => ({
+      file,
+      filename: path.basename(file),
+      checksum: await sha256(fs.readFileSync(file, "utf8"))
+    })));
+    const applied = await appliedMigrationMap(pool);
+    const missingMigrations = [];
+    const checksumMismatches = [];
+
+    for (const item of expected) {
+      const actual = applied.get(item.filename);
+      if (!actual) {
+        missingMigrations.push(item.filename);
+        continue;
+      }
+      if (actual.checksum !== item.checksum) {
+        checksumMismatches.push({
+          filename: item.filename,
+          expected: item.checksum,
+          actual: actual.checksum
+        });
+      }
+    }
+
+    return {
+      ok: missingMigrations.length === 0 && checksumMismatches.length === 0,
+      requiredMigrations: expected.map((item) => item.filename),
+      appliedMigrations: Array.from(applied.keys()).sort(),
+      missingMigrations,
+      checksumMismatches,
+      latestRequiredMigration: expected.at(-1)?.filename ?? null
+    };
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function verifySqlFiles(config, files) {
+  const status = await migrationStatus(config, files);
+  if (!status.ok) {
+    const details = [
+      status.missingMigrations.length > 0 ? `missing: ${status.missingMigrations.join(", ")}` : "",
+      status.checksumMismatches.length > 0 ? `checksum mismatches: ${status.checksumMismatches.map((item) => item.filename).join(", ")}` : ""
+    ].filter(Boolean).join("; ");
+    throw new Error(`Database migrations are not verified${details ? ` (${details})` : ""}.`);
+  }
+  return status;
+}
+
+async function appliedMigrationMap(pool) {
+  try {
+    const [rows] = await pool.query("SELECT `filename`, `checksum` FROM `schema_migrations`");
+    return new Map((Array.isArray(rows) ? rows : []).map((row) => [row.filename, row]));
+  } catch (error) {
+    if (error?.code === "ER_NO_SUCH_TABLE") {
+      return new Map();
+    }
+    throw error;
   }
 }
 

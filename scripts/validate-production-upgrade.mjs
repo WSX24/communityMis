@@ -14,19 +14,19 @@ async function run() {
   const adminFetch = cookieFetch(fetch);
   try {
     const username = `prod_user_${Date.now()}`;
-    const phone = "13900005555";
+    const email = `prod-${Date.now()}@example.com`;
     store.createVerificationCode({
-      verificationToken: "prod-upgrade-phone",
-      channel: "sms",
+      verificationToken: "prod-upgrade-email",
+      channel: "email",
       purpose: "register",
-      recipient: phone,
+      recipient: email,
       codeHash: hashVerificationCode("123456"),
       expiresAt: new Date(Date.now() + 600000).toISOString(),
       sendStatus: "sent"
     });
     await api(userFetch, baseUrl, "/api/auth/register", {
       method: "POST",
-      body: { username, password: "user123456", phone, phoneCode: "123456", phoneCodeToken: "prod-upgrade-phone" }
+      body: { username, password: "user123456", email, emailCode: "123456", emailCodeToken: "prod-upgrade-email" }
     });
 
     const publicAsset = await store.createFileAsset({

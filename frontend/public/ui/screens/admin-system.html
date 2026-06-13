@@ -363,8 +363,8 @@
     <div class="page-head">
       <div>
         <p class="head-kicker">P2 · SYSTEM OPS</p>
-        <h1>数据备份 / 系统设置</h1>
-        <p>管理平台级参数、备份恢复和维护开关。高风险动作不能由 AI 自动执行，必须由管理员二次确认并写入审计日志。</p>
+        <h1>系统配置快照 / 系统设置</h1>
+        <p>管理平台级参数、配置快照和维护开关。高风险动作不能由 AI 自动执行，必须由管理员二次确认并写入审计日志。</p>
       </div>
       <div class="head-actions">
         <a class="btn btn--secondary btn--sm" href="admin-audit-log.html">查看审计日志</a>
@@ -374,7 +374,7 @@
 
     <section class="metric-grid" aria-label="系统指标">
       <div class="metric-card">
-        <div class="label">最近备份</div>
+        <div class="label">最近快照</div>
         <div class="value mono">02:30</div>
         <div class="hint">今天凌晨自动完成</div>
       </div>
@@ -391,7 +391,7 @@
       <div class="metric-card">
         <div class="label">高风险待确认</div>
         <div class="value mono">0</div>
-        <div class="hint">恢复 / 清理操作均未执行</div>
+        <div class="hint">快照 / 清理操作均未执行</div>
       </div>
     </section>
 
@@ -430,33 +430,33 @@
             </div>
             <div class="setting-card">
               <div>
-                <h3>自动备份</h3>
-                <p>每天 02:30 生成一次增量备份，并保留最近 14 天。恢复仍需人工确认。</p>
+                <h3>自动配置快照</h3>
+                <p>每天 02:30 生成一次系统配置快照。完整数据库和上传文件备份由运维定时任务执行。</p>
               </div>
-              <button class="switch on" data-label="自动备份" aria-label="自动备份"></button>
+              <button class="switch on" data-label="自动配置快照" aria-label="自动配置快照"></button>
             </div>
             <div class="setting-card">
               <div>
                 <h3>AI 高风险拦截</h3>
-                <p>当 AI 请求涉及封禁、转账、裁决、备份恢复时，只返回解释和人工入口，不执行动作。</p>
+                <p>当 AI 请求涉及封禁、转账、裁决、配置快照恢复时，只返回解释和人工入口，不执行动作。</p>
               </div>
               <button class="switch on" data-label="AI 高风险拦截" aria-label="AI 高风险拦截"></button>
             </div>
           </div>
         </section>
 
-        <section class="panel" aria-label="备份列表">
+        <section class="panel" aria-label="系统配置快照列表">
           <div class="panel-head">
             <div>
-              <h2>备份与恢复</h2>
-              <p class="muted small">恢复动作会覆盖业务数据，必须二次确认。</p>
+              <h2>系统配置快照</h2>
+              <p class="muted small">快照动作只记录平台配置状态，不代表完整灾备。</p>
             </div>
-            <button class="btn btn--primary btn--sm" id="start-backup">立即备份</button>
+            <button class="btn btn--primary btn--sm" id="start-backup">生成快照</button>
           </div>
 
           <div class="progress-shell" id="backup-progress">
             <div class="progress-track"><div class="progress-fill" id="backup-fill"></div></div>
-            <div class="progress-label" id="backup-label">正在创建备份… 0%</div>
+            <div class="progress-label" id="backup-label">正在创建快照… 0%</div>
           </div>
 
           <div class="backup-list" style="margin-top:var(--space-lg);">
@@ -465,8 +465,8 @@
                 <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               </div>
               <div class="backup-main">
-                <strong>正在加载备份记录</strong>
-                <span>备份文件和恢复动作将从生产接口读取。</span>
+                <strong>正在加载配置快照</strong>
+                <span>配置快照和人工确认动作将从生产接口读取。</span>
               </div>
             </div>
           </div>
@@ -489,10 +489,10 @@
             </div>
             <div class="setting-card">
               <div>
-                <h3>恢复到指定备份</h3>
-                <p>恢复期间用户端进入只读状态。恢复完成后会生成完整审计记录。</p>
+                <h3>恢复到指定配置快照</h3>
+                <p>恢复只影响平台配置项，不替代数据库和上传文件恢复演练。</p>
               </div>
-              <button class="btn btn--outline btn--sm danger-action" data-action="恢复指定备份">申请恢复</button>
+              <button class="btn btn--outline btn--sm danger-action" data-action="恢复指定配置快照">申请恢复</button>
             </div>
           </div>
 
@@ -513,15 +513,15 @@
           <div class="detail-list" style="margin-top:var(--space-md);">
             <div class="detail-item">
               <div class="label">AI 可做</div>
-              <div class="value">解释备份策略、生成操作摘要、提醒风险、帮助查找审计记录。</div>
+              <div class="value">解释配置快照策略、生成操作摘要、提醒风险、帮助查找审计记录。</div>
             </div>
             <div class="detail-item">
               <div class="label">AI 不可做</div>
-              <div class="value">自动恢复备份、删除数据、修改时间币余额、绕过管理员确认。</div>
+              <div class="value">自动恢复配置快照、删除数据、修改时间币余额、绕过管理员确认。</div>
             </div>
             <div class="detail-item">
               <div class="label">人工必须确认</div>
-              <div class="value">恢复、清理、维护模式、AI 高风险拦截关闭、纠纷终审。</div>
+              <div class="value">快照恢复、清理、维护模式、AI 高风险拦截关闭、纠纷终审。</div>
             </div>
           </div>
         </section>
@@ -593,14 +593,14 @@
     let progress = 0;
     progressShell.classList.add('open');
     progressFill.style.width = '0%';
-    progressLabel.textContent = '正在创建备份… 0%';
+    progressLabel.textContent = '正在创建快照… 0%';
     const timer = window.setInterval(() => {
       progress += 20;
       progressFill.style.width = progress + '%';
-      progressLabel.textContent = progress >= 100 ? '备份完成' : '正在创建备份… ' + progress + '%';
+      progressLabel.textContent = progress >= 100 ? '快照完成' : '正在创建快照… ' + progress + '%';
       if (progress >= 100) {
         window.clearInterval(timer);
-        showToast('手动备份完成');
+        showToast('配置快照已生成');
       }
     }, 260);
   });
@@ -608,7 +608,7 @@
   document.querySelectorAll('.restore-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       confirmBox.classList.add('open');
-      confirmText.textContent = '准备恢复 ' + btn.dataset.file + '。恢复期间用户端将进入只读状态，请输入 CONFIRM。';
+      confirmText.textContent = '准备恢复配置快照 ' + btn.dataset.file + '。该动作不代表完整灾备恢复，请输入 CONFIRM。';
       confirmInput.value = '';
       confirmInput.focus();
     });

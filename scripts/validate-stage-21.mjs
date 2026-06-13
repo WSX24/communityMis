@@ -181,7 +181,7 @@ async function checkAiAdminGovernanceFlow() {
   });
   const port = await listen(server);
   const baseUrl = `http://127.0.0.1:${port}`;
-  const api = createApiClient({ baseUrl, fetchImpl: fetch });
+  const api = createApiClient({ baseUrl, fetchImpl: fetch, allowBearer: true });
 
   try {
     const userLogin = await api.auth.login({ username: "stage21_user", password: "user123456" });

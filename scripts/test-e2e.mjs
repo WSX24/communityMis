@@ -21,7 +21,7 @@ async function run() {
   });
   const frontendPort = await listen(frontend);
   const frontendBaseUrl = `http://127.0.0.1:${frontendPort}`;
-  const api = createApiClient({ baseUrl: apiBaseUrl, fetchImpl: fetch });
+  const api = createApiClient({ baseUrl: apiBaseUrl, fetchImpl: fetch, allowBearer: true });
 
   try {
     await checkBusinessFlow(api);

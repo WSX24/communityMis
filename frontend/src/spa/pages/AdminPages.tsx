@@ -71,18 +71,18 @@ export function AdminSystemPage({ api }: { api: ApiClient }) {
         </section>
         <section className="panel">
           <div className="section-heading">
-            <h2>系统备份</h2>
+            <h2>系统配置快照</h2>
             <button className="btn btn--primary" onClick={async () => {
               try {
-                await api.admin.createBackup({ confirmText: "立即备份", reason: "manual-backup" });
+                await api.admin.createBackup({ confirmText: "立即备份", reason: "manual-snapshot" });
                 window.location.reload();
               } catch (reason) {
                 setError(friendlyError(reason));
               }
-            }}>立即备份</button>
+            }}>生成快照</button>
           </div>
           {error ? <p className="field-error">{error}</p> : null}
-          <DataTable columns={["备份", "状态", "大小", "时间", "操作"]} rows={backups.map((item) => [
+          <DataTable columns={["快照", "状态", "大小", "时间", "操作"]} rows={backups.map((item) => [
             text(item.label ?? item.backupId),
             <Badge key="status" tone={text(item.status) === "ready" ? "success" : "warning"}>{text(item.status)}</Badge>,
             text(item.sizeBytes),
@@ -109,14 +109,14 @@ function BackupActions({ api, item }: { api: ApiClient; item: Record<string, unk
   return (
     <div className="action-row">
       <button className="btn btn--secondary btn--sm" onClick={async () => {
-        const confirmText = window.prompt("输入 恢复备份 以确认");
+        const confirmText = window.prompt("输入 恢复备份 以确认配置快照恢复");
         if (confirmText === "恢复备份") {
           await api.admin.restoreBackup(id, { confirmText, reason: "manual-restore" });
           window.location.reload();
         }
-      }}>恢复</button>
+      }}>恢复快照</button>
       <button className="btn btn--secondary btn--sm" onClick={async () => {
-        const confirmText = window.prompt("输入 删除备份 以确认");
+        const confirmText = window.prompt("输入 删除备份 以确认删除配置快照");
         if (confirmText === "删除备份") {
           await api.admin.deleteBackup(id, { confirmText, reason: "manual-delete" });
           window.location.reload();

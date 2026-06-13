@@ -284,7 +284,7 @@ const DEMO_CONTENT_RULES = {
   },
   "admin-system": {
     emptyElements: [
-      { selector: ".backup-list", content: `<div class="backup-row" data-runtime-placeholder><div class="backup-main"><strong>正在加载备份记录</strong><span>备份文件和恢复动作将从生产接口读取。</span></div></div>` },
+      { selector: ".backup-list", content: `<div class="backup-row" data-runtime-placeholder><div class="backup-main"><strong>正在加载配置快照</strong><span>配置快照和人工确认动作将从生产接口读取。</span></div></div>` },
       { selector: ".audit-mini", content: `<div class="audit-row" data-runtime-placeholder><strong>正在加载系统审计</strong><span>真实审计记录将从后端接口读取</span></div>` }
     ]
   },

@@ -254,7 +254,11 @@
   .stat-card:nth-child(3) .stat-value { animation-delay: 0.5s; }
   .stat-card:nth-child(4) .stat-value { animation-delay: 0.6s; }
 
-  .stat-card .stat-label { font-size: 13px; color: var(--muted); font-weight: 500; }
+  .stat-card .stat-label {
+    font-size: 13px;
+    color: color-mix(in oklch, var(--fg) 66%, var(--muted));
+    font-weight: 600;
+  }
   .stat-card .stat-sub {
     font-size: 12px; margin-top: var(--space-md);
     display: flex; align-items: center; gap: 4px;
@@ -604,7 +608,7 @@
           <div class="qa-icon" style="background:var(--border-light);color:var(--muted);">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><circle cx="12" cy="12" r="3"/></svg>
           </div>
-          <div class="qa-body"><div class="qa-title">系统设置</div><div class="qa-desc">备份恢复、维护模式、系统参数与审计提示</div></div>
+          <div class="qa-body"><div class="qa-title">系统设置</div><div class="qa-desc">配置快照、维护模式、系统参数与审计提示</div></div>
           <span class="qa-arrow">→</span>
         </a>
       </div>

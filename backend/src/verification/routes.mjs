@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { HttpError, methodNotAllowed, readJsonBody, sendJson } from "../http.mjs";
 import { clientIp, enforceRateLimit, rateLimitIdentity } from "../rate-limit.mjs";
-import { sendEmailCode, sendSmsCode } from "./providers.mjs";
+import { sendEmailCode } from "./providers.mjs";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const COOLDOWN_SECONDS = 60;
@@ -11,15 +11,12 @@ const SEND_WINDOW_SECONDS = 15 * 60;
 export async function handleVerificationRoutes({ request, response, url, authService, config, providers = {} }) {
   if (url.pathname === "/api/verification/sms/send") {
     allowOnly(request, response, ["POST"]);
-    const body = await readJsonBody(request, { maxBytes: 16 * 1024 });
-    const recipient = normalizePhone(body.phone ?? body.recipient);
-    await enforceSendLimit(authService.store, request, "sms", recipient);
-    const payload = await sendVerification(authService.store, config, {
-      channel: "sms",
-      recipient,
-      purpose: normalizePurpose(body.purpose)
-    }, providers);
-    sendJson(response, 200, payload);
+    sendJson(response, 404, {
+      error: {
+        code: "FEATURE_DISABLED",
+        message: "SMS verification is not enabled for registration."
+      }
+    });
     return true;
   }
 
@@ -45,32 +42,20 @@ export function hashVerificationCode(code) {
 }
 
 export async function verifyRegistrationCodes(store, input = {}) {
-  const checks = [];
-  checks.push({
-    channel: "sms",
+  const check = {
+    channel: "email",
     purpose: "register",
-    recipient: normalizePhone(input.phone),
-    verificationToken: input.phoneCodeToken,
-    codeHash: input.phoneCode ? hashVerificationCode(input.phoneCode) : null
-  });
-  if (normalizeOptionalEmail(input.email)) {
-    checks.push({
-      channel: "email",
-      purpose: "register",
-      recipient: normalizeEmail(input.email),
-      verificationToken: input.emailCodeToken,
-      codeHash: input.emailCode ? hashVerificationCode(input.emailCode) : null
-    });
+    recipient: normalizeEmail(input.email),
+    verificationToken: input.emailCodeToken,
+    codeHash: input.emailCode ? hashVerificationCode(input.emailCode) : null
+  };
+  if (!check.verificationToken || !check.codeHash) {
+    throw new HttpError(400, "VERIFICATION_REQUIRED", "Email verification token and code are required.");
   }
-  for (const check of checks) {
-    if (!check.verificationToken || !check.codeHash) {
-      throw new HttpError(400, "VERIFICATION_REQUIRED", "Verification token and code are required.");
-    }
-    try {
-      await store.consumeVerificationToken(check);
-    } catch (error) {
-      throw verificationError(error);
-    }
+  try {
+    await store.consumeVerificationToken(check);
+  } catch (error) {
+    throw verificationError(error);
   }
 }
 
@@ -94,7 +79,7 @@ async function sendVerification(store, config, input, providers = {}) {
       sendStatus: "failed",
       providerMessageId: null,
       sentAt: null,
-      providerError: error.providerError ?? error.message
+      providerError: error.code ?? providerErrorCode(input.channel)
     });
     throw providerError;
   }
@@ -119,10 +104,7 @@ async function sendVerification(store, config, input, providers = {}) {
 
 async function dispatchCode(config, input, code, providers = {}) {
   if (!config?.isProduction) {
-    return { status: "sent", messageId: `dev-${code}` };
-  }
-  if (input.channel === "sms") {
-    return (providers.sendSmsCode ?? sendSmsCode)(config, input, code);
+    return { status: "sent", messageId: `dev-${hashVerificationCode(code).slice(0, 12)}` };
   }
   return (providers.sendEmailCode ?? sendEmailCode)(config, input, code);
 }
@@ -144,7 +126,7 @@ async function enforceSendLimit(store, request, channel, recipient) {
 }
 
 function providerErrorCode(channel) {
-  return channel === "sms" ? "SMS_PROVIDER_ERROR" : "SMTP_PROVIDER_ERROR";
+  return channel === "email" ? "SMTP_PROVIDER_ERROR" : "VERIFICATION_PROVIDER_ERROR";
 }
 
 function ensureStore(store) {
@@ -158,25 +140,12 @@ function normalizePurpose(value) {
   return text || "register";
 }
 
-function normalizePhone(value) {
-  const text = String(value ?? "").trim();
-  if (!/^\+?\d{6,20}$/.test(text)) {
-    throw new HttpError(400, "INVALID_PHONE", "A valid phone number is required.");
-  }
-  return text;
-}
-
 function normalizeEmail(value) {
   const text = String(value ?? "").trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(text) || text.length > 120) {
     throw new HttpError(400, "INVALID_EMAIL", "A valid email address is required.");
   }
   return text;
-}
-
-function normalizeOptionalEmail(value) {
-  const text = String(value ?? "").trim();
-  return text ? normalizeEmail(text) : null;
 }
 
 function verificationError(error) {

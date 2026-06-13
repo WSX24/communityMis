@@ -1,0 +1,16 @@
+[Unit]
+Description=Community MIS database and uploads backup
+After=network-online.target mysql.service
+
+[Service]
+Type=oneshot
+User=community-mis
+Group=community-mis
+WorkingDirectory=/opt/community-mis/current
+EnvironmentFile=/etc/community-mis/community-mis.env
+ExecStart=/usr/bin/node scripts/backup.mjs
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/backups/community-mis /var/lib/community-mis /var/log/community-mis

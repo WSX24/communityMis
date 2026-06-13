@@ -77,17 +77,23 @@ async function checkBrowserAuthSmoke() {
   try {
     const loginPage = await fetchText(`http://127.0.0.1:${frontendPort}/login`);
     const adminPage = await fetchText(`http://127.0.0.1:${frontendPort}/admin/dashboard`);
-    record(loginPage.includes('id="root"'), "frontend serves SPA auth shell on /login");
-    record(adminPage.includes('id="root"'), "frontend serves SPA admin shell on /admin/dashboard");
+    const appShell = await fetchText(`http://127.0.0.1:${frontendPort}/assets/app/main.mjs`);
+    const prototypeShell = await fetchText(`http://127.0.0.1:${frontendPort}/assets/app/prototype-shell.mjs`);
+    record(loginPage.includes('data-route-id="login"') && loginPage.includes("/assets/app/main.mjs"), "frontend serves production auth HTML on /login");
+    record(adminPage.includes('data-route-id="admin-dashboard"') && adminPage.includes("/assets/app/main.mjs"), "frontend serves production admin HTML on /admin/dashboard");
+    record(
+      appShell.includes("hydrateRoute") && (prototypeShell.includes("createAuthController") || prototypeShell.includes("hydrateLegacyShell")),
+      "frontend exposes runtime shell entry assets"
+    );
 
     const username = `stage04_user_${Date.now()}`;
     const password = "user123456";
-    const phone = "13900004444";
-    const phoneVerification = store.createVerificationCode({
-      verificationToken: `stage04-phone-token-${Date.now()}`,
-      channel: "sms",
+    const email = `stage04-${Date.now()}@example.com`;
+    const emailVerification = store.createVerificationCode({
+      verificationToken: `stage04-email-token-${Date.now()}`,
+      channel: "email",
       purpose: "register",
-      recipient: phone,
+      recipient: email,
       codeHash: hashVerificationCode("123456"),
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       sendStatus: "sent",
@@ -102,9 +108,9 @@ async function checkBrowserAuthSmoke() {
     const session = await auth.registerUser({
       username,
       password,
-      phone,
-      phoneCodeToken: phoneVerification.verificationToken,
-      phoneCode: "123456",
+      email,
+      emailCodeToken: emailVerification.verificationToken,
+      emailCode: "123456",
       skillTags: ["家电维修", "跑腿代取"]
     }, {
       building: "阳光花园 6 号楼",

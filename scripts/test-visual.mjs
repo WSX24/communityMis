@@ -1,7 +1,7 @@
 import { createBackendServer } from "../backend/src/app.mjs";
 import { createFrontendServer } from "../frontend/server.mjs";
 import { responsiveViewports } from "../frontend/src/routes.mjs";
-import { spawn } from "node:child_process";
+import { chromium } from "playwright";
 
 const checks = [];
 const routes = ["/", "/login", "/register", "/admin/login"];
@@ -9,7 +9,15 @@ const routes = ["/", "/login", "/register", "/admin/login"];
 await run();
 
 async function run() {
-  const backend = createBackendServer({ sessionSecret: "visual-test-secret" });
+  const frontendPort = await reservePort();
+  const frontendOrigin = `http://127.0.0.1:${frontendPort}`;
+  const backend = createBackendServer({
+    sessionSecret: "visual-test-secret",
+    env: {
+      NODE_ENV: "test",
+      CORS_ORIGIN: frontendOrigin
+    }
+  });
   const backendPort = await listen(backend);
   const frontend = createFrontendServer({
     env: {
@@ -19,15 +27,14 @@ async function run() {
       BUILD_VERSION: "visual"
     }
   });
-  const frontendPort = await listen(frontend);
-  const baseUrl = `http://127.0.0.1:${frontendPort}`;
+  await listen(frontend, frontendPort);
+  const baseUrl = frontendOrigin;
 
   try {
     await runVisualSmoke(baseUrl);
   } finally {
     await close(frontend);
     await close(backend);
-    await runPw(["-s=community-visual", "close"], { allowFailure: true });
   }
 
   for (const item of checks) {
@@ -39,16 +46,27 @@ async function run() {
 }
 
 async function runVisualSmoke(baseUrl) {
-  await runPw(["-s=community-visual", "open", `${baseUrl}/login`]);
-  for (const viewport of responsiveViewports) {
-    await runPw(["-s=community-visual", "resize", String(viewport.width), String(viewport.height)]);
-    for (const route of routes) {
-      await runPw(["-s=community-visual", "open", `${baseUrl}${route}`]);
-      const visualProbe = "JSON.stringify({title:document.title,routeId:document.documentElement.dataset.routeId,runtimeError:document.documentElement.dataset.runtimeError?document.documentElement.dataset.runtimeError:null,horizontalOverflow:Boolean(Math.max(0,document.documentElement.scrollWidth-window.innerWidth)),bodyWidth:document.documentElement.scrollWidth,viewport:window.innerWidth})";
-      const result = JSON.parse(await runPw(["-s=community-visual", "eval", visualProbe]));
-      record(result.runtimeError === null, `${route} has no runtime error at ${viewport.width}x${viewport.height}`);
-      record(result.horizontalOverflow === false, `${route} has no horizontal overflow at ${viewport.width}x${viewport.height}`);
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    for (const viewport of responsiveViewports) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      for (const route of routes) {
+        await page.goto(`${baseUrl}${route}`, { waitUntil: "networkidle" });
+        const result = await page.evaluate(() => ({
+          title: document.title,
+          routeId: document.documentElement.dataset.routeId,
+          runtimeError: document.documentElement.dataset.runtimeError ?? null,
+          horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - window.innerWidth) > 0,
+          bodyWidth: document.documentElement.scrollWidth,
+          viewport: window.innerWidth
+        }));
+        record(result.runtimeError === null, `${route} has no runtime error at ${viewport.width}x${viewport.height}`);
+        record(result.horizontalOverflow === false, `${route} has no horizontal overflow at ${viewport.width}x${viewport.height}`);
+      }
     }
+  } finally {
+    await browser.close();
   }
 }
 
@@ -56,12 +74,34 @@ function record(ok, message) {
   checks.push({ ok: Boolean(ok), message });
 }
 
-function listen(server) {
+function listen(server, port = 0) {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(port, "127.0.0.1", () => {
       server.off("error", reject);
       resolve(server.address().port);
+    });
+  });
+}
+
+function reservePort() {
+  const probe = createBackendServer({ sessionSecret: "visual-port-probe" });
+  return new Promise((resolve, reject) => {
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      probe.off("error", reject);
+      const address = probe.address();
+      probe.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        if (typeof address === "object" && address?.port) {
+          resolve(address.port);
+        } else {
+          reject(new Error("Port probe did not expose a port."));
+        }
+      });
     });
   });
 }
@@ -70,38 +110,4 @@ function close(server) {
   return new Promise((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());
   });
-}
-
-function runPw(args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const npmExecPath = process.env.npm_execpath;
-    const command = npmExecPath ? process.execPath : "npx";
-    const commandArgs = npmExecPath
-      ? [npmExecPath, "exec", "--yes", "--package", "@playwright/cli", "--", "playwright-cli", ...args]
-      : ["--yes", "--package", "@playwright/cli", "playwright-cli", ...args];
-    const child = spawn(command, commandArgs, {
-      cwd: process.cwd(),
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code !== 0 && !options.allowFailure) {
-        reject(new Error(stderr || stdout || `playwright-cli failed with code ${code}`));
-        return;
-      }
-      resolve(extractResult(stdout));
-    });
-  });
-}
-
-function extractResult(output) {
-  const match = output.match(/### Result\s*\n([\s\S]*?)(?:\n### |\s*$)/);
-  if (!match) {
-    return output.trim();
-  }
-  return JSON.parse(match[1]);
 }

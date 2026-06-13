@@ -94,7 +94,13 @@ async function checkUserProfileApi() {
   });
   const port = await listen(server);
   const baseUrl = `http://127.0.0.1:${port}`;
-  const api = createApiClient({ baseUrl, fetchImpl: fetch });
+  const cookieRuntime = createCookieRuntime(fetch);
+  const api = createApiClient({
+    baseUrl,
+    fetchImpl: cookieRuntime.fetch,
+    readCookie: cookieRuntime.readCookie,
+    allowBearer: true
+  });
 
   try {
     const login = await api.auth.login({
@@ -151,7 +157,7 @@ async function checkUserProfileApi() {
       skillTags: ["控制器技能"]
     });
     record(controllerUpdate.user?.bio === "控制器保存的简介", "auth controller can save profile through real API");
-    record(controller.readSession("user")?.user?.skillTags?.includes("控制器技能"), "auth controller refreshes stored user after profile save");
+    record(controller.readProfileDraft(controllerUpdate.user)?.skillTags?.includes("控制器技能"), "auth controller refreshes local profile draft after profile save");
 
     const anonymousMe = await requestJson(baseUrl, "GET", "/api/users/me");
     record(anonymousMe.status === 401, "anonymous visitor cannot access current profile API");
@@ -197,6 +203,43 @@ function createMemoryLocation(pathname) {
       this.pathname = nextPath.split("?")[0];
     }
   };
+}
+
+function createCookieRuntime(fetchImpl) {
+  const jar = new Map();
+  return {
+    fetch: async (url, options = {}) => {
+      const headers = new Headers(options.headers ?? {});
+      const cookie = Array.from(jar.entries()).map(([key, value]) => `${key}=${value}`).join("; ");
+      if (cookie && !headers.has("cookie")) {
+        headers.set("cookie", cookie);
+      }
+      const response = await fetchImpl(url, {
+        ...options,
+        headers
+      });
+      for (const value of setCookieHeaders(response)) {
+        const [pair] = value.split(";");
+        const index = pair.indexOf("=");
+        if (index > 0) {
+          jar.set(pair.slice(0, index), pair.slice(index + 1));
+        }
+      }
+      return response;
+    },
+    readCookie: (name) => {
+      const value = jar.get(name);
+      return value ? decodeURIComponent(value) : null;
+    }
+  };
+}
+
+function setCookieHeaders(response) {
+  if (typeof response.headers.getSetCookie === "function") {
+    return response.headers.getSetCookie();
+  }
+  const value = response.headers.get("set-cookie");
+  return value ? [value] : [];
 }
 
 function listen(server) {

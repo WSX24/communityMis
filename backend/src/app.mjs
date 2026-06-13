@@ -12,6 +12,7 @@ import { handleAiRoutes } from "./ai/routes.mjs";
 import { createOpenAiAdapter } from "./ai/openai-adapter.mjs";
 import { handleRequestRoutes } from "./requests/routes.mjs";
 import { healthPayload, readyPayload } from "./routes/health.mjs";
+import { handleClientErrorRoutes } from "./routes/client-errors.mjs";
 import { handleUserRoutes } from "./users/routes.mjs";
 import { handleVerificationRoutes } from "./verification/routes.mjs";
 import { handleFileRoutes } from "./files/routes.mjs";
@@ -43,6 +44,10 @@ export function createBackendServer(options = {}) {
       applyCorsHeaders(request, response, config);
 
       const url = new URL(request.url, `http://${request.headers.host ?? "127.0.0.1"}`);
+      if (await handleClientErrorRoutes({ request, response, url, authService, config, logger: options.clientErrorLogger ?? console })) {
+        return;
+      }
+
       await enforceCsrf(request, authService);
 
       if (url.pathname === "/api/health" && ["GET", "HEAD"].includes(request.method)) {

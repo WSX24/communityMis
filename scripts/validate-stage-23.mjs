@@ -30,14 +30,14 @@ function checkStaticProductionReadiness() {
   record(packageJson.scripts?.["db:migrate"] === "node scripts/db-migrate.mjs", "package exposes db:migrate");
   record(packageJson.scripts?.["db:seed"] === "node scripts/db-seed.mjs", "package exposes db:seed");
   record(packageJson.scripts?.maintenance === "node scripts/maintenance.mjs", "package exposes maintenance cleanup");
-  record(packageJson.dependencies?.nodemailer, "nodemailer dependency is declared for SMTP delivery");
+  record(!packageJson.dependencies?.nodemailer, "SMTP delivery uses built-in provider without nodemailer dependency");
 
   const mysqlStoreSource = fs.readFileSync(path.join(projectRoot, "backend", "src", "auth", "mysql-store.mjs"), "utf8");
   record(!mysqlStoreSource.includes("spawn("), "MySQL auth store no longer shells out with spawn");
   record(mysqlStoreSource.includes("FOR UPDATE") && mysqlStoreSource.includes("rate_limit_bucket"), "MySQL store uses transactional token/rate-limit rows");
 
   const providerSource = fs.readFileSync(path.join(projectRoot, "backend", "src", "verification", "providers.mjs"), "utf8");
-  record(providerSource.includes("ensureSmtpHeaderSafe") && providerSource.includes("address: input.recipient"), "SMTP verification provider guards header inputs");
+  record(providerSource.includes("boundedSmtpValue") && providerSource.includes("STARTTLS") && providerSource.includes("sendRawMail"), "SMTP verification provider guards inputs and uses STARTTLS");
 
   const migration = fs.readFileSync(path.join(projectRoot, "database", "migrations", "0004_production_readiness.sql"), "utf8");
   for (const expected of ["user_profile", "user_settings", "system_config", "rate_limit_bucket", "provider_error", "sent_at"]) {
@@ -45,12 +45,12 @@ function checkStaticProductionReadiness() {
   }
 
   const readySource = fs.readFileSync(path.join(projectRoot, "backend", "src", "routes", "health.mjs"), "utf8");
-  record(readySource.includes("0004_production_readiness.sql") && readySource.includes("externalServices"), "ready endpoint checks migrations and external service configuration");
+  record(readySource.includes("missingMigrations") && readySource.includes("checksumMismatches") && readySource.includes("externalServices"), "ready endpoint checks all migrations and external service configuration");
 
   const registerHtml = fs.readFileSync(path.join(projectRoot, "frontend", "public", "ui", "screens", "register.html"), "utf8");
   const shellSource = fs.readFileSync(path.join(projectRoot, "frontend", "src", "prototype-shell.mjs"), "utf8");
-  record(registerHtml.includes('id="send-phone-code"') && !registerHtml.includes("短信验证码服务未启用"), "register page exposes active phone-code controls");
-  record(shellSource.includes("api.verification.sendSms") && shellSource.includes("phoneCodeToken") && shellSource.includes("emailCodeToken"), "frontend registration submits verification tokens and codes");
+  record(!registerHtml.includes('id="send-phone-code"') && registerHtml.includes('id="send-email-code"'), "register page exposes email-code controls only");
+  record(!shellSource.includes("api.verification.sendSms") && !shellSource.includes("phoneCodeToken") && shellSource.includes("emailCodeToken"), "frontend registration submits email verification token and code");
 }
 
 async function checkVerificationAndRegisterFlow() {
@@ -76,10 +76,6 @@ async function checkVerificationAndRegisterFlow() {
     sessionSecret: "stage23-test-secret",
     config: productionLikeConfig(),
     verificationProviders: {
-      sendSmsCode: async (_config, input, code) => {
-        sent.push({ channel: "sms", recipient: input.recipient, code });
-        return { status: "sent", messageId: `sms-${code}` };
-      },
       sendEmailCode: async (_config, input, code) => {
         sent.push({ channel: "email", recipient: input.recipient, code });
         return { status: "sent", messageId: `email-${code}` };
@@ -89,39 +85,33 @@ async function checkVerificationAndRegisterFlow() {
   const port = await listen(server);
   const baseUrl = `http://127.0.0.1:${port}`;
   try {
-    const phoneSend = await requestJson(baseUrl, "POST", "/api/verification/sms/send", { phone: "13900002323", purpose: "register" });
+    const smsSend = await requestJson(baseUrl, "POST", "/api/verification/sms/send", { phone: "13900002323", purpose: "register" });
     const emailSend = await requestJson(baseUrl, "POST", "/api/verification/email/send", { email: "stage23@example.com", purpose: "register" });
-    const phoneCode = sent.find((item) => item.channel === "sms")?.code;
     const emailCode = sent.find((item) => item.channel === "email")?.code;
-    record(phoneSend.status === 200 && phoneSend.body.verificationToken && phoneCode, "SMS send returns a token and calls provider");
+    record(smsSend.status === 404 && smsSend.body.error?.code === "FEATURE_DISABLED", "SMS send endpoint is disabled");
     record(emailSend.status === 200 && emailSend.body.verificationToken && emailCode, "email send returns a token and calls provider");
 
     const missing = await requestJson(baseUrl, "POST", "/api/auth/register", {
       username: "stage23_missing",
       password: "user123456",
-      phone: "13900002323"
+      email: "stage23@example.com"
     });
-    record(missing.status === 400 && missing.body.error?.code === "VERIFICATION_REQUIRED", "registration requires phone verification");
+    record(missing.status === 400 && missing.body.error?.code === "VERIFICATION_REQUIRED", "registration requires email verification");
 
     const wrong = await requestJson(baseUrl, "POST", "/api/auth/register", {
       username: "stage23_wrong",
       password: "user123456",
-      phone: "13900002323",
-      phoneCodeToken: phoneSend.body.verificationToken,
-      phoneCode: "000000"
+      email: "stage23@example.com",
+      emailCodeToken: emailSend.body.verificationToken,
+      emailCode: "000000"
     });
-    record(wrong.status === 400 && wrong.body.error?.code === "VERIFICATION_CODE_MISMATCH", "registration rejects an incorrect phone code");
+    record(wrong.status === 400 && wrong.body.error?.code === "VERIFICATION_CODE_MISMATCH", "registration rejects an incorrect email code");
 
-    const freshPhone = await requestJson(baseUrl, "POST", "/api/verification/sms/send", { phone: "13900002323", purpose: "register" });
     const freshEmail = await requestJson(baseUrl, "POST", "/api/verification/email/send", { email: "stage23@example.com", purpose: "register" });
-    const freshPhoneCode = sent.filter((item) => item.channel === "sms").at(-1)?.code;
     const freshEmailCode = sent.filter((item) => item.channel === "email").at(-1)?.code;
     const registered = await requestJson(baseUrl, "POST", "/api/auth/register", {
       username: "stage23_user",
       password: "user123456",
-      phone: "13900002323",
-      phoneCodeToken: freshPhone.body.verificationToken,
-      phoneCode: freshPhoneCode,
       email: "stage23@example.com",
       emailCodeToken: freshEmail.body.verificationToken,
       emailCode: freshEmailCode,
@@ -129,15 +119,15 @@ async function checkVerificationAndRegisterFlow() {
       bio: "生产注册验证码验证用户",
       serviceCategories: ["跑腿代取"]
     });
-    record(registered.status === 201 && registered.body.user?.email === "stage23@example.com", "registration succeeds with valid phone and email codes");
+    record(registered.status === 201 && registered.body.user?.email === "stage23@example.com", "registration succeeds with a valid email code");
     record(store.findUserByUsername("stage23_user")?.bio === "生产注册验证码验证用户", "profile extras persist in the store user record");
 
     const usedAgain = await requestJson(baseUrl, "POST", "/api/auth/register", {
       username: "stage23_reuse",
       password: "user123456",
-      phone: "13900002323",
-      phoneCodeToken: freshPhone.body.verificationToken,
-      phoneCode: freshPhoneCode
+      email: "stage23@example.com",
+      emailCodeToken: freshEmail.body.verificationToken,
+      emailCode: freshEmailCode
     });
     record(usedAgain.status === 409 && usedAgain.body.error?.code === "VERIFICATION_USED", "verification tokens are consumed once");
   } finally {
@@ -181,7 +171,7 @@ async function checkRateLimitsAndUploadSniffing() {
 
     let lastSend;
     for (let index = 0; index < 6; index += 1) {
-      lastSend = await requestJson(baseUrl, "POST", "/api/verification/sms/send", { phone: "13900009999", purpose: "register" }, null, { "x-forwarded-for": "203.0.113.23" });
+      lastSend = await requestJson(baseUrl, "POST", "/api/verification/email/send", { email: "limit-stage23@example.com", purpose: "register" }, null, { "x-forwarded-for": "203.0.113.23" });
     }
     record(lastSend.status === 429 && lastSend.body.error?.code === "RATE_LIMITED", "verification sends are rate limited by recipient");
 

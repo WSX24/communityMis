@@ -233,7 +233,7 @@ function bindEmbeddedRegisterForm() {
       return;
     }
 
-    showInlineMessage(button, "注册需要完成手机号验证码，请使用完整注册页。", "info");
+    showInlineMessage(button, "注册需要完成邮箱验证码，请使用完整注册页。", "info");
     navigateTo(`/register?username=${encodeURIComponent(username)}`);
   }), true);
 }
@@ -245,16 +245,11 @@ function bindRegisterPageForm() {
     return;
   }
 
-  const phoneInput = document.getElementById("phone");
-  const phoneCodeInput = document.getElementById("phone-code");
-  const phoneCodeButton = document.getElementById("send-phone-code");
-  const phoneCodeNote = document.getElementById("phone-code-note");
   const emailInput = document.getElementById("email");
   const emailCodeInput = document.getElementById("email-code");
   const emailCodeButton = document.getElementById("send-email-code");
   const emailCodeNote = document.getElementById("email-code-note");
   const verificationState = {
-    phone: createCodeState(phoneCodeButton, phoneCodeInput, phoneCodeNote, "获取验证码"),
     email: createCodeState(emailCodeButton, emailCodeInput, emailCodeNote, "获取邮箱验证码")
   };
 
@@ -264,29 +259,10 @@ function bindRegisterPageForm() {
     document.getElementById("username").value = prefillUsername;
   }
 
-  phoneCodeInput?.removeAttribute("disabled");
-  phoneCodeButton?.removeAttribute("disabled");
   emailCodeInput?.removeAttribute("disabled");
   emailCodeButton?.removeAttribute("disabled");
 
-  phoneInput?.addEventListener("input", () => resetCodeState(verificationState.phone, "手机号变更后需重新获取验证码。"));
   emailInput?.addEventListener("input", () => resetCodeState(verificationState.email, "邮箱变更后需重新获取验证码。"));
-
-  phoneCodeButton?.addEventListener("click", interceptSubmit(async () => {
-    const phone = phoneInput?.value.trim() ?? "";
-    if (!/^1[3-9]\d{9}$/.test(phone)) {
-      setFieldError("phone", "phone-error", true, "请输入有效手机号后再获取验证码。");
-      return;
-    }
-    setFieldError("phone", "phone-error", false);
-    await sendRegisterCode({
-      state: verificationState.phone,
-      recipient: phone,
-      request: () => api.verification.sendSms({ phone, purpose: "register" }),
-      sentMessage: `验证码已发送至 ${maskPhone(phone)}。`,
-      errorId: "phone-code-error"
-    });
-  }), true);
 
   emailCodeButton?.addEventListener("click", interceptSubmit(async () => {
     const email = emailInput?.value.trim() ?? "";
@@ -306,28 +282,21 @@ function bindRegisterPageForm() {
 
   form.addEventListener("submit", interceptSubmit(async () => {
     const username = document.getElementById("username")?.value.trim() ?? "";
-    const phone = document.getElementById("phone")?.value.trim() ?? "";
     const email = document.getElementById("email")?.value.trim() ?? "";
-    const phoneCode = document.getElementById("phone-code")?.value.trim() ?? "";
     const emailCode = document.getElementById("email-code")?.value.trim() ?? "";
     const password = document.getElementById("password")?.value ?? "";
     const agreement = document.getElementById("agreement")?.checked ?? false;
-    const emailFilled = email.length > 0;
     const usernameOk = isValidUsername(username);
-    const phoneOk = /^1[3-9]\d{9}$/.test(phone);
-    const emailOk = !emailFilled || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     const passwordOk = isValidPassword(password);
-    const phoneCodeOk = Boolean(verificationState.phone.token && verificationState.phone.recipient === phone && /^\d{4,8}$/.test(phoneCode));
-    const emailCodeOk = !emailFilled || Boolean(verificationState.email.token && verificationState.email.recipient === email && /^\d{4,8}$/.test(emailCode));
+    const emailCodeOk = Boolean(verificationState.email.token && verificationState.email.recipient === email && /^\d{4,8}$/.test(emailCode));
 
     setFieldError("username", "username-error", !usernameOk, "用户名需为 3-50 位英文、数字或下划线。");
-    setFieldError("phone", "phone-error", !phoneOk);
-    setFieldError("email", "email-error", !emailOk);
-    setFieldError("phone-code", "phone-code-error", !phoneCodeOk, "请先获取并填写手机号验证码。");
-    setFieldError("email-code", "email-code-error", !emailCodeOk, "邮箱已填写时，需要先获取并填写邮箱验证码。");
+    setFieldError("email", "email-error", !emailOk, "请输入有效邮箱。");
+    setFieldError("email-code", "email-code-error", !emailCodeOk, "请先获取并填写邮箱验证码。");
     setFieldError("password", "password-error", !passwordOk, "密码需至少 8 位。");
 
-    if (!usernameOk || !phoneOk || !emailOk || !phoneCodeOk || !emailCodeOk || !passwordOk) {
+    if (!usernameOk || !emailOk || !emailCodeOk || !passwordOk) {
       showInlineMessage(button, "请先修正表单中的红色提示。", "error");
       return;
     }
@@ -342,12 +311,9 @@ function bindRegisterPageForm() {
       await auth.registerUser({
         username,
         password,
-        phone,
-        phoneCodeToken: verificationState.phone.token,
-        phoneCode,
-        email: email || null,
-        emailCodeToken: emailFilled ? verificationState.email.token : null,
-        emailCode: emailFilled ? emailCode : null,
+        email,
+        emailCodeToken: verificationState.email.token,
+        emailCode,
         skillTags
       }, {
         email,
@@ -4215,7 +4181,7 @@ function renderAdminSystem(systemPayload, auditPayload) {
   setInputValue("auto-archive", settings.autoArchiveDays);
   setInputValue("new-user-coin", settings.newUserCoin);
   setSwitchState("维护模式", settings.maintenanceMode);
-  setSwitchState("自动备份", settings.autoBackup);
+  setSwitchState("自动配置快照", settings.autoBackup);
   setSwitchState("AI 高风险拦截", settings.aiHighRiskBlock);
   const metrics = document.querySelectorAll(".metric-card .value");
   if (metrics[2]) {
@@ -4236,7 +4202,7 @@ function readAdminSystemForm() {
     autoArchiveDays: Number(document.getElementById("auto-archive")?.value || 30),
     newUserCoin: Number(document.getElementById("new-user-coin")?.value || 5),
     maintenanceMode: readSwitchState("维护模式"),
-    autoBackup: readSwitchState("自动备份"),
+    autoBackup: readSwitchState("自动配置快照"),
     aiHighRiskBlock: readSwitchState("AI 高风险拦截")
   };
 }

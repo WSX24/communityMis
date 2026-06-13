@@ -114,12 +114,21 @@ textarea {
 
 .meta-row,
 .action-row,
+.inline-form-row,
 .inline-form,
 .section-heading {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
   flex-wrap: wrap;
+}
+
+.inline-form-row input {
+  flex: 1 1 160px;
+}
+
+.inline-form-row .btn {
+  flex: 0 0 auto;
 }
 
 .section-heading {

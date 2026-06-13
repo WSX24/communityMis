@@ -48,8 +48,30 @@ function reportRuntimeError(error) {
   document.documentElement.dataset.runtimeError = "true";
   const detail = classifyApiError(error);
   console.error(error);
+  queueClientErrorReport(error, detail);
   showToast(detail.message, detail.type === "unknown" ? "error" : detail.type);
   renderError(document.querySelector("main") ?? document.body, detail.message, () => window.location.reload());
+}
+
+function queueClientErrorReport(error, detail) {
+  const payload = {
+    routeId: route.id,
+    path: window.location.pathname,
+    name: error?.name ?? "Error",
+    message: detail.message,
+    stack: typeof error?.stack === "string" ? error.stack : null,
+    buildVersion: config.buildVersion
+  };
+  fetch(new URL("/api/client-errors", config.apiBaseUrl), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json"
+    },
+    body: JSON.stringify(payload),
+    keepalive: true
+  }).catch(() => {});
 }
 
 function routeFromDocument() {

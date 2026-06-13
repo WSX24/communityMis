@@ -26,6 +26,8 @@ export function loadBackendConfig(options = {}) {
       secure: booleanValue(env.AUTH_COOKIE_SECURE, isProduction),
       sameSite: env.AUTH_COOKIE_SAMESITE ?? "Lax"
     },
+    registrationVerification: normalizeRegistrationVerification(env.REGISTRATION_VERIFICATION ?? "email"),
+    clientErrorReporting: booleanValue(env.CLIENT_ERROR_REPORTING, true),
     db: {
       host: env.DB_HOST ?? "127.0.0.1",
       port: numberValue(env.DB_PORT, 3306),
@@ -53,14 +55,6 @@ export function loadBackendConfig(options = {}) {
         ? parseList(env.UPLOAD_ALLOWED_EXTENSIONS)
         : [".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf", ".txt", ".doc", ".docx"]
     },
-    sms: {
-      provider: env.SMS_PROVIDER ?? "aliyun",
-      regionId: env.ALIYUN_REGION_ID ?? "cn-hangzhou",
-      accessKeyId: env.ALIYUN_ACCESS_KEY_ID ?? null,
-      accessKeySecret: env.ALIYUN_ACCESS_KEY_SECRET ?? null,
-      signName: env.ALIYUN_SMS_SIGN_NAME ?? null,
-      templateCode: env.ALIYUN_SMS_TEMPLATE_CODE ?? null
-    },
     smtp: {
       host: env.SMTP_HOST ?? null,
       port: numberValue(env.SMTP_PORT, 587),
@@ -77,7 +71,7 @@ export function loadBackendConfig(options = {}) {
     }
   };
 
-  const missing = requiredProductionKeys(config);
+  const missing = requiredProductionKeys(config, env);
   if (isProduction && missing.length > 0 && options.validate !== false) {
     throw new Error(`Missing required production environment variables: ${missing.join(", ")}`);
   }
@@ -89,18 +83,18 @@ export function publicConfigStatus(config) {
   return {
     nodeEnv: config.nodeEnv,
     authStore: config.authStore,
+    registrationVerification: config.registrationVerification,
     corsOrigins: config.corsOrigins.length,
     cookieSecure: config.cookie.secure,
     uploadRootConfigured: Boolean(config.upload.root),
-    smsConfigured: Boolean(config.sms.accessKeyId && config.sms.accessKeySecret && config.sms.signName && config.sms.templateCode),
     smtpConfigured: Boolean(config.smtp.host && config.smtp.user && config.smtp.pass && config.smtp.from),
     openaiConfigured: Boolean(config.openai.baseUrl && config.openai.apiKey && config.openai.model)
   };
 }
 
-function requiredProductionKeys(config) {
+function requiredProductionKeys(config, env = process.env) {
   const missing = [];
-  if (!process.env.NODE_ENV) missing.push("NODE_ENV");
+  if (!env.NODE_ENV) missing.push("NODE_ENV");
   if (!config.sessionSecret) missing.push("AUTH_SESSION_SECRET");
   if (config.authStore !== "mysql") missing.push("AUTH_STORE=mysql");
   if (!config.db.host) missing.push("DB_HOST");
@@ -108,11 +102,8 @@ function requiredProductionKeys(config) {
   if (!config.db.database) missing.push("DB_NAME");
   if (config.corsOrigins.length === 0) missing.push("CORS_ORIGIN");
   if (!config.upload.root) missing.push("UPLOAD_ROOT");
-  if (!config.sms.accessKeyId) missing.push("ALIYUN_ACCESS_KEY_ID");
-  if (!config.sms.accessKeySecret) missing.push("ALIYUN_ACCESS_KEY_SECRET");
-  if (!config.sms.signName) missing.push("ALIYUN_SMS_SIGN_NAME");
-  if (!config.sms.templateCode) missing.push("ALIYUN_SMS_TEMPLATE_CODE");
   if (!config.smtp.host) missing.push("SMTP_HOST");
+  if (!env.SMTP_PORT) missing.push("SMTP_PORT");
   if (!config.smtp.user) missing.push("SMTP_USER");
   if (!config.smtp.pass) missing.push("SMTP_PASS");
   if (!config.smtp.from) missing.push("SMTP_FROM");
@@ -139,6 +130,11 @@ function booleanValue(value, fallback) {
     return fallback;
   }
   return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+}
+
+function normalizeRegistrationVerification(value) {
+  const text = String(value ?? "email").trim().toLowerCase();
+  return text === "email" ? "email" : "email";
 }
 
 function emptyToNull(value) {

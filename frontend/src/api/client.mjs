@@ -11,6 +11,8 @@ export function createApiClient(options = {}) {
   const baseUrl = options.baseUrl ?? "";
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
   const credentials = options.credentials ?? "include";
+  const readCookieValue = options.readCookie ?? readCookie;
+  const allowBearer = options.allowBearer === true;
 
   async function request(path, requestOptions = {}) {
     if (!fetchImpl) {
@@ -21,11 +23,11 @@ export function createApiClient(options = {}) {
     const body = normalizeRequestBody(requestOptions.body, headers);
     const token = requestOptions.token ?? requestOptions.authToken;
 
-    if (token && requestOptions.allowBearer === true && !headers.has("authorization")) {
+    if (token && (allowBearer || requestOptions.allowBearer === true) && !headers.has("authorization")) {
       headers.set("authorization", `Bearer ${token}`);
     }
     if (isMutatingMethod(requestOptions.method) && !headers.has("x-csrf-token")) {
-      const csrfToken = readCookie("csrf_token");
+      const csrfToken = readCookieValue("csrf_token");
       if (csrfToken) {
         headers.set("x-csrf-token", csrfToken);
       }
@@ -224,10 +226,6 @@ export function createApiClient(options = {}) {
       })
     },
     verification: {
-      sendSms: (payload) => request("/api/verification/sms/send", {
-        method: "POST",
-        body: payload
-      }),
       sendEmail: (payload) => request("/api/verification/email/send", {
         method: "POST",
         body: payload

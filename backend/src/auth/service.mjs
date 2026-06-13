@@ -41,8 +41,8 @@ export function createAuthService(options = {}) {
       windowSeconds: 60 * 60
     });
     await enforceRateLimit(store, {
-      scope: "auth:register:phone",
-      identity: rateLimitIdentity(body.phone),
+      scope: "auth:register:email",
+      identity: rateLimitIdentity(body.email),
       limit: 5,
       windowSeconds: 60 * 60
     });
@@ -231,7 +231,7 @@ function normalizeRegistrationInput(input) {
     username,
     password,
     phone: optionalText(input?.phone, 20),
-    email: optionalEmail(input?.email),
+    email: requiredEmail(input?.email),
     displayName: optionalText(input?.displayName, 50),
     bio: optionalText(input?.bio, 300),
     serviceCategories: Array.isArray(input?.serviceCategories) ? input.serviceCategories.map((item) => String(item).trim()).filter(Boolean).slice(0, 10) : [],
@@ -259,11 +259,8 @@ function optionalText(value, maxLength) {
   return text ? text : null;
 }
 
-function optionalEmail(value) {
+function requiredEmail(value) {
   const text = optionalText(value, 120);
-  if (!text) {
-    return null;
-  }
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(text)) {
     throw new HttpError(400, "INVALID_EMAIL", "A valid email address is required.");
   }

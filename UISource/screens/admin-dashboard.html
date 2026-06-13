@@ -254,7 +254,11 @@
   .stat-card:nth-child(3) .stat-value { animation-delay: 0.5s; }
   .stat-card:nth-child(4) .stat-value { animation-delay: 0.6s; }
 
-  .stat-card .stat-label { font-size: 13px; color: var(--muted); font-weight: 500; }
+  .stat-card .stat-label {
+    font-size: 13px;
+    color: color-mix(in oklch, var(--fg) 66%, var(--muted));
+    font-weight: 600;
+  }
   .stat-card .stat-sub {
     font-size: 12px; margin-top: var(--space-md);
     display: flex; align-items: center; gap: 4px;
@@ -511,7 +515,7 @@
       <h2>管理仪表盘</h2>
       <div class="admin-badge">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        管理员 · 张三
+        管理员
       </div>
     </div>
 
@@ -604,7 +608,7 @@
           <div class="qa-icon" style="background:var(--border-light);color:var(--muted);">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><circle cx="12" cy="12" r="3"/></svg>
           </div>
-          <div class="qa-body"><div class="qa-title">系统设置</div><div class="qa-desc">备份恢复、维护模式、系统参数与审计提示</div></div>
+          <div class="qa-body"><div class="qa-title">系统设置</div><div class="qa-desc">配置快照、维护模式、系统参数与审计提示</div></div>
           <span class="qa-arrow">→</span>
         </a>
       </div>
@@ -614,41 +618,8 @@
     <div class="activity-section">
       <h3>最近动态</h3>
       <div class="activity-list">
-        <div class="activity-row">
-          <div class="ar-dot danger"></div>
-          <div class="ar-text">用户 <strong>赵姐</strong> 对订单 #240528-003 发起纠纷申诉</div>
-          <div class="ar-time">14:22</div>
-          <a class="ar-action" href="admin-disputes.html">处理 →</a>
-        </div>
-        <div class="activity-row">
-          <div class="ar-dot warn"></div>
-          <div class="ar-text">AI 调用异常：用户 <strong>小明</strong> 的会话超时 (3.2s)，已自动重试</div>
-          <div class="ar-time">13:51</div>
-          <a class="ar-action" href="admin-ai-logs.html">详情 →</a>
-        </div>
-        <div class="activity-row">
-          <div class="ar-dot success"></div>
-          <div class="ar-text">订单 #240528-017 交易完成，时间币转账 <strong>+12.5 ⏂</strong></div>
-          <div class="ar-time">12:34</div>
-          <a class="ar-action" href="admin-transactions.html">流水 →</a>
-        </div>
-        <div class="activity-row">
-          <div class="ar-dot info"></div>
-          <div class="ar-text">新用户 <strong>李华</strong> 完成注册（IT 标签），获得注册奖励 5 ⏂</div>
-          <div class="ar-time">11:08</div>
-        </div>
-        <div class="activity-row">
-          <div class="ar-dot warn"></div>
-          <div class="ar-text">用户 <strong>王大壮</strong> 信用分降至 2.1，触发低分预警（连续3条中评）</div>
-          <div class="ar-time">09:45</div>
-          <a class="ar-action" href="admin-users.html">查看 →</a>
-        </div>
-        <div class="activity-row">
-          <div class="ar-dot info"></div>
-          <div class="ar-text">系统清理过期需求 17 条（超过30天无人接单），自动归档</div>
-          <div class="ar-time">08:00</div>
-        </div>
-      </div>
+<div data-runtime-placeholder class="runtime-placeholder">正在加载真实平台动态。</div>
+</div>
     </div>
   </main>
 </div>

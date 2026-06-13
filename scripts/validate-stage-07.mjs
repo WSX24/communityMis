@@ -131,7 +131,7 @@ async function checkRequestBrowsingApi() {
     sessionSecret: "stage07-test-secret"
   });
   const port = await listen(server);
-  const api = createApiClient({ baseUrl: `http://127.0.0.1:${port}`, fetchImpl: fetch });
+  const api = createApiClient({ baseUrl: `http://127.0.0.1:${port}`, fetchImpl: fetch, allowBearer: true });
 
   try {
     const list = await api.requests.list({ pageSize: 1, sort: "latest" });

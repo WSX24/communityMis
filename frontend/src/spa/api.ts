@@ -44,6 +44,9 @@ export function createApiClient(config: RuntimeConfig, fetchImpl: typeof fetch =
       logout: () => request<{ ok?: boolean }>("/api/auth/logout", { method: "POST" }),
       me: () => request<{ user: unknown }>("/api/auth/me")
     },
+    verification: {
+      sendEmail: (payload: unknown) => request<{ verificationToken: string; expiresAt: string; cooldownSeconds?: number }>("/api/verification/email/send", { method: "POST", body: payload as BodyInit })
+    },
     adminAuth: {
       login: (payload: unknown) => request<{ user: unknown }>("/api/admin/auth/login", { method: "POST", body: payload as BodyInit }),
       me: () => request<{ user: unknown }>("/api/admin/auth/me")

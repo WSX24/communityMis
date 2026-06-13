@@ -90,7 +90,7 @@ function PageSwitch(props: PageProps) {
   switch (props.route.id) {
     case "entry": return <EntryPage />;
     case "login": return <LoginPage api={props.api} />;
-    case "register": return <RegisterPage />;
+    case "register": return <RegisterPage api={props.api} />;
     case "feed": return <FeedPage api={props.api} />;
     case "tasks": return <TasksPage api={props.api} />;
     case "post": return <PostPage api={props.api} />;

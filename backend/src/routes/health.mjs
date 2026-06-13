@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { pingMysql } from "../mysql/pool.mjs";
 import { publicConfigStatus } from "../config.mjs";
+import { listSqlFiles, migrationStatus } from "../../../scripts/db-tools.mjs";
 
 export function healthPayload(startedAt = new Date()) {
   return {
@@ -63,24 +64,15 @@ async function migrationCheck(config) {
     };
   }
   try {
-    const mysql = await import("mysql2/promise");
-    const connection = await mysql.createConnection({
-      host: config.db.host,
-      port: config.db.port,
-      user: config.db.user,
-      password: config.db.password,
-      database: config.db.database
-    });
-    try {
-      const [rows] = await connection.execute("SELECT COUNT(*) AS count FROM `schema_migrations` WHERE `filename` = '0004_production_readiness.sql'");
-      return {
-        ok: Number(rows?.[0]?.count ?? 0) > 0,
-        applied: Number(rows?.[0]?.count ?? 0) > 0,
-        required: "0004_production_readiness.sql"
-      };
-    } finally {
-      await connection.end();
-    }
+    const status = await migrationStatus(config.db, listSqlFiles("database/migrations"));
+    return {
+      ok: status.ok,
+      applied: status.appliedMigrations.length,
+      required: status.requiredMigrations.length,
+      missingMigrations: status.missingMigrations,
+      checksumMismatches: status.checksumMismatches,
+      latestRequiredMigration: status.latestRequiredMigration
+    };
   } catch (error) {
     return {
       ok: false,
@@ -90,14 +82,12 @@ async function migrationCheck(config) {
 }
 
 function externalServicesCheck(config) {
-  const smsConfigured = Boolean(config.sms.accessKeyId && config.sms.accessKeySecret && config.sms.signName && config.sms.templateCode);
   const smtpConfigured = Boolean(config.smtp.host && config.smtp.user && config.smtp.pass && config.smtp.from);
   const openaiConfigured = Boolean(config.openai.baseUrl && config.openai.apiKey && config.openai.model);
   const required = config.isProduction;
   return {
-    ok: !required || (smsConfigured && smtpConfigured && openaiConfigured),
+    ok: !required || (smtpConfigured && openaiConfigured),
     details: {
-      smsConfigured,
       smtpConfigured,
       openaiConfigured
     }

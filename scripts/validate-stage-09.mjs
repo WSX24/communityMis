@@ -71,7 +71,7 @@ async function checkAcceptingApi() {
   });
   const port = await listen(server);
   const baseUrl = `http://127.0.0.1:${port}`;
-  const api = createApiClient({ baseUrl, fetchImpl: fetch });
+  const api = createApiClient({ baseUrl, fetchImpl: fetch, allowBearer: true });
 
   try {
     const publisherLogin = await api.auth.login({ username: "stage09_publisher", password: "user123456" });

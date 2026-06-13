@@ -31,15 +31,17 @@ npm run dev:backend
 
 ```bash
 npm run db:migrate
+npm run db:verify
 npm start
 ```
 
 关键约束：
 
-- `NODE_ENV=production` 时必须使用 `AUTH_STORE=mysql`，并配置 `AUTH_SESSION_SECRET`、`DB_*`、`CORS_ORIGIN`、上传目录、短信、SMTP 和 OpenAI-compatible API 变量。
+- `NODE_ENV=production` 时必须使用 `AUTH_STORE=mysql`，并配置 `AUTH_SESSION_SECRET`、`DB_*`、`CORS_ORIGIN`、上传目录、SMTP 授权码和 OpenAI-compatible API 变量。
+- 注册链路正式使用邮箱验证码；`REGISTRATION_VERIFICATION=email`，不启用手机短信验证码。
 - 认证以 HTTP-only `sid` Cookie 为准；浏览器请求必须使用 `credentials: "include"`。
 - 登录后会设置非 HTTP-only `csrf_token` Cookie，所有 `POST`、`PUT`、`PATCH`、`DELETE` 请求需带 `X-CSRF-Token`。
-- `/api/health` 只表示进程存活，`/api/ready` 会检查 MySQL、迁移状态、上传目录可写和关键外部服务配置状态，响应不会包含密钥。
+- `/api/health` 只表示进程存活，`/api/ready` 会检查 MySQL、全量迁移 checksum、上传目录可写和关键外部服务配置状态，响应不会包含密钥或 SMTP 配置值。
 - `database/seeds` 里的演示账号只适合开发/测试；生产部署只运行 `npm run db:migrate`，不要运行 seed。`npm run db:seed` 默认拒绝 `NODE_ENV=production`。
 
 ## 生产路由
@@ -95,6 +97,7 @@ npm run test:stage23
 - 种子数据：`database/seeds/0002_stage_02_seed.sql`
 - 本地一键初始化：`npm run db:init`
 - 仅执行迁移：`npm run db:migrate`
+- 校验迁移 checksum：`npm run db:verify`
 - 仅导入种子：`npm run db:seed`
 
 默认连接参数为 `DB_HOST=127.0.0.1`、`DB_PORT=3306`、`DB_USER=root`、`DB_PASSWORD=`、`DB_NAME=community_mis`。可通过环境变量覆盖，例如：

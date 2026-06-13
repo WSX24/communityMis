@@ -60,6 +60,11 @@ export function handleRequest(request, response, runtime = createServerRuntime()
     return;
   }
 
+  if (url.pathname === "/frontend-health") {
+    sendJson(response, 200, frontendHealthPayload(runtime), isHead, runtime);
+    return;
+  }
+
   if (url.pathname === "/routes.json") {
     sendJson(response, 200, routePayload(), isHead, runtime);
     return;
@@ -125,11 +130,25 @@ function routePayload() {
   }));
 }
 
+function frontendHealthPayload(runtime) {
+  return {
+    status: "ok",
+    service: "community-mis-frontend",
+    version: runtime.config.buildVersion,
+    appEnv: runtime.config.appEnv,
+    timestamp: new Date().toISOString()
+  };
+}
+
 function resolveStaticFile(runtime, pathname) {
   const decoded = decodeURIComponent(pathname);
   const target = safeJoin(runtime.distRoot, decoded.slice(1));
   if (target && fs.existsSync(target) && fs.statSync(target).isFile()) {
     return target;
+  }
+  const fallback = safeJoin(runtime.fallbackRoot, decoded.slice(1));
+  if (fallback && fs.existsSync(fallback) && fs.statSync(fallback).isFile()) {
+    return fallback;
   }
   return null;
 }
