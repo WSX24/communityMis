@@ -4,14 +4,12 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   buildRouteIndexHtml,
-  CONFIG_PLACEHOLDER,
   createRuntimeConfig,
   DIST_ROOT,
-  PRODUCTION_UI_ROOT,
   PROJECT_ROOT,
   renderPrototypeHtml
 } from "./src/prototypeRenderer.mjs";
-import { resolveRoute, routePath, routes } from "./src/routes.mjs";
+import { legacyRedirects, resolveRoute, routePath, routes } from "./src/routes.mjs";
 
 const CURRENT_FILE = fileURLToPath(import.meta.url);
 const FRONTEND_ROOT = path.dirname(CURRENT_FILE);
@@ -26,15 +24,9 @@ const MIME_TYPES = new Map([
   [".png", "image/png"],
   [".jpg", "image/jpeg"],
   [".jpeg", "image/jpeg"],
-  [".webp", "image/webp"]
+  [".webp", "image/webp"],
+  [".map", "application/json; charset=utf-8"]
 ]);
-
-const DEV_STATIC_MOUNTS = [
-  { prefix: "/css/", root: path.join(PRODUCTION_UI_ROOT, "css") },
-  { prefix: "/js/", root: path.join(PRODUCTION_UI_ROOT, "js") },
-  { prefix: "/assets/styles/", root: path.join(FRONTEND_ROOT, "public", "styles") },
-  { prefix: "/assets/app/", root: path.join(FRONTEND_ROOT, "src") }
-];
 
 export function createFrontendServer(options = {}) {
   const runtime = createServerRuntime(options);
@@ -52,39 +44,49 @@ export function handleRequest(request, response, runtime = createServerRuntime()
     return;
   }
 
-  if (url.pathname === "/manifest.json") {
-    serveManifest(response, isHead, runtime);
-    return;
-  }
-
-  if (serveStatic(url.pathname, response, isHead, runtime)) {
-    return;
-  }
-
-  if (url.pathname === "/routes.json") {
-    sendJson(response, 200, routes.map((item) => ({
-      id: item.id,
-      title: item.title,
-      source: item.source,
-      path: item.path,
-      entryPath: routePath(item),
-      surface: item.surface,
-      layout: item.layout
-    })), isHead, runtime);
-    return;
-  }
-
-  const { route, redirectTo } = resolveRoute(url.pathname);
-  if (redirectTo) {
+  const legacyTarget = legacyRedirects.get(url.pathname);
+  if (legacyTarget) {
     response.writeHead(302, {
       ...securityHeaders(runtime),
       "cache-control": "no-cache",
-      location: redirectTo
+      location: legacyTarget
     });
     response.end();
     return;
   }
 
+  if (url.pathname === "/config.json") {
+    sendJson(response, 200, runtime.config, isHead, runtime);
+    return;
+  }
+
+  if (url.pathname === "/routes.json") {
+    sendJson(response, 200, routePayload(), isHead, runtime);
+    return;
+  }
+
+  if (url.pathname === "/manifest.json") {
+    serveFile(response, path.join(runtime.distRoot, "manifest.json"), isHead, runtime, "no-cache");
+    return;
+  }
+
+  if (url.pathname === "/app" || url.pathname === "/app/") {
+    sendIndex(response, isHead, runtime);
+    return;
+  }
+
+  const staticFile = resolveStaticFile(runtime, url.pathname);
+  if (staticFile) {
+    serveFile(response, staticFile, isHead, runtime, staticCacheControl(staticFile));
+    return;
+  }
+
+  if (isStaticPath(url.pathname)) {
+    sendText(response, 404, "Not Found", isHead, runtime);
+    return;
+  }
+
+  const { route } = resolveRoute(url.pathname);
   if (route) {
     sendHtml(response, 200, routeHtml(route, runtime), isHead, runtime);
     return;
@@ -96,83 +98,81 @@ export function handleRequest(request, response, runtime = createServerRuntime()
 function createServerRuntime(options = {}) {
   const env = options.env ?? process.env;
   const mode = options.mode ?? env.NODE_ENV ?? "development";
-  const isProduction = mode === "production";
   const config = options.runtimeConfig ?? createRuntimeConfig({ env, mode });
   const distRoot = options.distRoot ?? DIST_ROOT;
-  const manifest = isProduction ? readManifest(distRoot) : null;
+  const fallbackRoot = fs.existsSync(path.join(distRoot, "index.html"))
+    ? distRoot
+    : path.join(FRONTEND_ROOT, "public");
 
   return {
     config,
     distRoot,
-    isProduction,
-    manifest,
+    fallbackRoot,
     mode,
-    staticMounts: isProduction ? [
-      { prefix: "/assets/", root: path.join(distRoot, "assets") },
-      { prefix: "/css/", root: path.join(distRoot, "css") },
-      { prefix: "/js/", root: path.join(distRoot, "js") }
-    ] : DEV_STATIC_MOUNTS
+    isProduction: mode === "production"
   };
 }
 
-function readManifest(distRoot) {
-  const manifestPath = path.join(distRoot, "manifest.json");
-  if (!fs.existsSync(manifestPath)) {
-    throw new Error(`Production frontend manifest not found: ${manifestPath}. Run npm run build first.`);
-  }
-  return JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+function routePayload() {
+  return routes.map((item) => ({
+    id: item.id,
+    title: item.title,
+    source: item.source,
+    path: item.path,
+    entryPath: routePath(item),
+    surface: item.surface,
+    layout: item.layout
+  }));
 }
 
-function serveManifest(response, isHead, runtime) {
-  if (!runtime.isProduction) {
-    sendText(response, 404, "Not Found", isHead, runtime);
+function resolveStaticFile(runtime, pathname) {
+  const decoded = decodeURIComponent(pathname);
+  const target = safeJoin(runtime.distRoot, decoded.slice(1));
+  if (target && fs.existsSync(target) && fs.statSync(target).isFile()) {
+    return target;
+  }
+  return null;
+}
+
+function sendIndex(response, isHead, runtime) {
+  const indexPath = path.join(runtime.distRoot, "index.html");
+  if (!fs.existsSync(indexPath)) {
+    sendText(response, 503, "Frontend build not found. Run npm run build.", isHead, runtime);
     return;
   }
-  const manifestPath = path.join(runtime.distRoot, "manifest.json");
-  sendFile(response, manifestPath, isHead, runtime, "no-cache");
-}
-
-function serveStatic(pathname, response, isHead, runtime) {
-  for (const mount of runtime.staticMounts) {
-    if (!pathname.startsWith(mount.prefix)) {
-      continue;
-    }
-
-    const relativePath = pathname.slice(mount.prefix.length);
-    const filePath = safeJoin(mount.root, relativePath);
-    if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-      sendText(response, 404, "Not Found", isHead, runtime);
-      return true;
-    }
-
-    sendFile(response, filePath, isHead, runtime, staticCacheControl(filePath, runtime));
-    return true;
-  }
-
-  return false;
+  serveFile(response, indexPath, isHead, runtime, "no-cache");
 }
 
 function routeHtml(route, runtime) {
-  if (!runtime.isProduction) {
-    return renderPrototypeHtml(route, { runtimeConfig: runtime.config });
+  if (runtime.isProduction) {
+    const htmlPath = path.join(runtime.distRoot, "pages", `${route.id}.html`);
+    if (fs.existsSync(htmlPath)) {
+      return fs.readFileSync(htmlPath, "utf8");
+    }
   }
-  const htmlPath = path.join(runtime.distRoot, "pages", `${route.id}.html`);
-  return injectRuntimeConfig(fs.readFileSync(htmlPath, "utf8"), runtime.config);
+  return renderPrototypeHtml(route, {
+    runtimeConfig: runtime.config,
+    shellLogicalPath: "/assets/app/main.mjs",
+    stripInlineEvents: true,
+    stripInlineScripts: true
+  });
 }
 
 function notFoundHtml(runtime) {
-  if (!runtime.isProduction) {
-    return buildRouteIndexHtml({ runtimeConfig: runtime.config });
+  if (runtime.isProduction) {
+    const htmlPath = path.join(runtime.distRoot, "pages", "404.html");
+    if (fs.existsSync(htmlPath)) {
+      return fs.readFileSync(htmlPath, "utf8");
+    }
   }
-  const htmlPath = path.join(runtime.distRoot, "pages", "404.html");
-  return injectRuntimeConfig(fs.readFileSync(htmlPath, "utf8"), runtime.config);
+  return buildRouteIndexHtml({ runtimeConfig: runtime.config });
 }
 
-function injectRuntimeConfig(html, config) {
-  return html.replace(CONFIG_PLACEHOLDER, JSON.stringify(config));
-}
-
-function sendFile(response, filePath, isHead, runtime, cacheControl) {
+function serveFile(response, filePath, isHead, runtime, cacheControl) {
+  if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    sendText(response, 404, "Not Found", isHead, runtime);
+    return;
+  }
   const contentType = MIME_TYPES.get(path.extname(filePath)) ?? "application/octet-stream";
   response.writeHead(200, {
     ...securityHeaders(runtime),
@@ -183,8 +183,7 @@ function sendFile(response, filePath, isHead, runtime, cacheControl) {
 }
 
 function safeJoin(root, relativePath) {
-  const decoded = decodeURIComponent(relativePath);
-  const target = path.resolve(root, decoded);
+  const target = path.resolve(root, relativePath);
   const relative = path.relative(root, target);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     return null;
@@ -193,7 +192,7 @@ function safeJoin(root, relativePath) {
 }
 
 function sendJson(response, status, payload, isHead = false, runtime = createServerRuntime()) {
-  const body = JSON.stringify(payload, null, 2);
+  const body = JSON.stringify(payload);
   response.writeHead(status, {
     ...securityHeaders(runtime),
     "content-type": "application/json; charset=utf-8",
@@ -215,20 +214,22 @@ function sendText(response, status, body, isHead = false, runtime = createServer
   response.writeHead(status, {
     ...securityHeaders(runtime),
     "content-type": "text/plain; charset=utf-8",
-    "cache-control": runtime.isProduction ? "no-cache" : "no-store"
+    "cache-control": "no-cache"
   });
   response.end(isHead ? undefined : body);
 }
 
-function staticCacheControl(filePath, runtime) {
-  if (!runtime.isProduction) {
-    return "no-store";
-  }
+function staticCacheControl(filePath) {
   return isHashedAsset(filePath) ? "public, max-age=31536000, immutable" : "no-cache";
 }
 
+function isStaticPath(pathname) {
+  return ["/assets/", "/css/", "/js/", "/ui/", "/styles/"].some((prefix) => pathname.startsWith(prefix))
+    || /\.[A-Za-z0-9]{2,8}$/.test(pathname);
+}
+
 function isHashedAsset(filePath) {
-  return /\.[a-f0-9]{10,}\./i.test(path.basename(filePath));
+  return /\.[A-Za-z0-9_-]{8,}\./.test(path.basename(filePath));
 }
 
 function securityHeaders(runtime) {
@@ -236,12 +237,15 @@ function securityHeaders(runtime) {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
-    "Content-Security-Policy": contentSecurityPolicy(runtime.config.apiBaseUrl)
+    "Content-Security-Policy": contentSecurityPolicy(runtime.config)
   };
 }
 
-function contentSecurityPolicy(apiBaseUrl) {
-  const connectSource = apiConnectSource(apiBaseUrl);
+function contentSecurityPolicy(config) {
+  const connectSources = ["'self'", originOrSelf(config.apiBaseUrl)];
+  if (config.sentryIngestOrigin) {
+    connectSources.push(originOrSelf(config.sentryIngestOrigin));
+  }
   return [
     "default-src 'self'",
     "base-uri 'self'",
@@ -250,16 +254,16 @@ function contentSecurityPolicy(apiBaseUrl) {
     "form-action 'self'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    "script-src 'self' 'unsafe-inline'",
+    "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    `connect-src 'self' ${connectSource}`
+    `connect-src ${Array.from(new Set(connectSources)).join(" ")}`
   ].join("; ");
 }
 
-function apiConnectSource(apiBaseUrl) {
+function originOrSelf(value) {
   try {
-    return new URL(apiBaseUrl).origin;
-  } catch (_error) {
+    return new URL(value).origin;
+  } catch {
     return "'self'";
   }
 }
@@ -269,7 +273,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const host = process.env.BIND_HOST ?? process.env.FRONTEND_BIND_HOST ?? "127.0.0.1";
   try {
     createFrontendServer().listen(port, host, () => {
-      console.log(`Frontend routes: http://${host}:${port}`);
+      console.log(`Frontend SPA: http://${host}:${port}`);
       console.log(`Mode: ${process.env.NODE_ENV === "production" ? "production" : "development"}`);
       console.log(`Project root: ${PROJECT_ROOT}`);
     });

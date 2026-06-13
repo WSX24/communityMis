@@ -9,7 +9,6 @@ export const PROJECT_ROOT = path.resolve(FRONTEND_ROOT, "..");
 export const UI_SOURCE_ROOT = path.join(PROJECT_ROOT, "UISource");
 export const PRODUCTION_UI_ROOT = path.join(FRONTEND_ROOT, "public", "ui");
 export const DIST_ROOT = path.join(FRONTEND_ROOT, "dist");
-export const CONFIG_PLACEHOLDER = "__NEIGHBOR_CONFIG_JSON__";
 
 const htmlReplacementPairs = buildHtmlReplacementPairs();
 
@@ -410,20 +409,9 @@ function removeBlocks(html, start, end) {
 }
 
 function injectShell(html, route, options = {}) {
-  const routeMeta = JSON.stringify({
-    id: route.id,
-    title: route.title,
-    source: route.source,
-    path: route.path,
-    currentPath: routePath(route),
-    surface: route.surface,
-    layout: route.layout
-  });
-  const configExpression = runtimeConfigExpression(options);
   const headInjection = [
     `<link rel="stylesheet" href="${assetPath("/assets/styles/theme.css", options)}">`,
-    `<link rel="stylesheet" href="${assetPath("/assets/styles/shell.css", options)}">`,
-    `<script id="neighbor-config">window.__NEIGHBOR_ROUTE__=${routeMeta};window.__NEIGHBOR_CONFIG__=${configExpression};window.__API_BASE_URL__=window.__NEIGHBOR_CONFIG__.apiBaseUrl;</script>`
+    `<link rel="stylesheet" href="${assetPath("/assets/styles/shell.css", options)}">`
   ].join("\n");
   const bodyScript = `<script type="module" src="${assetPath(options.shellLogicalPath ?? "/assets/app/prototype-shell.mjs", options)}"></script>`;
 
@@ -432,7 +420,7 @@ function injectShell(html, route, options = {}) {
     if (attrs.includes("data-route-id=")) {
       return `<body${attrs}>`;
     }
-    return `<body${attrs} data-route-id="${escapeAttribute(route.id)}" data-route-surface="${escapeAttribute(route.surface)}" data-route-layout="${escapeAttribute(route.layout)}">`;
+    return `<body${attrs} data-route-id="${escapeAttribute(route.id)}" data-route-title="${escapeAttribute(route.title)}" data-route-source="${escapeAttribute(route.source)}" data-route-path="${escapeAttribute(route.path)}" data-route-current-path="${escapeAttribute(routePath(route))}" data-route-surface="${escapeAttribute(route.surface)}" data-route-layout="${escapeAttribute(route.layout)}">`;
   });
   output = output.replace(/<\/body>/i, `${bodyScript}\n</body>`);
   return output;
@@ -443,6 +431,7 @@ export function createRuntimeConfig(options = {}) {
   const mode = options.mode ?? env.NODE_ENV ?? "development";
   const isProduction = mode === "production";
   const apiBaseUrl = env.API_BASE_URL ?? (isProduction ? "" : `http://127.0.0.1:${env.BACKEND_PORT ?? "3001"}`);
+  const sentryDsn = env.SENTRY_DSN ?? "";
 
   if (isProduction && !apiBaseUrl) {
     throw new Error("API_BASE_URL is required when NODE_ENV=production.");
@@ -450,22 +439,18 @@ export function createRuntimeConfig(options = {}) {
   if (apiBaseUrl && !isHttpUrl(apiBaseUrl)) {
     throw new Error("API_BASE_URL must be an absolute http(s) URL.");
   }
+  if (sentryDsn && !isHttpUrl(sentryDsn)) {
+    throw new Error("SENTRY_DSN must be an absolute http(s) URL when configured.");
+  }
 
   return {
     apiBaseUrl,
+    appEnv: env.APP_ENV ?? (isProduction ? "production" : "development"),
     buildVersion: env.BUILD_VERSION ?? "dev",
-    environment: env.APP_ENV ?? (isProduction ? "production" : "development")
+    sentryDsn,
+    sentryTracesSampleRate: numberValue(env.SENTRY_TRACES_SAMPLE_RATE, 0),
+    sentryIngestOrigin: env.SENTRY_INGEST_ORIGIN ?? (sentryDsn ? new URL(sentryDsn).origin : "")
   };
-}
-
-function runtimeConfigExpression(options) {
-  if (options.runtimeConfigExpression) {
-    return options.runtimeConfigExpression;
-  }
-  return JSON.stringify(options.runtimeConfig ?? createRuntimeConfig({
-    env: options.env,
-    mode: options.mode
-  }));
 }
 
 function rewriteManifestAssetReferences(html, options) {
@@ -511,6 +496,11 @@ function isHttpUrl(value) {
   } catch (_error) {
     return false;
   }
+}
+
+function numberValue(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function buildHtmlReplacementPairs() {

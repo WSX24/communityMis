@@ -10,6 +10,8 @@ const ADMIN_DISPUTE_DETAIL_RE = /^\/api\/admin\/disputes\/([^/]+)$/;
 const ADMIN_DISPUTE_FINALIZE_RE = /^\/api\/admin\/disputes\/([^/]+)\/finalize$/;
 const ADMIN_AI_CONVERSATION_DETAIL_RE = /^\/api\/admin\/ai\/conversations\/([^/]+)$/;
 const ADMIN_AI_FEEDBACK_RESOLVE_RE = /^\/api\/admin\/ai\/feedback\/([^/]+)\/resolve$/;
+const ADMIN_BACKUP_DETAIL_RE = /^\/api\/admin\/backups\/([^/]+)$/;
+const ADMIN_BACKUP_RESTORE_RE = /^\/api\/admin\/backups\/([^/]+)\/restore$/;
 const ADMIN_TRANSACTION_TYPES = new Set(["all", "income", "expense", "system_fee", "freeze", "release", "refund"]);
 const ADMIN_DISPUTE_STATUSES = new Set(["all", "pending", "todo", "in_progress", "processing", "reviewing", "resolved", "ruled", "closed"]);
 const USER_STATUSES = new Set(["all", "active", "disabled"]);
@@ -292,6 +294,36 @@ export async function handleAdminRoutes({ request, response, url, authService })
       return true;
     }
     sendJson(response, 200, await systemPayload(authService.store));
+    return true;
+  }
+
+  if (url.pathname === "/api/admin/backups") {
+    allowOnly(request, response, ["GET", "POST"]);
+    const context = await requireAdmin(request, authService);
+    if (request.method === "POST") {
+      const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+      sendJson(response, 201, await createBackupPayload(authService.store, body, context, request));
+      return true;
+    }
+    sendJson(response, 200, await backupsPayload(authService.store));
+    return true;
+  }
+
+  const backupRestoreMatch = url.pathname.match(ADMIN_BACKUP_RESTORE_RE);
+  if (backupRestoreMatch) {
+    allowOnly(request, response, ["POST"]);
+    const context = await requireAdmin(request, authService);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    sendJson(response, 200, await restoreBackupPayload(authService.store, backupRestoreMatch[1], body, context, request));
+    return true;
+  }
+
+  const backupDetailMatch = url.pathname.match(ADMIN_BACKUP_DETAIL_RE);
+  if (backupDetailMatch) {
+    allowOnly(request, response, ["DELETE"]);
+    const context = await requireAdmin(request, authService);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    sendJson(response, 200, await deleteBackupPayload(authService.store, backupDetailMatch[1], body, context, request));
     return true;
   }
 
@@ -803,6 +835,93 @@ async function updateSystemPayload(store, body, context, request) {
   };
 }
 
+async function backupsPayload(store) {
+  ensureStoreMethod(store, "listBackups", "ADMIN_BACKUP_STORE_UNAVAILABLE");
+  const backups = await store.listBackups();
+  return {
+    backups: backups.map(backupDto),
+    summary: {
+      total: backups.length,
+      readyCount: backups.filter((item) => item.status === "ready").length,
+      restoredCount: backups.filter((item) => item.status === "restored").length
+    }
+  };
+}
+
+async function createBackupPayload(store, body, context, request) {
+  ensureStoreMethod(store, "createBackup", "ADMIN_BACKUP_STORE_UNAVAILABLE");
+  const input = confirmBackupInput(body, "立即备份");
+  const backup = await store.createBackup({
+    actorId: context.user.userId,
+    label: input.label,
+    reason: input.reason
+  });
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.backup.create",
+    targetType: "backup",
+    targetId: backup.backupId,
+    detail: { backupId: backup.backupId, label: backup.label, reason: input.reason }
+  });
+  return {
+    backup: backupDto(backup),
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
+async function restoreBackupPayload(store, backupId, body, context, request) {
+  ensureStoreMethod(store, "restoreBackup", "ADMIN_BACKUP_STORE_UNAVAILABLE");
+  const input = confirmBackupInput(body, "恢复备份");
+  let backup;
+  try {
+    backup = await store.restoreBackup(backupId, {
+      actorId: context.user.userId,
+      reason: input.reason
+    });
+  } catch (error) {
+    if (error?.code === "BACKUP_NOT_FOUND") {
+      throw new HttpError(404, "BACKUP_NOT_FOUND", "Backup was not found.");
+    }
+    throw error;
+  }
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.backup.restore",
+    targetType: "backup",
+    targetId: backup.backupId,
+    detail: { backupId: backup.backupId, reason: input.reason }
+  });
+  return {
+    backup: backupDto(backup),
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
+async function deleteBackupPayload(store, backupId, body, context, request) {
+  ensureStoreMethod(store, "deleteBackup", "ADMIN_BACKUP_STORE_UNAVAILABLE");
+  const input = confirmBackupInput(body, "删除备份");
+  let backup;
+  try {
+    backup = await store.deleteBackup(backupId, {
+      actorId: context.user.userId,
+      reason: input.reason
+    });
+  } catch (error) {
+    if (error?.code === "BACKUP_NOT_FOUND") {
+      throw new HttpError(404, "BACKUP_NOT_FOUND", "Backup was not found.");
+    }
+    throw error;
+  }
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.backup.delete",
+    targetType: "backup",
+    targetId: backup.backupId,
+    detail: { backupId: backup.backupId, reason: input.reason }
+  });
+  return {
+    backup: backupDto(backup),
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
 async function fallbackDashboardMetrics(store) {
   const users = typeof store.listAdminUsers === "function"
     ? await store.listAdminUsers({ page: 1, pageSize: 1000 })
@@ -1007,6 +1126,20 @@ function auditLogDto(item) {
     ipAddress: item.ipAddress ?? null,
     detail: item.detail ?? null,
     createdAt: item.createdAt
+  };
+}
+
+function backupDto(item) {
+  return {
+    backupId: item.backupId,
+    label: item.label,
+    status: item.status,
+    sizeBytes: Number(item.sizeBytes ?? 0),
+    checksum: item.checksum ?? "",
+    createdBy: item.createdBy ?? null,
+    createdAt: item.createdAt,
+    restoredAt: item.restoredAt ?? null,
+    deletedAt: item.deletedAt ?? null
   };
 }
 
@@ -1791,6 +1924,22 @@ function normalizeSystemInput(input) {
     output.safetyNotice = optionalText(input.safetyNotice, 255) ?? "";
   }
   return output;
+}
+
+function confirmBackupInput(input = {}, expectedText) {
+  const confirmText = String(input.confirmText ?? input.confirm ?? "").trim();
+  if (confirmText !== expectedText) {
+    throw new HttpError(400, "CONFIRMATION_REQUIRED", `Confirmation text must be "${expectedText}".`);
+  }
+  const reason = String(input.reason ?? "").trim();
+  if (!reason) {
+    throw new HttpError(400, "REASON_REQUIRED", "A reason is required for backup operations.");
+  }
+  return {
+    confirmText,
+    reason,
+    label: optionalText(input.label, 120)
+  };
 }
 
 function normalizeFinalizeDisputeInput(input) {

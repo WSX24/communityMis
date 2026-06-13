@@ -1,18 +1,24 @@
 import crypto from "node:crypto";
 import { HttpError, methodNotAllowed, readJsonBody, sendJson } from "../http.mjs";
+import { clientIp, enforceRateLimit, rateLimitIdentity } from "../rate-limit.mjs";
+import { sendEmailCode, sendSmsCode } from "./providers.mjs";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
 const COOLDOWN_SECONDS = 60;
+const SEND_LIMIT = 5;
+const SEND_WINDOW_SECONDS = 15 * 60;
 
-export async function handleVerificationRoutes({ request, response, url, authService, config }) {
+export async function handleVerificationRoutes({ request, response, url, authService, config, providers = {} }) {
   if (url.pathname === "/api/verification/sms/send") {
     allowOnly(request, response, ["POST"]);
     const body = await readJsonBody(request, { maxBytes: 16 * 1024 });
+    const recipient = normalizePhone(body.phone ?? body.recipient);
+    await enforceSendLimit(authService.store, request, "sms", recipient);
     const payload = await sendVerification(authService.store, config, {
       channel: "sms",
-      recipient: normalizePhone(body.phone ?? body.recipient),
+      recipient,
       purpose: normalizePurpose(body.purpose)
-    });
+    }, providers);
     sendJson(response, 200, payload);
     return true;
   }
@@ -20,11 +26,13 @@ export async function handleVerificationRoutes({ request, response, url, authSer
   if (url.pathname === "/api/verification/email/send") {
     allowOnly(request, response, ["POST"]);
     const body = await readJsonBody(request, { maxBytes: 16 * 1024 });
+    const recipient = normalizeEmail(body.email ?? body.recipient);
+    await enforceSendLimit(authService.store, request, "email", recipient);
     const payload = await sendVerification(authService.store, config, {
       channel: "email",
-      recipient: normalizeEmail(body.email ?? body.recipient),
+      recipient,
       purpose: normalizePurpose(body.purpose)
-    });
+    }, providers);
     sendJson(response, 200, payload);
     return true;
   }
@@ -38,22 +46,20 @@ export function hashVerificationCode(code) {
 
 export async function verifyRegistrationCodes(store, input = {}) {
   const checks = [];
-  if (input.phoneCodeToken || input.phoneCode) {
-    checks.push({
-      channel: "sms",
-      purpose: "register",
-      recipient: normalizePhone(input.phone),
-      verificationToken: input.phoneCodeToken,
-      codeHash: hashVerificationCode(input.phoneCode)
-    });
-  }
-  if (input.emailCodeToken || input.emailCode) {
+  checks.push({
+    channel: "sms",
+    purpose: "register",
+    recipient: normalizePhone(input.phone),
+    verificationToken: input.phoneCodeToken,
+    codeHash: input.phoneCode ? hashVerificationCode(input.phoneCode) : null
+  });
+  if (normalizeOptionalEmail(input.email)) {
     checks.push({
       channel: "email",
       purpose: "register",
       recipient: normalizeEmail(input.email),
       verificationToken: input.emailCodeToken,
-      codeHash: hashVerificationCode(input.emailCode)
+      codeHash: input.emailCode ? hashVerificationCode(input.emailCode) : null
     });
   }
   for (const check of checks) {
@@ -68,12 +74,30 @@ export async function verifyRegistrationCodes(store, input = {}) {
   }
 }
 
-async function sendVerification(store, config, input) {
+async function sendVerification(store, config, input, providers = {}) {
   ensureStore(store);
   const code = String(crypto.randomInt(100000, 1000000));
   const verificationToken = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + CODE_TTL_MS).toISOString();
-  const providerResult = await dispatchCode(config, input, code);
+  let providerResult;
+  try {
+    providerResult = await dispatchCode(config, input, code, providers);
+  } catch (error) {
+    const providerError = error instanceof HttpError ? error : new HttpError(502, providerErrorCode(input.channel), "Verification provider failed.");
+    await store.createVerificationCode({
+      verificationToken,
+      channel: input.channel,
+      purpose: input.purpose,
+      recipient: input.recipient,
+      codeHash: hashVerificationCode(code),
+      expiresAt,
+      sendStatus: "failed",
+      providerMessageId: null,
+      sentAt: null,
+      providerError: error.providerError ?? error.message
+    });
+    throw providerError;
+  }
   await store.createVerificationCode({
     verificationToken,
     channel: input.channel,
@@ -82,7 +106,9 @@ async function sendVerification(store, config, input) {
     codeHash: hashVerificationCode(code),
     expiresAt,
     sendStatus: providerResult.status,
-    providerMessageId: providerResult.messageId
+    providerMessageId: providerResult.messageId,
+    sentAt: new Date().toISOString(),
+    providerError: null
   });
   return {
     verificationToken,
@@ -91,20 +117,34 @@ async function sendVerification(store, config, input) {
   };
 }
 
-async function dispatchCode(config, input, code) {
+async function dispatchCode(config, input, code, providers = {}) {
   if (!config?.isProduction) {
     return { status: "sent", messageId: `dev-${code}` };
   }
   if (input.channel === "sms") {
-    if (!config.sms.accessKeyId || !config.sms.accessKeySecret || !config.sms.signName || !config.sms.templateCode) {
-      throw new HttpError(503, "SMS_PROVIDER_NOT_CONFIGURED", "SMS provider is not configured.");
-    }
-    return { status: "queued", messageId: null };
+    return (providers.sendSmsCode ?? sendSmsCode)(config, input, code);
   }
-  if (!config.smtp.host || !config.smtp.user || !config.smtp.pass || !config.smtp.from) {
-    throw new HttpError(503, "SMTP_NOT_CONFIGURED", "SMTP provider is not configured.");
-  }
-  return { status: "queued", messageId: null };
+  return (providers.sendEmailCode ?? sendEmailCode)(config, input, code);
+}
+
+async function enforceSendLimit(store, request, channel, recipient) {
+  const ip = clientIp(request);
+  await enforceRateLimit(store, {
+    scope: `verification:${channel}:recipient`,
+    identity: rateLimitIdentity(channel, recipient),
+    limit: SEND_LIMIT,
+    windowSeconds: SEND_WINDOW_SECONDS
+  });
+  await enforceRateLimit(store, {
+    scope: `verification:${channel}:ip`,
+    identity: rateLimitIdentity(channel, ip),
+    limit: 20,
+    windowSeconds: SEND_WINDOW_SECONDS
+  });
+}
+
+function providerErrorCode(channel) {
+  return channel === "sms" ? "SMS_PROVIDER_ERROR" : "SMTP_PROVIDER_ERROR";
 }
 
 function ensureStore(store) {
@@ -132,6 +172,11 @@ function normalizeEmail(value) {
     throw new HttpError(400, "INVALID_EMAIL", "A valid email address is required.");
   }
   return text;
+}
+
+function normalizeOptionalEmail(value) {
+  const text = String(value ?? "").trim();
+  return text ? normalizeEmail(text) : null;
 }
 
 function verificationError(error) {

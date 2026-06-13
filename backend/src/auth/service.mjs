@@ -5,6 +5,7 @@ import { hashPassword, verifyPassword } from "./password.mjs";
 import { createMemoryAuthStore, ACTIVE_STATUS, INITIAL_TIME_COIN_BALANCE, normalizeUsername } from "./store.mjs";
 import { createSignedSessionToken, verifySignedSessionToken } from "./tokens.mjs";
 import { verifyRegistrationCodes } from "../verification/routes.mjs";
+import { enforceRateLimit, rateLimitIdentity } from "../rate-limit.mjs";
 
 const ADMIN_ROLES = new Set(["admin", "super_admin"]);
 const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -33,13 +34,33 @@ export function createAuthService(options = {}) {
 
   async function register(input) {
     const body = normalizeRegistrationInput(input);
-    await verifyRegistrationCodes(store, input);
+    await enforceRateLimit(store, {
+      scope: "auth:register:ip",
+      identity: rateLimitIdentity(input?.ipAddress),
+      limit: 20,
+      windowSeconds: 60 * 60
+    });
+    await enforceRateLimit(store, {
+      scope: "auth:register:phone",
+      identity: rateLimitIdentity(body.phone),
+      limit: 5,
+      windowSeconds: 60 * 60
+    });
+    await verifyRegistrationCodes(store, {
+      ...input,
+      phone: body.phone,
+      email: body.email
+    });
     let created;
     try {
       created = await store.createUserWithWallet({
         username: body.username,
         passwordHash: hashPassword(body.password),
         phone: body.phone,
+        email: body.email,
+        displayName: body.displayName,
+        bio: body.bio,
+        serviceCategories: body.serviceCategories,
         skillTags: body.skillTags,
         role: "user",
         status: ACTIVE_STATUS,
@@ -115,6 +136,12 @@ export function createAuthService(options = {}) {
 
   async function loginWithPolicy(input, options) {
     const body = normalizeLoginInput(input);
+    await enforceRateLimit(store, {
+      scope: options.adminOnly ? "auth:admin_login" : "auth:login",
+      identity: rateLimitIdentity(body.username, input?.ipAddress),
+      limit: options.adminOnly ? 10 : 20,
+      windowSeconds: 15 * 60
+    });
     const user = await store.findUserByUsername(body.username);
     if (!user || !verifyPassword(body.password, user.passwordHash)) {
       throw new HttpError(401, "INVALID_CREDENTIALS", "Username or password is incorrect.");
@@ -166,10 +193,12 @@ export function publicUser(user) {
     userId: user.userId,
     username: user.username,
     phone: user.phone,
+    email: user.email ?? null,
     displayName: user.displayName ?? user.username,
     bio: user.bio ?? null,
     skillTags: user.skillTags,
     serviceCategories: user.serviceCategories ?? [],
+    avatarFileId: user.avatarFileId ?? null,
     isJury: Boolean(user.isJury),
     role: user.role,
     status: user.status,
@@ -202,6 +231,10 @@ function normalizeRegistrationInput(input) {
     username,
     password,
     phone: optionalText(input?.phone, 20),
+    email: optionalEmail(input?.email),
+    displayName: optionalText(input?.displayName, 50),
+    bio: optionalText(input?.bio, 300),
+    serviceCategories: Array.isArray(input?.serviceCategories) ? input.serviceCategories.map((item) => String(item).trim()).filter(Boolean).slice(0, 10) : [],
     skillTags: Array.isArray(input?.skillTags) ? input.skillTags.map((item) => String(item).trim()).filter(Boolean).slice(0, 20) : []
   };
 }
@@ -224,6 +257,17 @@ function optionalText(value, maxLength) {
     throw new HttpError(400, "INVALID_FIELD", "One or more fields are too long.");
   }
   return text ? text : null;
+}
+
+function optionalEmail(value) {
+  const text = optionalText(value, 120);
+  if (!text) {
+    return null;
+  }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(text)) {
+    throw new HttpError(400, "INVALID_EMAIL", "A valid email address is required.");
+  }
+  return text.toLowerCase();
 }
 
 function bearerToken(request) {

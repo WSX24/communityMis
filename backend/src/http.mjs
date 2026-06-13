@@ -20,6 +20,9 @@ export function sendJson(response, status, payload, isHead = false) {
 
 export function sendError(response, error, options = {}) {
   if (error instanceof HttpError) {
+    for (const [key, value] of Object.entries(error.headers ?? {})) {
+      response.setHeader(key, value);
+    }
     sendJson(response, error.status, {
       error: {
         code: error.code,

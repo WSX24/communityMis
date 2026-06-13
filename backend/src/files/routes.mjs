@@ -4,6 +4,17 @@ import path from "node:path";
 import { HttpError, methodNotAllowed, sendJson } from "../http.mjs";
 
 const FILE_DETAIL_RE = /^\/api\/files\/([^/]+)$/;
+const FILE_SIGNATURES = [
+  { extension: ".png", mimeType: "image/png", matches: (body) => body.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
+  { extension: ".jpg", mimeType: "image/jpeg", matches: (body) => body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff },
+  { extension: ".jpeg", mimeType: "image/jpeg", matches: (body) => body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff },
+  { extension: ".webp", mimeType: "image/webp", matches: (body) => body.subarray(0, 4).toString("ascii") === "RIFF" && body.subarray(8, 12).toString("ascii") === "WEBP" },
+  { extension: ".gif", mimeType: "image/gif", matches: (body) => ["GIF87a", "GIF89a"].includes(body.subarray(0, 6).toString("ascii")) },
+  { extension: ".pdf", mimeType: "application/pdf", matches: (body) => body.subarray(0, 5).toString("ascii") === "%PDF-" },
+  { extension: ".txt", mimeType: "text/plain", matches: (body) => isLikelyText(body) },
+  { extension: ".doc", mimeType: "application/msword", matches: (body) => body.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])) },
+  { extension: ".docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", matches: (body) => body[0] === 0x50 && body[1] === 0x4b && body[2] === 0x03 && body[3] === 0x04 }
+];
 
 export async function handleFileRoutes({ request, response, url, authService, config }) {
   if (url.pathname === "/api/files") {
@@ -19,8 +30,7 @@ export async function handleFileRoutes({ request, response, url, authService, co
   const match = url.pathname.match(FILE_DETAIL_RE);
   if (match) {
     allowOnly(request, response, ["GET", "HEAD"]);
-    const context = await authService.authenticateRequest(request);
-    const asset = await findVisibleAsset(authService.store, match[1], context);
+    const asset = await findVisibleAsset(authService.store, match[1], request, authService);
     await streamAsset(response, request.method === "HEAD", asset);
     return true;
   }
@@ -45,6 +55,7 @@ async function saveAsset(store, config, userId, payload) {
     purpose: payload.fields.purpose ?? "general",
     businessType: payload.fields.businessType ?? null,
     businessId: payload.fields.businessId ?? null,
+    visibility: normalizeVisibility(payload.fields.visibility, payload.fields.purpose),
     originalName: payload.filename,
     storagePath,
     mimeType: payload.mimeType,
@@ -52,7 +63,7 @@ async function saveAsset(store, config, userId, payload) {
   });
 }
 
-async function findVisibleAsset(store, fileId, context) {
+async function findVisibleAsset(store, fileId, request, authService) {
   if (typeof store.findFileAssetById !== "function") {
     throw new HttpError(500, "FILE_STORE_UNAVAILABLE", "File persistence is not available.");
   }
@@ -60,6 +71,10 @@ async function findVisibleAsset(store, fileId, context) {
   if (!asset) {
     throw new HttpError(404, "FILE_NOT_FOUND", "File was not found.");
   }
+  if (asset.visibility === "public") {
+    return asset;
+  }
+  const context = await authService.authenticateRequest(request);
   if (["admin", "super_admin"].includes(context.user.role) || Number(asset.ownerId) === Number(context.user.userId)) {
     return asset;
   }
@@ -174,6 +189,26 @@ function validateFile(file, config) {
   if (file.body.length > config.upload.maxBytes) {
     throw new HttpError(413, "FILE_TOO_LARGE", "Uploaded file is too large.");
   }
+  const signature = FILE_SIGNATURES.find((item) => item.extension === extension);
+  if (!signature || signature.mimeType !== file.contentType || !signature.matches(file.body)) {
+    throw new HttpError(400, "FILE_SIGNATURE_MISMATCH", "File extension, MIME type, and content signature do not match.");
+  }
+}
+
+function isLikelyText(body) {
+  if (body.length === 0) {
+    return true;
+  }
+  const sample = body.subarray(0, Math.min(body.length, 4096));
+  for (const byte of sample) {
+    if (byte === 0) {
+      return false;
+    }
+    if (byte < 0x09 || (byte > 0x0d && byte < 0x20)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function safeExtension(filename) {
@@ -192,12 +227,26 @@ function fileDto(asset) {
     purpose: asset.purpose,
     businessType: asset.businessType,
     businessId: asset.businessId,
+    visibility: asset.visibility ?? "private",
     originalName: asset.originalName,
     mimeType: asset.mimeType,
     sizeBytes: asset.sizeBytes,
     url: `/api/files/${encodeURIComponent(asset.fileId)}`,
     createdAt: asset.createdAt
   };
+}
+
+function normalizeVisibility(value, purpose) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (text === "public") {
+    return "public";
+  }
+  if (text === "private") {
+    return "private";
+  }
+  return ["avatar", "request-image", "post-image"].includes(String(purpose ?? "").trim().toLowerCase())
+    ? "public"
+    : "private";
 }
 
 function allowOnly(request, response, methods) {

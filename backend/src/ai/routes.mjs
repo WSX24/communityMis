@@ -1,4 +1,5 @@
 import { HttpError, methodNotAllowed, readJsonBody, sendJson } from "../http.mjs";
+import { enforceRateLimit, rateLimitIdentity } from "../rate-limit.mjs";
 
 const CONVERSATION_DETAIL_RE = /^\/api\/ai\/conversations\/([^/]+)$/;
 const MESSAGE_FEEDBACK_RE = /^\/api\/ai\/messages\/([^/]+)\/feedback$/;
@@ -399,6 +400,13 @@ async function disputeSummaryPayload(store, context, rawDisputeId, conversation)
 
 async function withAiCallLog(store, options) {
   ensureAiStore(store, ["createAiConversation", "createAiCallLog"]);
+  const config = typeof store.getAiConfig === "function" ? await store.getAiConfig() : null;
+  await enforceRateLimit(store, {
+    scope: "ai:user",
+    identity: rateLimitIdentity(options.userId),
+    limit: Number(config?.rateLimitPerHour ?? 60),
+    windowSeconds: 60 * 60
+  });
   const started = Date.now();
   const conversation = await ensureConversation(store, {
     conversationId: options.conversationId,

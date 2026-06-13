@@ -157,9 +157,11 @@ function privateProfileDto(user) {
     username: user.username,
     displayName: user.displayName ?? user.username,
     phone: user.phone,
+    email: user.email ?? null,
     bio: user.bio ?? null,
     skillTags: user.skillTags ?? [],
     serviceCategories: user.serviceCategories ?? [],
+    avatarFileId: user.avatarFileId ?? null,
     isJury: Boolean(user.isJury),
     role: user.role,
     status: user.status,
@@ -176,6 +178,7 @@ function publicProfileDto(user, credit = null) {
     bio: user.bio ?? null,
     skillTags: user.skillTags ?? [],
     serviceCategories: user.serviceCategories ?? [],
+    avatarFileId: user.avatarFileId ?? null,
     isJury: Boolean(user.isJury),
     createdAt: user.createdAt,
     credit: credit ? {
@@ -221,6 +224,12 @@ function normalizeProfileInput(input) {
   }
   if (hasOwn(input, "displayName")) {
     output.displayName = optionalText(input.displayName, 50, "INVALID_DISPLAY_NAME");
+  }
+  if (hasOwn(input, "email")) {
+    output.email = optionalText(input.email, 120, "INVALID_EMAIL");
+    if (output.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(output.email)) {
+      throw new HttpError(400, "INVALID_EMAIL", "Email is invalid.");
+    }
   }
   if (hasOwn(input, "bio")) {
     output.bio = optionalText(input.bio, 300, "INVALID_BIO");

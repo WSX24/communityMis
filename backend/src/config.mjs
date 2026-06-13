@@ -55,6 +55,7 @@ export function loadBackendConfig(options = {}) {
     },
     sms: {
       provider: env.SMS_PROVIDER ?? "aliyun",
+      regionId: env.ALIYUN_REGION_ID ?? "cn-hangzhou",
       accessKeyId: env.ALIYUN_ACCESS_KEY_ID ?? null,
       accessKeySecret: env.ALIYUN_ACCESS_KEY_SECRET ?? null,
       signName: env.ALIYUN_SMS_SIGN_NAME ?? null,

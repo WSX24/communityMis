@@ -1,11 +1,7 @@
 import { classifyApiError, domainForRoute, installGlobalUiStateHandlers, renderError, showToast } from "/assets/app/modules/shared-ui.mjs";
 
-const route = window.__NEIGHBOR_ROUTE__ ?? {
-  id: "unknown",
-  currentPath: window.location.pathname,
-  surface: "unknown"
-};
-const config = window.__NEIGHBOR_CONFIG__ ?? {};
+const route = window.__NEIGHBOR_ROUTE__ ?? routeFromDocument();
+const config = window.__NEIGHBOR_CONFIG__ ?? await loadRuntimeConfig();
 
 document.documentElement.dataset.routeId = route.id;
 document.documentElement.dataset.routeSurface = route.surface;
@@ -14,6 +10,9 @@ installGlobalUiStateHandlers();
 if (!config.apiBaseUrl) {
   throw new Error("API base URL is not configured.");
 }
+window.__NEIGHBOR_ROUTE__ = route;
+window.__NEIGHBOR_CONFIG__ = config;
+window.__API_BASE_URL__ = config.apiBaseUrl;
 
 const routeModules = {
   auth: "/assets/app/modules/auth.mjs",
@@ -51,4 +50,29 @@ function reportRuntimeError(error) {
   console.error(error);
   showToast(detail.message, detail.type === "unknown" ? "error" : detail.type);
   renderError(document.querySelector("main") ?? document.body, detail.message, () => window.location.reload());
+}
+
+function routeFromDocument() {
+  const source = document.body?.dataset ?? {};
+  return {
+    id: source.routeId ?? "unknown",
+    title: source.routeTitle ?? document.title,
+    source: source.routeSource ?? "",
+    path: source.routePath ?? window.location.pathname,
+    currentPath: source.routeCurrentPath ?? window.location.pathname,
+    surface: source.routeSurface ?? "unknown",
+    layout: source.routeLayout ?? "unknown"
+  };
+}
+
+async function loadRuntimeConfig() {
+  const response = await fetch("/config.json", {
+    credentials: "include",
+    cache: "no-store",
+    headers: { accept: "application/json" }
+  });
+  if (!response.ok) {
+    throw new Error("Runtime config could not be loaded.");
+  }
+  return response.json();
 }

@@ -2,7 +2,11 @@
 
 ## 本地启动
 
-当前阶段使用零依赖 Node.js 骨架，不需要先安装第三方包。要求 Node.js 18.18 或更高版本。
+要求 Node.js 18.18 或更高版本。首次启动前安装依赖：
+
+```bash
+npm install
+```
 
 ```bash
 npm run dev
@@ -23,10 +27,10 @@ npm run dev:backend
 
 ## 生产部署
 
-后端生产模式按单机 Node.js + MySQL 8+ 设计。复制 `.env.example` 为实际环境变量后运行：
+后端生产模式按单机 Node.js + MySQL 8+ 设计。复制 `.env.example` 为实际环境变量，先执行迁移再启动服务：
 
 ```bash
-npm run db:init
+npm run db:migrate
 npm start
 ```
 
@@ -35,8 +39,8 @@ npm start
 - `NODE_ENV=production` 时必须使用 `AUTH_STORE=mysql`，并配置 `AUTH_SESSION_SECRET`、`DB_*`、`CORS_ORIGIN`、上传目录、短信、SMTP 和 OpenAI-compatible API 变量。
 - 认证以 HTTP-only `sid` Cookie 为准；浏览器请求必须使用 `credentials: "include"`。
 - 登录后会设置非 HTTP-only `csrf_token` Cookie，所有 `POST`、`PUT`、`PATCH`、`DELETE` 请求需带 `X-CSRF-Token`。
-- `/api/health` 只表示进程存活，`/api/ready` 会检查 MySQL、上传目录可写和关键配置状态，响应不会包含密钥。
-- `database/seeds` 里的演示账号只适合开发/测试；生产初始化前应审查或移除 seed SQL。
+- `/api/health` 只表示进程存活，`/api/ready` 会检查 MySQL、迁移状态、上传目录可写和关键外部服务配置状态，响应不会包含密钥。
+- `database/seeds` 里的演示账号只适合开发/测试；生产部署只运行 `npm run db:migrate`，不要运行 seed。`npm run db:seed` 默认拒绝 `NODE_ENV=production`。
 
 ## 生产路由
 
@@ -54,12 +58,18 @@ npm start
 npm test
 ```
 
-验收脚本会检查 41 个 HTML 原型路由覆盖、链接改写、公共组件占位、后端健康检查、前端路由可访问性，以及阶段 02-22 的认证、任务、订单、钱包、纠纷、评价、消息、后台治理和 AI 治理链路。
+验收脚本会检查 41 个 HTML 原型路由覆盖、链接改写、公共组件占位、后端健康检查、前端路由可访问性，以及阶段 02-23 的认证、任务、订单、钱包、纠纷、评价、消息、后台治理、AI 治理和生产上线链路。
 
 阶段 22 全链路验收可单独执行：
 
 ```bash
 npm run test:stage22
+```
+
+阶段 23 生产上线链路验收可单独执行：
+
+```bash
+npm run test:stage23
 ```
 
 ## 演示账号
@@ -83,7 +93,9 @@ npm run test:stage22
 
 - 迁移脚本：`database/migrations/0002_stage_02_schema.sql`
 - 种子数据：`database/seeds/0002_stage_02_seed.sql`
-- 一键初始化：`npm run db:init`
+- 本地一键初始化：`npm run db:init`
+- 仅执行迁移：`npm run db:migrate`
+- 仅导入种子：`npm run db:seed`
 
 默认连接参数为 `DB_HOST=127.0.0.1`、`DB_PORT=3306`、`DB_USER=root`、`DB_PASSWORD=`、`DB_NAME=community_mis`。可通过环境变量覆盖，例如：
 
@@ -91,4 +103,4 @@ npm run test:stage22
 DB_PASSWORD=your_password DB_NAME=community_mis npm run db:init
 ```
 
-初始化脚本会创建数据库并按顺序执行 `database/migrations/*.sql` 和 `database/seeds/*.sql`。种子数据使用固定 ID 和 `ON DUPLICATE KEY UPDATE`，重复执行不会产生重复基础数据。
+`db:init` 只适合本地开发，会创建数据库并按顺序执行 `database/migrations/*.sql` 和 `database/seeds/*.sql`。生产环境会拒绝执行 `db:init`，应使用 `db:migrate`。种子数据使用固定 ID 和 `ON DUPLICATE KEY UPDATE`，重复执行不会产生重复基础数据。

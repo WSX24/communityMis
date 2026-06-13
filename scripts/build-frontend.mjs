@@ -1,9 +1,10 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
+import { spawnSync } from "node:child_process";
 import {
   buildRouteIndexHtml,
-  CONFIG_PLACEHOLDER,
+  createRuntimeConfig,
   DIST_ROOT,
   PRODUCTION_UI_ROOT,
   renderPrototypeHtml
@@ -11,122 +12,129 @@ import {
 import { routePath, routes } from "../frontend/src/routes.mjs";
 
 const projectRoot = process.cwd();
-const frontendRoot = path.join(projectRoot, "frontend");
 const distRoot = DIST_ROOT;
-const manifest = {
-  buildVersion: process.env.BUILD_VERSION ?? "dev",
-  environment: process.env.APP_ENV ?? "production",
-  builtAt: new Date().toISOString(),
-  assets: {},
-  routes: {}
+
+const viteBin = path.join(projectRoot, "node_modules", "vite", "bin", "vite.js");
+const result = spawnSync(process.execPath, [viteBin, "build"], {
+  cwd: projectRoot,
+  stdio: "inherit",
+  env: {
+    ...process.env,
+    BUILD_VERSION: process.env.BUILD_VERSION ?? "dev"
+  }
+});
+
+if (result.status !== 0) {
+  if (result.error) {
+    console.error(result.error.message);
+  }
+  process.exit(result.status ?? 1);
+}
+
+const assetManifest = {
+  assets: {}
 };
 
-fs.rmSync(distRoot, { recursive: true, force: true });
-fs.mkdirSync(distRoot, { recursive: true });
-
-emitUiAssets();
-emitAppAssets();
-emitRoutePages();
+emitPrototypeAssets();
+emitPrototypeRuntimeAssets();
+emitRuntimeConfigFiles();
+emitPrototypePages();
 emitRouteManifest();
+emitDeploymentManifest();
 
-fs.writeFileSync(path.join(distRoot, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-console.log(`Built frontend assets in ${path.relative(projectRoot, distRoot)}`);
+console.log(`Built Vite frontend in ${path.relative(projectRoot, distRoot)}`);
 
-function emitUiAssets() {
-  const uiFiles = listFiles(PRODUCTION_UI_ROOT);
+function emitRuntimeConfigFiles() {
+  const config = createRuntimeConfig({
+    env: {
+      ...process.env,
+      API_BASE_URL: process.env.API_BASE_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://127.0.0.1:3001"),
+      APP_ENV: process.env.APP_ENV ?? (process.env.NODE_ENV === "production" ? "production" : "development"),
+      BUILD_VERSION: process.env.BUILD_VERSION ?? "dev",
+      SENTRY_DSN: process.env.SENTRY_DSN ?? "",
+      SENTRY_TRACES_SAMPLE_RATE: process.env.SENTRY_TRACES_SAMPLE_RATE ?? "0",
+      SENTRY_INGEST_ORIGIN: process.env.SENTRY_INGEST_ORIGIN ?? ""
+    },
+    mode: process.env.NODE_ENV ?? "development"
+  });
+  fs.writeFileSync(path.join(distRoot, "config.json"), `${JSON.stringify(config, null, 2)}\n`);
+  fs.writeFileSync(path.join(distRoot, "config.template.json"), `${JSON.stringify({
+    apiBaseUrl: "${API_BASE_URL}",
+    appEnv: "${APP_ENV}",
+    buildVersion: "${BUILD_VERSION}",
+    sentryDsn: "${SENTRY_DSN}",
+    sentryTracesSampleRate: "${SENTRY_TRACES_SAMPLE_RATE}",
+    sentryIngestOrigin: "${SENTRY_INGEST_ORIGIN}"
+  }, null, 2)}\n`);
+}
 
-  for (const filePath of uiFiles) {
+function emitPrototypeAssets() {
+  for (const filePath of listFiles(PRODUCTION_UI_ROOT)) {
     const relative = slash(path.relative(PRODUCTION_UI_ROOT, filePath));
     const ext = path.extname(relative);
     if (ext === ".html") {
       continue;
     }
-
-    if (relative.startsWith("css/") && ext === ".css") {
-      emitAsset(`/${relative}`, fs.readFileSync(filePath));
-      continue;
-    }
-
-    if (relative.startsWith("js/") && ext === ".js") {
-      emitAsset(`/${relative}`, fs.readFileSync(filePath));
-      continue;
-    }
-
-    emitAsset(`/${relative}`, fs.readFileSync(filePath));
+    const logicalPath = `/${relative}`;
+    const hashedPath = emitHashedAsset(logicalPath, fs.readFileSync(filePath));
+    assetManifest.assets[logicalPath] = hashedPath;
   }
 
-  emitAsset("/assets/styles/shell.css", fs.readFileSync(path.join(frontendRoot, "public", "styles", "shell.css")));
-  const themeCss = fs.readFileSync(path.join(frontendRoot, "public", "styles", "theme.css"), "utf8")
-    .replace(/"\/css\/tokens\.css"/g, JSON.stringify(manifest.assets["/css/tokens.css"] ?? "/css/tokens.css"));
-  emitAsset("/assets/styles/theme.css", themeCss);
-}
-
-function emitAppAssets() {
-  const client = emitAsset(
-    "/assets/app/api/client.mjs",
-    fs.readFileSync(path.join(frontendRoot, "src", "api", "client.mjs"), "utf8")
-  );
-  const auth = emitAsset(
-    "/assets/app/auth.mjs",
-    fs.readFileSync(path.join(frontendRoot, "src", "auth.mjs"), "utf8")
-  );
-  const apiClientSource = fs.readFileSync(path.join(frontendRoot, "src", "api-client.mjs"), "utf8")
-    .replace("./api/client.mjs", client);
-  const apiClient = emitAsset("/assets/app/api-client.mjs", apiClientSource);
-  const shellSource = fs.readFileSync(path.join(frontendRoot, "src", "prototype-shell.mjs"), "utf8")
-    .replace('from "/assets/app/api-client.mjs"', `from "${apiClient}"`)
-    .replace('from "/assets/app/auth.mjs"', `from "${auth}"`);
-  emitAsset("/assets/app/prototype-shell.mjs", shellSource);
-
-  const appRoot = path.join(frontendRoot, "src", "app");
-  emitAsset(
-    "/assets/app/modules/shared-ui.mjs",
-    rewriteAppAssetReferences(fs.readFileSync(path.join(appRoot, "modules", "shared-ui.mjs"), "utf8"))
-  );
-
-  for (const domain of ["auth", "feed", "tasks", "orders", "wallet", "disputes", "messages", "ai", "admin"]) {
-    emitAsset(
-      `/assets/app/modules/${domain}.mjs`,
-      rewriteAppAssetReferences(fs.readFileSync(path.join(appRoot, "modules", `${domain}.mjs`), "utf8"))
-    );
+  const stylesRoot = path.join(projectRoot, "frontend", "public", "styles");
+  for (const filePath of listFiles(stylesRoot)) {
+    const relative = slash(path.relative(stylesRoot, filePath));
+    const logicalPath = `/assets/styles/${relative}`;
+    const content = fs.readFileSync(filePath, "utf8")
+      .replace(/"\/css\/tokens\.css"/g, JSON.stringify(assetManifest.assets["/css/tokens.css"] ?? "/css/tokens.css"));
+    const hashedPath = emitHashedAsset(logicalPath, content);
+    assetManifest.assets[logicalPath] = hashedPath;
   }
-
-  emitAsset(
-    "/assets/app/main.mjs",
-    rewriteAppAssetReferences(fs.readFileSync(path.join(appRoot, "main.mjs"), "utf8"))
-  );
 }
 
-function emitRoutePages() {
+function emitPrototypeRuntimeAssets() {
+  const appRoot = path.join(projectRoot, "frontend", "src", "app");
+  const appAssets = [
+    ["frontend/src/api/client.mjs", "/assets/app/api/client.mjs"],
+    ["frontend/src/api-client.mjs", "/assets/app/api-client.mjs"],
+    ["frontend/src/auth.mjs", "/assets/app/auth.mjs"],
+    ["frontend/src/prototype-shell.mjs", "/assets/app/prototype-shell.mjs"],
+    ["frontend/src/app/main.mjs", "/assets/app/main.mjs"],
+    ["frontend/src/app/modules/shared-ui.mjs", "/assets/app/modules/shared-ui.mjs"],
+    ...["auth", "feed", "tasks", "orders", "wallet", "disputes", "messages", "ai", "admin"].map((domain) => [
+      `frontend/src/app/modules/${domain}.mjs`,
+      `/assets/app/modules/${domain}.mjs`
+    ])
+  ];
+
+  for (const [source, logicalPath] of appAssets) {
+    const sourcePath = path.join(projectRoot, source);
+    if (!fs.existsSync(sourcePath)) {
+      continue;
+    }
+    const outputPath = path.join(distRoot, logicalPath.slice(1));
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    let content = fs.readFileSync(sourcePath, "utf8");
+    if (logicalPath === "/assets/app/main.mjs") {
+      content = content.replaceAll('"/assets/app/modules/', '"/assets/app/modules/');
+    }
+    fs.writeFileSync(outputPath, content);
+    assetManifest.assets[logicalPath] = logicalPath;
+  }
+}
+
+function emitPrototypePages() {
   const pagesRoot = path.join(distRoot, "pages");
   fs.mkdirSync(pagesRoot, { recursive: true });
-
   for (const route of routes) {
     const html = renderPrototypeHtml(route, {
-      assets: manifest.assets,
-      runtimeConfigExpression: CONFIG_PLACEHOLDER,
+      assets: assetManifest.assets,
       shellLogicalPath: "/assets/app/main.mjs",
       stripInlineEvents: true,
       stripInlineScripts: true
     });
     fs.writeFileSync(path.join(pagesRoot, `${route.id}.html`), html);
-    manifest.routes[route.id] = {
-      path: route.path,
-      entryPath: routePath(route),
-      file: `/pages/${route.id}.html`
-    };
   }
-
-  fs.writeFileSync(path.join(pagesRoot, "404.html"), buildRouteIndexHtml({ assets: manifest.assets }));
-}
-
-function rewriteAppAssetReferences(source) {
-  let output = source;
-  const entries = Object.entries(manifest.assets).sort((left, right) => right[0].length - left[0].length);
-  for (const [logicalPath, hashedPath] of entries) {
-    output = output.replaceAll(logicalPath, hashedPath);
-  }
-  return output;
+  fs.writeFileSync(path.join(pagesRoot, "404.html"), buildRouteIndexHtml({ assets: assetManifest.assets }));
 }
 
 function emitRouteManifest() {
@@ -142,31 +150,62 @@ function emitRouteManifest() {
   fs.writeFileSync(path.join(distRoot, "routes.json"), `${JSON.stringify(payload, null, 2)}\n`);
 }
 
-function emitAsset(logicalPath, content) {
+function emitDeploymentManifest() {
+  const viteManifestPath = path.join(distRoot, ".vite", "manifest.json");
+  const viteManifest = fs.existsSync(viteManifestPath)
+    ? JSON.parse(fs.readFileSync(viteManifestPath, "utf8"))
+    : {};
+  const assets = {};
+  for (const file of listFiles(path.join(distRoot, "assets"))) {
+    const relative = slash(path.relative(distRoot, file));
+    assets[`/${relative}`] = `/${relative}`;
+  }
+  for (const file of listFiles(path.join(distRoot, "css"))) {
+    const relative = slash(path.relative(distRoot, file));
+    assets[`/${relative}`] = `/${relative}`;
+  }
+  for (const file of listFiles(path.join(distRoot, "js"))) {
+    const relative = slash(path.relative(distRoot, file));
+    assets[`/${relative}`] = `/${relative}`;
+  }
+  fs.writeFileSync(path.join(distRoot, "manifest.json"), `${JSON.stringify({
+    buildVersion: process.env.BUILD_VERSION ?? "dev",
+    environment: process.env.APP_ENV ?? "production",
+    builtAt: new Date().toISOString(),
+    type: "vite-react-spa",
+    assets,
+    prototypeAssets: assetManifest.assets,
+    vite: viteManifest,
+    routes: Object.fromEntries(routes.map((route) => [route.id, {
+      path: route.path,
+      entryPath: routePath(route),
+      file: `/pages/${route.id}.html`
+    }]))
+  }, null, 2)}\n`);
+}
+
+function emitHashedAsset(logicalPath, content) {
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
-  const hash = crypto.createHash("sha256").update(buffer).digest("hex").slice(0, 12);
+  const hash = createHash(buffer);
   const parsed = path.posix.parse(logicalPath);
   const hashedPath = path.posix.join(parsed.dir, `${parsed.name}.${hash}${parsed.ext}`);
   const outputPath = path.join(distRoot, hashedPath.slice(1));
-
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, buffer);
-  manifest.assets[logicalPath] = hashedPath;
   return hashedPath;
 }
 
+function createHash(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex").slice(0, 12);
+}
+
 function listFiles(root) {
+  if (!fs.existsSync(root)) return [];
   const entries = fs.readdirSync(root, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
+  return entries.flatMap((entry) => {
     const filePath = path.join(root, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...listFiles(filePath));
-    } else {
-      files.push(filePath);
-    }
-  }
-  return files;
+    return entry.isDirectory() ? listFiles(filePath) : [filePath];
+  });
 }
 
 function slash(value) {

@@ -6,6 +6,7 @@ import { createBackendServer } from "../backend/src/app.mjs";
 import { hashPassword, verifyPassword } from "../backend/src/auth/password.mjs";
 import { createMysqlAuthStore } from "../backend/src/auth/mysql-store.mjs";
 import { createMemoryAuthStore } from "../backend/src/auth/store.mjs";
+import { hashVerificationCode } from "../backend/src/verification/routes.mjs";
 
 const checks = [];
 const projectRoot = process.cwd();
@@ -51,10 +52,23 @@ async function checkAuthApi() {
   const baseUrl = `http://127.0.0.1:${port}`;
 
   try {
+    const phoneVerification = store.createVerificationCode({
+      verificationToken: "stage03-phone-token",
+      channel: "sms",
+      purpose: "register",
+      recipient: "13900001111",
+      codeHash: hashVerificationCode("123456"),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      sendStatus: "sent",
+      providerMessageId: "stage03-memory"
+    });
+
     const register = await requestJson(baseUrl, "POST", "/api/auth/register", {
       username: "new_user",
       password: "newpass123",
       phone: "13900001111",
+      phoneCodeToken: phoneVerification.verificationToken,
+      phoneCode: "123456",
       skillTags: ["维修"]
     });
     record(register.status === 201, "register returns 201");
@@ -68,9 +82,22 @@ async function checkAuthApi() {
     record(storedWallet?.balance === 5, "registered user wallet is persisted with balance 5");
     record(storedUser.passwordHash !== "newpass123" && verifyPassword("newpass123", storedUser.passwordHash), "registered password is hashed and verifiable");
 
+    const duplicateVerification = store.createVerificationCode({
+      verificationToken: "stage03-duplicate-phone-token",
+      channel: "sms",
+      purpose: "register",
+      recipient: "13900001111",
+      codeHash: hashVerificationCode("654321"),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      sendStatus: "sent",
+      providerMessageId: "stage03-memory-duplicate"
+    });
     const duplicate = await requestJson(baseUrl, "POST", "/api/auth/register", {
       username: "new_user",
-      password: "newpass123"
+      password: "newpass123",
+      phone: "13900001111",
+      phoneCodeToken: duplicateVerification.verificationToken,
+      phoneCode: "654321"
     });
     record(duplicate.status === 409 && duplicate.body.error?.code === "USERNAME_EXISTS", "duplicate username is rejected");
 
@@ -159,7 +186,11 @@ async function checkAuthApiWithEphemeralMysql() {
     await waitForMysql(mysql, serverPort);
     record(true, "stage 03 MySQL server starts");
 
-    const migrationSql = fs.readFileSync(path.join(projectRoot, "database", "migrations", "0002_stage_02_schema.sql"), "utf8");
+    const migrationSql = [
+      "0002_stage_02_schema.sql",
+      "0003_production_hardening.sql",
+      "0004_production_readiness.sql"
+    ].map((file) => fs.readFileSync(path.join(projectRoot, "database", "migrations", file), "utf8")).join("\n");
     const seedSql = fs.readFileSync(path.join(projectRoot, "database", "seeds", "0002_stage_02_seed.sql"), "utf8");
     const apply = await mysqlExec(mysql, serverPort, [
       `CREATE DATABASE ${quoteIdentifier(dbName)} DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;`,
@@ -172,23 +203,47 @@ async function checkAuthApiWithEphemeralMysql() {
       record(false, `stage 03 mysql apply stderr: ${apply.stderr.slice(0, 500)}`);
       return;
     }
+    await checkMysqlScalar(mysql, serverPort, dbName, "SELECT COUNT(*) FROM `user` WHERE `username` IN ('user_a', 'admin_main');", "2", "MySQL seed users are present");
 
+    const mysqlStore = createMysqlAuthStore({
+      config: {
+        db: {
+          host: "127.0.0.1",
+          port: serverPort,
+          user: "root",
+          password: "",
+          database: dbName,
+          connectionLimit: 4
+        }
+      }
+    });
     apiServer = createBackendServer({
-      authStore: createMysqlAuthStore({
-        mysqlBin: mysql,
-        port: serverPort,
-        database: dbName
-      }),
+      authStore: mysqlStore,
       sessionSecret: "stage03-mysql-secret"
     });
     const apiPort = await listen(apiServer);
     const baseUrl = `http://127.0.0.1:${apiPort}`;
+    const directSeedUser = await mysqlStore.findUserByUsername("user_a");
+    record(Boolean(directSeedUser?.passwordHash), "MySQL store can read seeded user");
+
+    const sms = await requestJson(baseUrl, "POST", "/api/verification/sms/send", {
+      phone: "13900002222",
+      purpose: "register"
+    });
+    record(sms.status === 200, "MySQL verification send succeeds");
+    if (sms.status !== 200) {
+      return;
+    }
+    const codeRow = await mysqlScalar(mysql, serverPort, dbName, `SELECT REPLACE(\`provider_message_id\`, 'dev-', '') FROM \`verification_code\` WHERE \`verification_token\` = '${sms.body.verificationToken}';`);
 
     const register = await requestJson(baseUrl, "POST", "/api/auth/register", {
       username: "mysql_user",
       password: "mysqlpass123",
-      phone: "13900002222"
+      phone: "13900002222",
+      phoneCodeToken: sms.body.verificationToken,
+      phoneCode: codeRow
     });
+    record(register.status === 201, "MySQL register response is 201");
     record(register.status === 201 && register.body.wallet?.balance === 5, "MySQL auth register creates user wallet with 5 time coins");
 
     await checkMysqlScalar(mysql, serverPort, dbName, "SELECT COUNT(*) FROM `user` WHERE `username` = 'mysql_user' AND `password_hash` <> 'mysqlpass123';", "1", "MySQL user password is stored hashed");
@@ -311,6 +366,14 @@ async function mysqlExec(mysql, port, sql, extraArgs = [], timeoutMs = 30000) {
 async function checkMysqlScalar(mysql, port, dbName, sql, expected, message) {
   const result = await mysqlExec(mysql, port, `USE ${quoteIdentifier(dbName)}; ${sql}`, ["--batch", "--skip-column-names"]);
   record(result.code === 0 && result.stdout.trim() === expected, `${message} (${result.stdout.trim() || result.stderr.trim()})`);
+}
+
+async function mysqlScalar(mysql, port, dbName, sql) {
+  const result = await mysqlExec(mysql, port, `USE ${quoteIdentifier(dbName)}; ${sql}`, ["--batch", "--skip-column-names"]);
+  if (result.code !== 0) {
+    throw new Error(result.stderr.trim() || "mysql scalar query failed");
+  }
+  return result.stdout.trim();
 }
 
 async function shutdownMysql(mysqladmin, port, serverProcess) {

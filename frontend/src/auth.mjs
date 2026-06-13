@@ -1,6 +1,4 @@
 export const authStorageKeys = {
-  user: "neighbor.auth.user",
-  admin: "neighbor.auth.admin",
   profiles: "neighbor.auth.profiles"
 };
 
@@ -27,27 +25,19 @@ export function createAuthController(options = {}) {
   };
 
   function readSession(kind) {
-    const session = readJson(authStorageKeys[kind]);
-    if (!isValidSession(session)) {
-      clearSession(kind);
-      return null;
-    }
-    return session;
+    return null;
   }
 
   function saveSession(kind, payload) {
     const session = {
-      token: payload.token,
-      tokenType: payload.tokenType ?? "Bearer",
       expiresAt: payload.expiresAt ?? null,
       user: payload.user ?? null
     };
-    writeJson(authStorageKeys[kind], session);
     return session;
   }
 
   function clearSession(kind) {
-    storage?.removeItem?.(authStorageKeys[kind]);
+    return null;
   }
 
   async function loginUser(credentials) {
@@ -117,15 +107,15 @@ export function createAuthController(options = {}) {
   }
 
   async function updateUserProfile(profileDraft, existingSession = readSession("user")) {
-    if (!existingSession?.token) {
+    const session = existingSession ?? await refresh("user");
+    if (!session?.user) {
       return null;
     }
-    const result = await api.users.updateMe(existingSession.token, normalizeProfileDraft(profileDraft));
+    const result = await api.users.updateMe(null, normalizeProfileDraft(profileDraft));
     const updatedSession = {
-      ...existingSession,
-      user: result.user ?? existingSession.user
+      ...session,
+      user: result.user ?? session.user
     };
-    writeJson(authStorageKeys.user, updatedSession);
     saveProfileDraft(updatedSession.user, {
       ...profileDraft,
       ...(result.user ?? {})
@@ -155,13 +145,9 @@ export function createAuthController(options = {}) {
   }
 
   async function logout(kind) {
-    const session = readSession(kind);
     clearSession(kind);
-    if (!session?.token) {
-      return;
-    }
     try {
-      await api.auth.logout(session.token);
+      await api.auth.logout(null);
     } catch (error) {
       if (!isAuthError(error)) {
         throw error;
@@ -170,19 +156,13 @@ export function createAuthController(options = {}) {
   }
 
   async function refresh(kind) {
-    const session = readSession(kind);
-    if (!session?.token) {
-      return null;
-    }
     try {
       const payload = kind === "admin"
-        ? await api.adminAuth.me(session.token)
-        : await api.auth.me(session.token);
+        ? await api.adminAuth.me(null)
+        : await api.auth.me(null);
       const updated = {
-        ...session,
-        user: payload.user ?? session.user
+        user: payload.user ?? null
       };
-      writeJson(authStorageKeys[kind], updated);
       return updated;
     } catch (error) {
       if (isAuthError(error)) {
@@ -256,13 +236,7 @@ export function isAuthError(error) {
 }
 
 function isValidSession(session) {
-  if (!session?.token) {
-    return false;
-  }
-  if (!session.expiresAt) {
-    return true;
-  }
-  return new Date(session.expiresAt).getTime() > Date.now();
+  return Boolean(session?.user);
 }
 
 function profileKey(user) {
@@ -271,7 +245,7 @@ function profileKey(user) {
 
 function normalizeProfileDraft(input = {}) {
   const output = {};
-  for (const key of ["displayName", "phone", "bio"]) {
+  for (const key of ["displayName", "phone", "email", "bio"]) {
     if (Object.prototype.hasOwnProperty.call(input, key)) {
       output[key] = input[key] ?? null;
     }

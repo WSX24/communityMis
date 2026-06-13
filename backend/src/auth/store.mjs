@@ -31,10 +31,12 @@ export function createMemoryAuthStore(options = {}) {
   const aiCallLogs = new Map();
   const aiFeedback = new Map();
   const verificationCodes = new Map();
+  const rateLimitBuckets = new Map();
   const fileAssets = new Map();
   const requestComments = new Map();
   const requestCommentLikes = new Map();
   const userFollows = new Map();
+  const backups = new Map();
   let aiConfig = normalizeAiConfig(options.seedAiConfig ?? options.aiConfig);
   let systemSettings = normalizeSystemSettings(options.seedSystemSettings ?? options.systemSettings);
   let nextUserId = options.nextUserId ?? 10000;
@@ -198,6 +200,11 @@ export function createMemoryAuthStore(options = {}) {
     resolveAiFeedback,
     getAiConfig,
     updateAiConfig,
+    listBackups,
+    createBackup,
+    restoreBackup,
+    deleteBackup,
+    consumeRateLimit,
     createVerificationCode,
     consumeVerificationToken,
     createFileAsset,
@@ -231,10 +238,12 @@ export function createMemoryAuthStore(options = {}) {
       username: input.username.trim(),
       passwordHash: input.passwordHash,
       phone: normalizeOptionalString(input.phone),
+      email: normalizeOptionalString(input.email),
       displayName: normalizeOptionalString(input.displayName) ?? input.username.trim(),
       bio: normalizeOptionalString(input.bio),
       skillTags: normalizeSkillTags(input.skillTags),
       serviceCategories: normalizeTextList(input.serviceCategories),
+      avatarFileId: normalizeOptionalString(input.avatarFileId),
       isJury: Boolean(input.isJury ?? input.jury ?? input.is_jury ?? false),
       role: input.role ?? "user",
       status: input.status ?? ACTIVE_STATUS,
@@ -288,6 +297,9 @@ export function createMemoryAuthStore(options = {}) {
     if (hasOwn(input, "displayName")) {
       user.displayName = normalizeOptionalString(input.displayName) ?? user.username;
     }
+    if (hasOwn(input, "email")) {
+      user.email = normalizeOptionalString(input.email);
+    }
     if (hasOwn(input, "bio")) {
       user.bio = normalizeOptionalString(input.bio);
     }
@@ -296,6 +308,9 @@ export function createMemoryAuthStore(options = {}) {
     }
     if (hasOwn(input, "serviceCategories")) {
       user.serviceCategories = normalizeTextList(input.serviceCategories);
+    }
+    if (hasOwn(input, "avatarFileId")) {
+      user.avatarFileId = normalizeOptionalString(input.avatarFileId);
     }
 
     user.updatedAt = new Date().toISOString();
@@ -587,6 +602,70 @@ export function createMemoryAuthStore(options = {}) {
   function updateSystemSettings(input) {
     systemSettings = mergeSystemSettings(systemSettings, input);
     return clone(systemSettings);
+  }
+
+  function listBackups() {
+    return Array.from(backups.values())
+      .filter((item) => !item.deletedAt)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .map(clone);
+  }
+
+  function createBackup(input = {}) {
+    const now = input.createdAt ?? new Date().toISOString();
+    const snapshot = exportSnapshot();
+    const body = JSON.stringify(snapshot);
+    const backup = normalizeBackup({
+      backupId: input.backupId ?? crypto.randomUUID(),
+      label: input.label ?? `backup-${now.slice(0, 19).replace(/[:T]/g, "-")}`,
+      status: "ready",
+      sizeBytes: Buffer.byteLength(body),
+      checksum: crypto.createHash("sha256").update(body).digest("hex"),
+      createdBy: input.actorId ?? null,
+      createdAt: now,
+      snapshot
+    });
+    backups.set(backup.backupId, backup);
+    return clone(backup);
+  }
+
+  function restoreBackup(backupId, input = {}) {
+    const backup = backups.get(String(backupId));
+    if (!backup || backup.deletedAt) {
+      throw storeError("BACKUP_NOT_FOUND", "Backup was not found.");
+    }
+    backup.status = "restored";
+    backup.restoredAt = input.restoredAt ?? new Date().toISOString();
+    backup.restoredBy = input.actorId ?? null;
+    return clone(backup);
+  }
+
+  function deleteBackup(backupId, input = {}) {
+    const backup = backups.get(String(backupId));
+    if (!backup || backup.deletedAt) {
+      throw storeError("BACKUP_NOT_FOUND", "Backup was not found.");
+    }
+    backup.status = "deleted";
+    backup.deletedAt = input.deletedAt ?? new Date().toISOString();
+    backup.deletedBy = input.actorId ?? null;
+    return clone(backup);
+  }
+
+  function exportSnapshot() {
+    return {
+      generatedAt: new Date().toISOString(),
+      counts: {
+        users: users.size,
+        wallets: wallets.size,
+        requests: serviceRequests.size,
+        orders: serviceOrders.size,
+        disputes: disputes.size,
+        auditLogs: auditLogs.size,
+        files: fileAssets.size
+      },
+      systemSettings: clone(systemSettings),
+      aiConfig: clone(aiConfig)
+    };
   }
 
   function listServiceRequests() {
@@ -1050,12 +1129,42 @@ export function createMemoryAuthStore(options = {}) {
       attemptCount: 0,
       sendStatus: input.sendStatus ?? "sent",
       providerMessageId: input.providerMessageId ?? null,
+      providerError: input.providerError ?? null,
+      sentAt: input.sentAt ?? now,
       usedAt: null,
       createdAt: now
     };
     nextVerificationId += 1;
     verificationCodes.set(item.verificationToken, item);
     return clone(item);
+  }
+
+  function consumeRateLimit(input = {}) {
+    const scope = String(input.scope ?? "global").trim() || "global";
+    const identity = String(input.identity ?? "anonymous").trim() || "anonymous";
+    const limit = Math.max(1, Number(input.limit ?? 1));
+    const windowSeconds = Math.max(1, Number(input.windowSeconds ?? 60));
+    const now = Date.now();
+    const key = `${scope}:${identity}`;
+    const current = rateLimitBuckets.get(key);
+    const expired = !current || now - current.windowStartMs >= current.windowSeconds * 1000;
+    const bucket = expired
+      ? { scope, identity, windowStartMs: now, windowSeconds, count: 0 }
+      : current;
+    bucket.count += 1;
+    bucket.windowSeconds = windowSeconds;
+    rateLimitBuckets.set(key, bucket);
+    const resetAtMs = bucket.windowStartMs + bucket.windowSeconds * 1000;
+    return {
+      allowed: bucket.count <= limit,
+      scope,
+      identity,
+      limit,
+      count: bucket.count,
+      remaining: Math.max(0, limit - bucket.count),
+      resetAt: new Date(resetAtMs).toISOString(),
+      retryAfterSeconds: Math.max(1, Math.ceil((resetAtMs - now) / 1000))
+    };
   }
 
   function consumeVerificationToken(input) {
@@ -1092,6 +1201,7 @@ export function createMemoryAuthStore(options = {}) {
       storagePath: input.storagePath,
       mimeType: input.mimeType,
       sizeBytes: input.sizeBytes,
+      visibility: input.visibility,
       createdAt: now
     });
     fileAssets.set(asset.fileId, asset);
@@ -3658,8 +3768,30 @@ function normalizeFileAsset(input) {
     storagePath: String(input.storagePath ?? input.storage_path ?? ""),
     mimeType: String(input.mimeType ?? input.mime_type ?? "application/octet-stream"),
     sizeBytes: Number(input.sizeBytes ?? input.size_bytes ?? 0),
+    visibility: normalizeFileVisibility(input.visibility),
     createdAt: input.createdAt ?? input.created_at ?? new Date().toISOString()
   };
+}
+
+function normalizeBackup(input) {
+  return {
+    backupId: String(input.backupId ?? input.backup_id),
+    label: String(input.label ?? input.name ?? "backup"),
+    status: String(input.status ?? "ready"),
+    sizeBytes: Number(input.sizeBytes ?? input.size_bytes ?? 0),
+    checksum: String(input.checksum ?? ""),
+    createdBy: input.createdBy ?? input.created_by ?? null,
+    createdAt: input.createdAt ?? input.created_at ?? new Date().toISOString(),
+    restoredAt: input.restoredAt ?? input.restored_at ?? null,
+    restoredBy: input.restoredBy ?? input.restored_by ?? null,
+    deletedAt: input.deletedAt ?? input.deleted_at ?? null,
+    deletedBy: input.deletedBy ?? input.deleted_by ?? null,
+    snapshot: input.snapshot ?? null
+  };
+}
+
+function normalizeFileVisibility(value) {
+  return String(value ?? "").toLowerCase() === "public" ? "public" : "private";
 }
 
 function normalizeReview(input) {

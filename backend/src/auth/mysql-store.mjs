@@ -1,7 +1,7 @@
-import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import { ACTIVE_STATUS, INITIAL_TIME_COIN_BALANCE, normalizeUsername } from "./store.mjs";
 import { createMysqlPool } from "../mysql/pool.mjs";
+import { hashRateLimitIdentity } from "../rate-limit.mjs";
 
 export function createMysqlAuthStore(options = {}) {
   const config = {
@@ -104,6 +104,11 @@ export function createMysqlAuthStore(options = {}) {
     resolveAiFeedback,
     getAiConfig,
     updateAiConfig,
+    listBackups,
+    createBackup,
+    restoreBackup,
+    deleteBackup,
+    consumeRateLimit,
     createVerificationCode,
     consumeVerificationToken,
     createFileAsset,
@@ -138,21 +143,22 @@ INSERT INTO \`wallet\` (\`user_id\`, \`balance\`, \`frozen_balance\`, \`version\
 VALUES (@created_user_id, ${initialBalance}, 0.00, 0);
 COMMIT;
 SELECT JSON_OBJECT(
-  'user', ${userJsonObjectSql("u")},
+  'user', ${userJsonObjectSql("u", "up")},
   'wallet', ${walletJsonObjectSql("w")}
 )
 FROM \`user\` u
 JOIN \`wallet\` w ON w.\`user_id\` = u.\`user_id\`
+LEFT JOIN \`user_profile\` up ON up.\`user_id\` = u.\`user_id\`
 WHERE u.\`user_id\` = @created_user_id;
 `;
     const result = await mysqlJson(sql);
     const user = normalizeUser(result.user);
     if (user) {
-      profileExtras.set(user.userId, normalizeProfileExtra(input, user));
-      settings.set(user.userId, normalizeSettings(input.settings));
+      await upsertUserProfile(user.userId, normalizeProfileExtra(input, user));
+      await upsertUserSettings(user.userId, normalizeSettings(input.settings));
     }
     return {
-      user: withProfileExtras(user),
+      user: await findUserById(user.userId),
       wallet: normalizeWallet(result.wallet)
     };
   }
@@ -163,22 +169,24 @@ WHERE u.\`user_id\` = @created_user_id;
       return null;
     }
     const sql = `
-SELECT ${userJsonObjectSql("u")}
+SELECT ${userJsonObjectSql("u", "up")}
 FROM \`user\` u
+LEFT JOIN \`user_profile\` up ON up.\`user_id\` = u.\`user_id\`
 WHERE LOWER(u.\`username\`) = ${sqlString(normalized)}
 LIMIT 1;
 `;
-    return withProfileExtras(normalizeUser(await mysqlJson(sql, { optional: true })));
+    return normalizeUser(await mysqlJson(sql, { optional: true }));
   }
 
   async function findUserById(userId) {
     const sql = `
-SELECT ${userJsonObjectSql("u")}
+SELECT ${userJsonObjectSql("u", "up")}
 FROM \`user\` u
+LEFT JOIN \`user_profile\` up ON up.\`user_id\` = u.\`user_id\`
 WHERE u.\`user_id\` = ${Number(userId)}
 LIMIT 1;
 `;
-    return withProfileExtras(normalizeUser(await mysqlJson(sql, { optional: true })));
+    return normalizeUser(await mysqlJson(sql, { optional: true }));
   }
 
   async function findWalletByUserId(userId) {
@@ -207,33 +215,28 @@ LIMIT 1;
     }
 
     if (assignments.length > 0) {
-      const result = await runMysql(`
+      await mysqlJson(`
 UPDATE \`user\`
 SET ${assignments.join(", ")}
 WHERE \`user_id\` = ${id}
 LIMIT 1;
+SELECT JSON_OBJECT('ok', TRUE);
 `);
-      if (result.code !== 0) {
-        throw new Error(`mysql exited with code ${result.code}: ${result.stderr.trim()}`);
-      }
     }
 
-    profileExtras.set(id, {
-      ...normalizeProfileExtra(existing, existing),
-      ...profileExtras.get(id),
-      ...normalizeProfileExtra(input, existing)
-    });
+    await upsertUserProfile(id, normalizeProfileExtra(input, existing));
     return findUserById(id);
   }
 
-  function findSettingsByUserId(userId) {
-    return clone(settings.get(Number(userId)) ?? normalizeSettings());
+  async function findSettingsByUserId(userId) {
+    const row = await pooledOne("SELECT `settings_json` AS settings FROM `user_settings` WHERE `user_id` = ? LIMIT 1", [Number(userId)]);
+    return normalizeSettings(row?.settings ?? settings.get(Number(userId)) ?? {});
   }
 
-  function updateSettingsByUserId(userId, input) {
+  async function updateSettingsByUserId(userId, input) {
     const id = Number(userId);
-    const next = mergeSettings(settings.get(id) ?? normalizeSettings(), input);
-    settings.set(id, next);
+    const next = mergeSettings(await findSettingsByUserId(id), input);
+    await upsertUserSettings(id, next);
     return clone(next);
   }
 
@@ -682,13 +685,81 @@ LIMIT 1;
     return clone(item);
   }
 
-  function getSystemSettings() {
+  async function getSystemSettings() {
+    const row = await pooledOne("SELECT `config_value` AS configValue, DATE_FORMAT(`updated_at`, '%Y-%m-%dT%H:%i:%s.000Z') AS updatedAt FROM `system_config` WHERE `config_key` = 'system.settings' LIMIT 1");
+    const stored = row?.configValue && typeof row.configValue === "object" ? row.configValue : null;
+    return normalizeSystemSettings(stored ? { ...stored, updatedAt: row.updatedAt ?? stored.updatedAt } : systemSettings);
+  }
+
+  async function updateSystemSettings(input) {
+    systemSettings = mergeSystemSettings(await getSystemSettings(), input);
+    await pooledExecute(`
+INSERT INTO \`system_config\` (\`config_key\`, \`config_value\`, \`description\`, \`updated_by\`)
+VALUES ('system.settings', ?, '后台系统设置', ?)
+ON DUPLICATE KEY UPDATE
+  \`config_value\` = VALUES(\`config_value\`),
+  \`updated_by\` = VALUES(\`updated_by\`)
+`, [JSON.stringify(systemSettings), input.actorId ?? null]);
     return clone(systemSettings);
   }
 
-  function updateSystemSettings(input) {
-    systemSettings = mergeSystemSettings(systemSettings, input);
-    return clone(systemSettings);
+  async function listBackups() {
+    const stored = await readJsonConfig("admin.backups");
+    const backups = Array.isArray(stored?.backups) ? stored.backups.map(normalizeBackup) : [];
+    return backups
+      .filter((item) => !item.deletedAt)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  }
+
+  async function createBackup(input = {}) {
+    const now = input.createdAt ?? new Date().toISOString();
+    const backups = await listBackups();
+    const snapshot = {
+      generatedAt: now,
+      store: "mysql",
+      database: config.database,
+      systemSettings: await getSystemSettings(),
+      aiConfig: await getAiConfig()
+    };
+    const body = JSON.stringify(snapshot);
+    const backup = normalizeBackup({
+      backupId: input.backupId ?? crypto.randomUUID(),
+      label: input.label ?? `mysql-backup-${now.slice(0, 19).replace(/[:T]/g, "-")}`,
+      status: "ready",
+      sizeBytes: Buffer.byteLength(body),
+      checksum: crypto.createHash("sha256").update(body).digest("hex"),
+      createdBy: input.actorId ?? null,
+      createdAt: now,
+      snapshot
+    });
+    await writeJsonConfig("admin.backups", { backups: [backup, ...backups] }, "后台系统备份记录");
+    return backup;
+  }
+
+  async function restoreBackup(backupId, input = {}) {
+    const backups = await listBackups();
+    const backup = backups.find((item) => item.backupId === String(backupId));
+    if (!backup) {
+      throw storeError("BACKUP_NOT_FOUND", "Backup was not found.");
+    }
+    backup.status = "restored";
+    backup.restoredAt = input.restoredAt ?? new Date().toISOString();
+    backup.restoredBy = input.actorId ?? null;
+    await writeJsonConfig("admin.backups", { backups }, "后台系统备份记录");
+    return backup;
+  }
+
+  async function deleteBackup(backupId, input = {}) {
+    const backups = await listBackups();
+    const backup = backups.find((item) => item.backupId === String(backupId));
+    if (!backup) {
+      throw storeError("BACKUP_NOT_FOUND", "Backup was not found.");
+    }
+    backup.status = "deleted";
+    backup.deletedAt = input.deletedAt ?? new Date().toISOString();
+    backup.deletedBy = input.actorId ?? null;
+    await writeJsonConfig("admin.backups", { backups }, "后台系统备份记录");
+    return backup;
   }
 
   async function listServiceRequests() {
@@ -3802,9 +3873,11 @@ INSERT INTO \`verification_code\` (
   \`code_hash\`,
   \`expires_at\`,
   \`send_status\`,
-  \`provider_message_id\`
+  \`provider_message_id\`,
+  \`sent_at\`,
+  \`provider_error\`
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `, [
       input.verificationToken,
       input.channel,
@@ -3813,7 +3886,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       input.codeHash,
       toMysqlDateTime(input.expiresAt),
       input.sendStatus ?? "sent",
-      input.providerMessageId ?? null
+      input.providerMessageId ?? null,
+      input.sentAt ? toMysqlDateTime(input.sentAt) : null,
+      input.providerError ?? null
     ]);
     return pooledOne(`
 SELECT
@@ -3827,6 +3902,8 @@ SELECT
   \`attempt_count\` AS attemptCount,
   \`send_status\` AS sendStatus,
   \`provider_message_id\` AS providerMessageId,
+  IF(\`sent_at\` IS NULL, NULL, DATE_FORMAT(\`sent_at\`, '%Y-%m-%dT%H:%i:%s.000Z')) AS sentAt,
+  \`provider_error\` AS providerError,
   IF(\`used_at\` IS NULL, NULL, DATE_FORMAT(\`used_at\`, '%Y-%m-%dT%H:%i:%s.000Z')) AS usedAt,
   DATE_FORMAT(\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
 FROM \`verification_code\`
@@ -3836,7 +3913,10 @@ LIMIT 1
   }
 
   async function consumeVerificationToken(input) {
-    const row = await pooledOne(`
+    const connection = await (await mysqlPool()).getConnection();
+    try {
+      await connection.beginTransaction();
+      const [rows] = await connection.execute(`
 SELECT
   \`verification_token\` AS verificationToken,
   \`channel\`,
@@ -3852,15 +3932,24 @@ WHERE \`verification_token\` = ?
   AND \`purpose\` = ?
   AND \`recipient\` = ?
 LIMIT 1
+FOR UPDATE
 `, [input.verificationToken, input.channel, input.purpose, input.recipient]);
-    if (!row) throw storeError("VERIFICATION_INVALID", "Verification token is invalid.");
-    if (row.usedAt) throw storeError("VERIFICATION_USED", "Verification token was already used.");
-    if (new Date(row.expiresAt).getTime() <= Date.now()) throw storeError("VERIFICATION_EXPIRED", "Verification token is expired.");
-    if (Number(row.attemptCount ?? 0) >= 5) throw storeError("VERIFICATION_ATTEMPTS_EXCEEDED", "Verification attempts exceeded.");
-    await pooledExecute("UPDATE `verification_code` SET `attempt_count` = `attempt_count` + 1 WHERE `verification_token` = ?", [input.verificationToken]);
-    if (row.codeHash !== input.codeHash) throw storeError("VERIFICATION_CODE_MISMATCH", "Verification code is incorrect.");
-    await pooledExecute("UPDATE `verification_code` SET `used_at` = CURRENT_TIMESTAMP WHERE `verification_token` = ?", [input.verificationToken]);
-    return row;
+      const row = Array.isArray(rows) ? rows[0] : null;
+      if (!row) throw storeError("VERIFICATION_INVALID", "Verification token is invalid.");
+      if (row.usedAt) throw storeError("VERIFICATION_USED", "Verification token was already used.");
+      if (new Date(row.expiresAt).getTime() <= Date.now()) throw storeError("VERIFICATION_EXPIRED", "Verification token is expired.");
+      if (Number(row.attemptCount ?? 0) >= 5) throw storeError("VERIFICATION_ATTEMPTS_EXCEEDED", "Verification attempts exceeded.");
+      await connection.execute("UPDATE `verification_code` SET `attempt_count` = `attempt_count` + 1 WHERE `verification_token` = ?", [input.verificationToken]);
+      if (row.codeHash !== input.codeHash) throw storeError("VERIFICATION_CODE_MISMATCH", "Verification code is incorrect.");
+      await connection.execute("UPDATE `verification_code` SET `used_at` = CURRENT_TIMESTAMP WHERE `verification_token` = ?", [input.verificationToken]);
+      await connection.commit();
+      return row;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 
   async function createFileAsset(input) {
@@ -3880,9 +3969,10 @@ INSERT INTO \`file_asset\` (
   \`storage_path\`,
   \`mime_type\`,
   \`size_bytes\`,
+  \`visibility\`,
   \`created_at\`
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `, [
       asset.fileId,
       asset.ownerId,
@@ -3893,6 +3983,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       asset.storagePath,
       asset.mimeType,
       asset.sizeBytes,
+      asset.visibility,
       toMysqlDateTime(asset.createdAt)
     ]);
     return asset;
@@ -3910,6 +4001,7 @@ SELECT
   \`storage_path\` AS storagePath,
   \`mime_type\` AS mimeType,
   \`size_bytes\` AS sizeBytes,
+  COALESCE(\`visibility\`, 'private') AS visibility,
   DATE_FORMAT(\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
 FROM \`file_asset\`
 WHERE \`file_id\` = ?
@@ -4112,10 +4204,7 @@ LIMIT 1
     if (!asset || Number(asset.ownerId) !== Number(userId)) {
       return null;
     }
-    profileExtras.set(Number(userId), {
-      ...(profileExtras.get(Number(userId)) ?? {}),
-      avatarFileId: asset.fileId
-    });
+    await upsertUserProfile(Number(userId), { avatarFileId: asset.fileId });
     return findUserById(userId);
   }
 
@@ -4147,8 +4236,7 @@ LIMIT 1
   }
 
   async function persistSession(session) {
-    try {
-      await pooledExecute(`
+    await pooledExecute(`
 INSERT INTO \`auth_session\` (
   \`session_id\`,
   \`user_id\`,
@@ -4170,40 +4258,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         session.userAgent,
         toMysqlDateTime(session.createdAt)
       ]);
-      return;
-    } catch (_error) {
-      await mysqlJson(`
-INSERT INTO \`auth_session\` (
-  \`session_id\`,
-  \`user_id\`,
-  \`role\`,
-  \`csrf_token\`,
-  \`expires_at\`,
-  \`ip_address\`,
-  \`user_agent\`,
-  \`created_at\`
-)
-VALUES (
-  ${sqlString(session.sessionId)},
-  ${Number(session.userId)},
-  ${sqlString(session.role)},
-  ${sqlString(session.csrfToken)},
-  ${sqlString(toMysqlDateTime(session.expiresAt))},
-  ${sqlNullableString(session.ipAddress)},
-  ${sqlNullableString(session.userAgent)},
-  ${sqlString(toMysqlDateTime(session.createdAt))}
-);
-SELECT JSON_OBJECT('ok', TRUE);
-`, { optional: true }).catch((error) => {
-        if (!isMissingAuthSessionTable(error)) {
-          throw error;
-        }
-      });
-    }
   }
 
   async function findSession(sessionId) {
-    let row = await pooledOne(`
+    const row = await pooledOne(`
 SELECT
   \`session_id\` AS sessionId,
   \`user_id\` AS userId,
@@ -4217,30 +4275,7 @@ SELECT
 FROM \`auth_session\`
 WHERE \`session_id\` = ?
 LIMIT 1
-`, [sessionId]).catch(() => null);
-    if (!row) {
-      row = await mysqlJson(`
-SELECT JSON_OBJECT(
-  'sessionId', \`session_id\`,
-  'userId', \`user_id\`,
-  'role', \`role\`,
-  'csrfToken', \`csrf_token\`,
-  'expiresAt', DATE_FORMAT(\`expires_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
-  'createdAt', DATE_FORMAT(\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
-  'revokedAt', IF(\`revoked_at\` IS NULL, NULL, DATE_FORMAT(\`revoked_at\`, '%Y-%m-%dT%H:%i:%s.000Z')),
-  'ipAddress', \`ip_address\`,
-  'userAgent', \`user_agent\`
-)
-FROM \`auth_session\`
-WHERE \`session_id\` = ${sqlString(sessionId)}
-LIMIT 1;
-`, { optional: true }).catch((error) => {
-        if (isMissingAuthSessionTable(error)) {
-          return null;
-        }
-        throw error;
-      });
-    }
+`, [sessionId]);
     if (row) {
       const normalized = normalizeSession(row);
       sessions.set(normalized.sessionId, normalized);
@@ -4256,17 +4291,7 @@ LIMIT 1;
 UPDATE \`auth_session\`
 SET \`revoked_at\` = COALESCE(\`revoked_at\`, ?)
 WHERE \`session_id\` = ?
-`, [toMysqlDateTime(now), sessionId]).catch(() => mysqlJson(`
-UPDATE \`auth_session\`
-SET \`revoked_at\` = COALESCE(\`revoked_at\`, ${sqlString(toMysqlDateTime(now))})
-WHERE \`session_id\` = ${sqlString(sessionId)};
-SELECT JSON_OBJECT('ok', TRUE);
-`, { optional: true }).catch((error) => {
-      if (isMissingAuthSessionTable(error)) {
-        return null;
-      }
-      throw error;
-    }));
+`, [toMysqlDateTime(now), sessionId]);
     const session = sessions.get(sessionId);
     if (!session || session.revokedAt) {
       return Boolean(session);
@@ -4310,68 +4335,181 @@ SELECT JSON_OBJECT('ok', TRUE);
   }
 
   async function mysqlJson(sql, options = {}) {
-    const result = await runMysql(sql, ["--batch", "--raw", "--skip-column-names"]);
-    if (result.code !== 0) {
-      if (/Duplicate entry/i.test(result.stderr)) {
-        const duplicateUsername = /uk_user_username/i.test(result.stderr);
+    try {
+      const pool = await mysqlPool();
+      const [results] = await pool.query(sql);
+      const hasNestedResultSets = Array.isArray(results) && results.some((result) => Array.isArray(result));
+      const resultSets = hasNestedResultSets
+        ? results.filter((result) => Array.isArray(result))
+        : [Array.isArray(results) ? results : [results]];
+      for (let index = resultSets.length - 1; index >= 0; index -= 1) {
+        const rows = resultSets[index].filter((row) => row && typeof row === "object" && !("affectedRows" in row));
+        if (Array.isArray(rows) && rows.length > 0) {
+          const row = rows[rows.length - 1];
+          return parseMysqlJsonValue(Object.values(row)[0]);
+        }
+      }
+      return options.optional ? null : undefined;
+    } catch (rawError) {
+      if (rawError?.code === "ER_DUP_ENTRY") {
+        const duplicateUsername = /uk_user_username/i.test(String(rawError.message ?? ""));
         const error = new Error(duplicateUsername ? "Username already exists." : "Duplicate entry.");
         error.code = duplicateUsername ? "DUPLICATE_USERNAME" : "DUPLICATE_ENTRY";
-        error.stderr = result.stderr;
         throw error;
       }
-      throw new Error(`mysql exited with code ${result.code}: ${result.stderr.trim()}`);
+      throw rawError;
     }
-
-    const text = result.stdout.trim();
-    if (!text) {
-      return options.optional ? null : undefined;
-    }
-    return JSON.parse(text.split(/\r?\n/).at(-1));
   }
 
-  function runMysql(sql, extraArgs = []) {
-    return new Promise((resolve) => {
-      const args = [
-        `--host=${config.host}`,
-        `--port=${config.port}`,
-        `--user=${config.user}`,
-        `--database=${config.database}`,
-        "--default-character-set=utf8mb4",
-        "--comments",
-        ...extraArgs
-      ];
+  async function upsertUserProfile(userId, patch = {}) {
+    const existing = await pooledOne(`
+SELECT
+  \`display_name\` AS displayName,
+  \`bio\`,
+  \`email\`,
+  \`service_categories\` AS serviceCategories,
+  \`is_jury\` AS isJury,
+  \`avatar_file_id\` AS avatarFileId
+FROM \`user_profile\`
+WHERE \`user_id\` = ?
+LIMIT 1
+`, [Number(userId)]);
+    const normalized = normalizeProfileExtra(patch, existing ?? {});
+    const next = {
+      displayName: hasOwn(normalized, "displayName") ? normalized.displayName : existing?.displayName ?? null,
+      bio: hasOwn(normalized, "bio") ? normalized.bio : existing?.bio ?? null,
+      email: hasOwn(normalized, "email") ? normalized.email : existing?.email ?? null,
+      serviceCategories: hasOwn(normalized, "serviceCategories") ? normalized.serviceCategories : parseSkillTags(existing?.serviceCategories),
+      isJury: hasOwn(normalized, "isJury") ? normalized.isJury : Boolean(existing?.isJury),
+      avatarFileId: hasOwn(normalized, "avatarFileId") ? normalized.avatarFileId : existing?.avatarFileId ?? null
+    };
+    await pooledExecute(`
+INSERT INTO \`user_profile\` (
+  \`user_id\`,
+  \`display_name\`,
+  \`bio\`,
+  \`email\`,
+  \`service_categories\`,
+  \`is_jury\`,
+  \`avatar_file_id\`
+)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+  \`display_name\` = VALUES(\`display_name\`),
+  \`bio\` = VALUES(\`bio\`),
+  \`email\` = VALUES(\`email\`),
+  \`service_categories\` = VALUES(\`service_categories\`),
+  \`is_jury\` = VALUES(\`is_jury\`),
+  \`avatar_file_id\` = VALUES(\`avatar_file_id\`)
+`, [Number(userId), next.displayName, next.bio, next.email, JSON.stringify(next.serviceCategories ?? []), next.isJury ? 1 : 0, next.avatarFileId]);
+  }
 
-      const child = spawn(config.mysqlBin, args, {
-        env: { ...process.env, MYSQL_PWD: config.password },
-        stdio: ["pipe", "pipe", "pipe"]
-      });
+  async function upsertUserSettings(userId, next) {
+    const normalized = normalizeSettings(next);
+    settings.set(Number(userId), normalized);
+    await pooledExecute(`
+INSERT INTO \`user_settings\` (\`user_id\`, \`settings_json\`)
+VALUES (?, ?)
+ON DUPLICATE KEY UPDATE \`settings_json\` = VALUES(\`settings_json\`)
+`, [Number(userId), JSON.stringify(normalized)]);
+  }
 
-      let stdout = "";
-      let stderr = "";
-      child.stdout.on("data", (chunk) => {
-        stdout += chunk.toString();
-      });
-      child.stderr.on("data", (chunk) => {
-        stderr += chunk.toString();
-      });
-      child.on("error", (error) => {
-        resolve({ code: 1, stdout, stderr: `${stderr}${error.message}` });
-      });
-      child.on("close", (code) => {
-        resolve({ code: code ?? 1, stdout, stderr });
-      });
-      child.stdin.end(sql);
-    });
+  async function consumeRateLimit(input = {}) {
+    const scope = String(input.scope ?? "global").trim() || "global";
+    const identity = String(input.identity ?? "anonymous").trim() || "anonymous";
+    const identityHash = hashRateLimitIdentity(identity);
+    const limit = Math.max(1, Number(input.limit ?? 1));
+    const windowSeconds = Math.max(1, Number(input.windowSeconds ?? 60));
+    const now = Date.now();
+    const windowStart = new Date(now).toISOString();
+    const pool = await mysqlPool();
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [rows] = await connection.execute(`
+SELECT
+  \`window_start\` AS windowStart,
+  \`window_seconds\` AS windowSeconds,
+  \`count\`
+FROM \`rate_limit_bucket\`
+WHERE \`scope\` = ? AND \`identity_hash\` = ?
+FOR UPDATE
+`, [scope, identityHash]);
+      const row = Array.isArray(rows) ? rows[0] : null;
+      let count = 1;
+      let resetAtMs = now + windowSeconds * 1000;
+      let currentWindowStart = windowStart;
+      const expired = !row || new Date(row.windowStart).getTime() + Number(row.windowSeconds) * 1000 <= now;
+      if (row && !expired) {
+        count = Number(row.count ?? 0) + 1;
+        resetAtMs = new Date(row.windowStart).getTime() + Number(row.windowSeconds) * 1000;
+        currentWindowStart = new Date(row.windowStart).toISOString();
+        await connection.execute(`
+UPDATE \`rate_limit_bucket\`
+SET \`count\` = ?,
+    \`window_seconds\` = ?,
+    \`identity_hint\` = ?
+WHERE \`scope\` = ? AND \`identity_hash\` = ?
+`, [count, windowSeconds, identity.slice(0, 255), scope, identityHash]);
+      } else {
+        await connection.execute(`
+INSERT INTO \`rate_limit_bucket\` (
+  \`scope\`,
+  \`identity_hash\`,
+  \`identity_hint\`,
+  \`window_start\`,
+  \`window_seconds\`,
+  \`count\`
+)
+VALUES (?, ?, ?, ?, ?, 1)
+ON DUPLICATE KEY UPDATE
+  \`identity_hint\` = VALUES(\`identity_hint\`),
+  \`window_start\` = VALUES(\`window_start\`),
+  \`window_seconds\` = VALUES(\`window_seconds\`),
+  \`count\` = 1
+`, [scope, identityHash, identity.slice(0, 255), toMysqlDateTime(windowStart), windowSeconds]);
+      }
+      await connection.commit();
+      return {
+        allowed: count <= limit,
+        scope,
+        identity,
+        limit,
+        count,
+        remaining: Math.max(0, limit - count),
+        resetAt: new Date(resetAtMs).toISOString(),
+        retryAfterSeconds: Math.max(1, Math.ceil((resetAtMs - now) / 1000)),
+        windowStart: currentWindowStart,
+        windowSeconds
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 }
 
-function userJsonObjectSql(alias) {
+function userJsonObjectSql(alias, profileAlias = null) {
+  const profile = (column, fallback = "NULL") => {
+    if (profileAlias) {
+      return `${profileAlias}.\`${column}\``;
+    }
+    return `COALESCE((SELECT up.\`${column}\` FROM \`user_profile\` up WHERE up.\`user_id\` = ${alias}.\`user_id\` LIMIT 1), ${fallback})`;
+  };
   return `JSON_OBJECT(
     'userId', ${alias}.\`user_id\`,
     'username', ${alias}.\`username\`,
     'passwordHash', ${alias}.\`password_hash\`,
     'phone', ${alias}.\`phone\`,
+    'email', ${profile("email")},
+    'displayName', ${profile("display_name")},
+    'bio', ${profile("bio")},
     'skillTags', ${alias}.\`skill_tags\`,
+    'serviceCategories', ${profile("service_categories")},
+    'avatarFileId', ${profile("avatar_file_id")},
+    'isJury', ${profile("is_jury", "0")},
     'role', ${alias}.\`role\`,
     'status', ${alias}.\`status\`,
     'createdAt', DATE_FORMAT(${alias}.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z'),
@@ -4644,11 +4782,12 @@ function normalizeUser(user) {
   return {
     ...user,
     avatarFileId: user.avatarFileId ?? user.avatar_file_id ?? null,
+    email: normalizeOptionalString(user.email),
     displayName: user.displayName ?? user.username,
     bio: user.bio ?? null,
     skillTags: parseSkillTags(user.skillTags),
     serviceCategories: parseSkillTags(user.serviceCategories),
-    isJury: isJurySkillTags(parseSkillTags(user.skillTags))
+    isJury: Boolean(user.isJury ?? user.is_jury ?? isJurySkillTags(parseSkillTags(user.skillTags)))
   };
 }
 
@@ -4828,8 +4967,30 @@ function normalizeFileAsset(input) {
     storagePath: String(input.storagePath ?? input.storage_path ?? ""),
     mimeType: String(input.mimeType ?? input.mime_type ?? "application/octet-stream"),
     sizeBytes: Number(input.sizeBytes ?? input.size_bytes ?? 0),
+    visibility: normalizeFileVisibility(input.visibility),
     createdAt: input.createdAt ?? input.created_at ?? new Date().toISOString()
   };
+}
+
+function normalizeBackup(input) {
+  return {
+    backupId: String(input.backupId ?? input.backup_id),
+    label: String(input.label ?? input.name ?? "backup"),
+    status: String(input.status ?? "ready"),
+    sizeBytes: Number(input.sizeBytes ?? input.size_bytes ?? 0),
+    checksum: String(input.checksum ?? ""),
+    createdBy: input.createdBy ?? input.created_by ?? null,
+    createdAt: input.createdAt ?? input.created_at ?? new Date().toISOString(),
+    restoredAt: input.restoredAt ?? input.restored_at ?? null,
+    restoredBy: input.restoredBy ?? input.restored_by ?? null,
+    deletedAt: input.deletedAt ?? input.deleted_at ?? null,
+    deletedBy: input.deletedBy ?? input.deleted_by ?? null,
+    snapshot: input.snapshot ?? null
+  };
+}
+
+function normalizeFileVisibility(value) {
+  return String(value ?? "").toLowerCase() === "public" ? "public" : "private";
 }
 
 function normalizeRequestComment(input) {
@@ -5161,6 +5322,12 @@ function normalizeProfileExtra(input, fallback = {}) {
   }
   if (hasOwn(input, "bio")) {
     output.bio = normalizeOptionalString(input.bio);
+  }
+  if (hasOwn(input, "email")) {
+    output.email = normalizeOptionalString(input.email);
+  }
+  if (hasOwn(input, "avatarFileId")) {
+    output.avatarFileId = normalizeOptionalString(input.avatarFileId);
   }
   if (hasOwn(input, "serviceCategories")) {
     output.serviceCategories = Array.isArray(input.serviceCategories)
@@ -6037,6 +6204,19 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function parseMysqlJsonValue(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (Buffer.isBuffer(value)) {
+    return JSON.parse(value.toString("utf8"));
+  }
+  if (typeof value === "object") {
+    return value;
+  }
+  return JSON.parse(String(value));
+}
+
 function normalizeSession(input) {
   return {
     sessionId: String(input.sessionId ?? input.session_id),
@@ -6134,8 +6314,4 @@ function storeError(code, message) {
   const error = new Error(message);
   error.code = code;
   return error;
-}
-
-function isMissingAuthSessionTable(error) {
-  return /auth_session/i.test(String(error?.message ?? error?.stderr ?? "")) && /doesn't exist|does not exist|ER_NO_SUCH_TABLE/i.test(String(error?.message ?? error?.stderr ?? ""));
 }

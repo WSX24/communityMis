@@ -60,7 +60,7 @@ export function createBackendServer(options = {}) {
         return;
       }
 
-      if (await handleVerificationRoutes({ request, response, url, authService, config })) {
+      if (await handleVerificationRoutes({ request, response, url, authService, config, providers: options.verificationProviders })) {
         return;
       }
 

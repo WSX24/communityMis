@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createBackendServer } from "../backend/src/app.mjs";
+import { createMemoryAuthStore } from "../backend/src/auth/store.mjs";
+import { hashVerificationCode } from "../backend/src/verification/routes.mjs";
 import { createFrontendServer } from "../frontend/server.mjs";
 import { createAuthController } from "../frontend/src/auth.mjs";
 import { createApiClient } from "../frontend/src/api/client.mjs";
@@ -62,23 +64,35 @@ function checkStaticAuthWiring() {
 }
 
 async function checkBrowserAuthSmoke() {
-  const backend = createBackendServer({ sessionSecret: "stage04-test-secret" });
+  const store = createMemoryAuthStore();
+  const backend = createBackendServer({ authStore: store, sessionSecret: "stage04-test-secret" });
   const frontend = createFrontendServer();
   const backendPort = await listen(backend);
   const frontendPort = await listen(frontend);
   const api = createApiClient({
     baseUrl: `http://127.0.0.1:${backendPort}`,
-    fetchImpl: fetch
+    fetchImpl: cookieFetch(fetch)
   });
 
   try {
     const loginPage = await fetchText(`http://127.0.0.1:${frontendPort}/login`);
     const adminPage = await fetchText(`http://127.0.0.1:${frontendPort}/admin/dashboard`);
-    record(loginPage.includes("prototype-shell.mjs"), "frontend serves browser auth shell on /login");
-    record(adminPage.includes("prototype-shell.mjs"), "frontend serves browser auth shell on /admin/dashboard");
+    record(loginPage.includes('id="root"'), "frontend serves SPA auth shell on /login");
+    record(adminPage.includes('id="root"'), "frontend serves SPA admin shell on /admin/dashboard");
 
     const username = `stage04_user_${Date.now()}`;
     const password = "user123456";
+    const phone = "13900004444";
+    const phoneVerification = store.createVerificationCode({
+      verificationToken: `stage04-phone-token-${Date.now()}`,
+      channel: "sms",
+      purpose: "register",
+      recipient: phone,
+      codeHash: hashVerificationCode("123456"),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      sendStatus: "sent",
+      providerMessageId: "stage04-memory"
+    });
     const storage = createMemoryStorage();
     const auth = createAuthController({
       api,
@@ -88,7 +102,9 @@ async function checkBrowserAuthSmoke() {
     const session = await auth.registerUser({
       username,
       password,
-      phone: "13900004444",
+      phone,
+      phoneCodeToken: phoneVerification.verificationToken,
+      phoneCode: "123456",
       skillTags: ["家电维修", "跑腿代取"]
     }, {
       building: "阳光花园 6 号楼",
@@ -96,8 +112,8 @@ async function checkBrowserAuthSmoke() {
       skillTags: ["家电维修", "跑腿代取"]
     });
 
-    record(Boolean(session.token), "register logs the user in and stores a bearer token");
-    record(auth.readSession("user")?.user?.username === username, "user session survives in browser storage");
+    record(!session.token, "register does not expose a browser-persisted bearer token");
+    record(auth.readSession("user") === null, "user session is not persisted in browser storage");
     record(auth.readProfileDraft(session.user)?.skillTags?.includes("家电维修"), "register stores skill tags in local profile draft");
 
     const refreshed = await createAuthController({
@@ -175,6 +191,39 @@ function createMemoryLocation(pathname) {
       this.pathname = nextPath.split("?")[0];
     }
   };
+}
+
+function cookieFetch(fetchImpl) {
+  const jar = new Map();
+  globalThis.document ??= {};
+  return async (url, options = {}) => {
+    const headers = new Headers(options.headers ?? {});
+    const cookie = Array.from(jar.entries()).map(([key, value]) => `${key}=${value}`).join("; ");
+    if (cookie && !headers.has("cookie")) {
+      headers.set("cookie", cookie);
+    }
+    const response = await fetchImpl(url, {
+      ...options,
+      headers
+    });
+    for (const value of setCookieHeaders(response)) {
+      const [pair] = value.split(";");
+      const index = pair.indexOf("=");
+      if (index > 0) {
+        jar.set(pair.slice(0, index), pair.slice(index + 1));
+      }
+    }
+    globalThis.document.cookie = Array.from(jar.entries()).map(([key, value]) => `${key}=${value}`).join("; ");
+    return response;
+  };
+}
+
+function setCookieHeaders(response) {
+  if (typeof response.headers.getSetCookie === "function") {
+    return response.headers.getSetCookie();
+  }
+  const value = response.headers.get("set-cookie");
+  return value ? [value] : [];
 }
 
 function record(ok, message) {

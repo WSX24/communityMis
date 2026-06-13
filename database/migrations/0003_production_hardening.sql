@@ -91,8 +91,7 @@ CREATE TABLE IF NOT EXISTS `user_follow` (
   PRIMARY KEY (`follower_id`, `followee_id`),
   KEY `idx_user_follow_followee` (`followee_id`, `created_at`),
   CONSTRAINT `fk_user_follow_follower` FOREIGN KEY (`follower_id`) REFERENCES `user` (`user_id`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `fk_user_follow_followee` FOREIGN KEY (`followee_id`) REFERENCES `user` (`user_id`) ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT `ck_user_follow_not_self` CHECK (`follower_id` <> `followee_id`)
+  CONSTRAINT `fk_user_follow_followee` FOREIGN KEY (`followee_id`) REFERENCES `user` (`user_id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 SET @schema_name = DATABASE();

@@ -21,7 +21,7 @@ export function createApiClient(options = {}) {
     const body = normalizeRequestBody(requestOptions.body, headers);
     const token = requestOptions.token ?? requestOptions.authToken;
 
-    if (token && !headers.has("authorization")) {
+    if (token && requestOptions.allowBearer === true && !headers.has("authorization")) {
       headers.set("authorization", `Bearer ${token}`);
     }
     if (isMutatingMethod(requestOptions.method) && !headers.has("x-csrf-token")) {

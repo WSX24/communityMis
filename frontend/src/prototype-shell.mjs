@@ -233,25 +233,8 @@ function bindEmbeddedRegisterForm() {
       return;
     }
 
-    const payload = {
-      username,
-      password,
-      phone: document.getElementById("reg-phone")?.value.trim() || null,
-      skillTags: selectedSkillTags("#skill-tags .skill-tag.selected")
-    };
-
-    const restore = setLoading(button, "注册中...");
-    try {
-      await auth.registerUser(payload, {
-        source: "login-panel",
-        skillTags: payload.skillTags
-      });
-      showInlineMessage(button, "注册成功，正在进入社区。", "success");
-      navigateTo("/feed");
-    } catch (error) {
-      restore();
-      showInlineMessage(button, authErrorMessage(error, "register"), "error");
-    }
+    showInlineMessage(button, "注册需要完成手机号验证码，请使用完整注册页。", "info");
+    navigateTo(`/register?username=${encodeURIComponent(username)}`);
   }), true);
 }
 
@@ -262,10 +245,71 @@ function bindRegisterPageForm() {
     return;
   }
 
+  const phoneInput = document.getElementById("phone");
+  const phoneCodeInput = document.getElementById("phone-code");
+  const phoneCodeButton = document.getElementById("send-phone-code");
+  const phoneCodeNote = document.getElementById("phone-code-note");
+  const emailInput = document.getElementById("email");
+  const emailCodeInput = document.getElementById("email-code");
+  const emailCodeButton = document.getElementById("send-email-code");
+  const emailCodeNote = document.getElementById("email-code-note");
+  const verificationState = {
+    phone: createCodeState(phoneCodeButton, phoneCodeInput, phoneCodeNote, "获取验证码"),
+    email: createCodeState(emailCodeButton, emailCodeInput, emailCodeNote, "获取邮箱验证码")
+  };
+
+  const params = new URLSearchParams(window.location.search);
+  const prefillUsername = params.get("username");
+  if (prefillUsername && document.getElementById("username")) {
+    document.getElementById("username").value = prefillUsername;
+  }
+
+  phoneCodeInput?.removeAttribute("disabled");
+  phoneCodeButton?.removeAttribute("disabled");
+  emailCodeInput?.removeAttribute("disabled");
+  emailCodeButton?.removeAttribute("disabled");
+
+  phoneInput?.addEventListener("input", () => resetCodeState(verificationState.phone, "手机号变更后需重新获取验证码。"));
+  emailInput?.addEventListener("input", () => resetCodeState(verificationState.email, "邮箱变更后需重新获取验证码。"));
+
+  phoneCodeButton?.addEventListener("click", interceptSubmit(async () => {
+    const phone = phoneInput?.value.trim() ?? "";
+    if (!/^1[3-9]\d{9}$/.test(phone)) {
+      setFieldError("phone", "phone-error", true, "请输入有效手机号后再获取验证码。");
+      return;
+    }
+    setFieldError("phone", "phone-error", false);
+    await sendRegisterCode({
+      state: verificationState.phone,
+      recipient: phone,
+      request: () => api.verification.sendSms({ phone, purpose: "register" }),
+      sentMessage: `验证码已发送至 ${maskPhone(phone)}。`,
+      errorId: "phone-code-error"
+    });
+  }), true);
+
+  emailCodeButton?.addEventListener("click", interceptSubmit(async () => {
+    const email = emailInput?.value.trim() ?? "";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setFieldError("email", "email-error", true, "请输入有效邮箱后再获取验证码。");
+      return;
+    }
+    setFieldError("email", "email-error", false);
+    await sendRegisterCode({
+      state: verificationState.email,
+      recipient: email,
+      request: () => api.verification.sendEmail({ email, purpose: "register" }),
+      sentMessage: `验证码已发送至 ${email}。`,
+      errorId: "email-code-error"
+    });
+  }), true);
+
   form.addEventListener("submit", interceptSubmit(async () => {
     const username = document.getElementById("username")?.value.trim() ?? "";
     const phone = document.getElementById("phone")?.value.trim() ?? "";
     const email = document.getElementById("email")?.value.trim() ?? "";
+    const phoneCode = document.getElementById("phone-code")?.value.trim() ?? "";
+    const emailCode = document.getElementById("email-code")?.value.trim() ?? "";
     const password = document.getElementById("password")?.value ?? "";
     const agreement = document.getElementById("agreement")?.checked ?? false;
     const emailFilled = email.length > 0;
@@ -273,13 +317,17 @@ function bindRegisterPageForm() {
     const phoneOk = /^1[3-9]\d{9}$/.test(phone);
     const emailOk = !emailFilled || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     const passwordOk = isValidPassword(password);
+    const phoneCodeOk = Boolean(verificationState.phone.token && verificationState.phone.recipient === phone && /^\d{4,8}$/.test(phoneCode));
+    const emailCodeOk = !emailFilled || Boolean(verificationState.email.token && verificationState.email.recipient === email && /^\d{4,8}$/.test(emailCode));
 
     setFieldError("username", "username-error", !usernameOk, "用户名需为 3-50 位英文、数字或下划线。");
     setFieldError("phone", "phone-error", !phoneOk);
     setFieldError("email", "email-error", !emailOk);
+    setFieldError("phone-code", "phone-code-error", !phoneCodeOk, "请先获取并填写手机号验证码。");
+    setFieldError("email-code", "email-code-error", !emailCodeOk, "邮箱已填写时，需要先获取并填写邮箱验证码。");
     setFieldError("password", "password-error", !passwordOk, "密码需至少 8 位。");
 
-    if (!usernameOk || !phoneOk || !emailOk || !passwordOk) {
+    if (!usernameOk || !phoneOk || !emailOk || !phoneCodeOk || !emailCodeOk || !passwordOk) {
       showInlineMessage(button, "请先修正表单中的红色提示。", "error");
       return;
     }
@@ -295,6 +343,11 @@ function bindRegisterPageForm() {
         username,
         password,
         phone,
+        phoneCodeToken: verificationState.phone.token,
+        phoneCode,
+        email: email || null,
+        emailCodeToken: emailFilled ? verificationState.email.token : null,
+        emailCode: emailFilled ? emailCode : null,
         skillTags
       }, {
         email,
@@ -309,6 +362,79 @@ function bindRegisterPageForm() {
       showInlineMessage(button, authErrorMessage(error, "register"), "error");
     }
   }), true);
+}
+
+function createCodeState(button, input, note, defaultLabel) {
+  return {
+    button,
+    input,
+    note,
+    defaultLabel,
+    token: null,
+    recipient: null,
+    timer: null
+  };
+}
+
+async function sendRegisterCode({ state, recipient, request, sentMessage, errorId }) {
+  const restore = setLoading(state.button, "发送中...");
+  try {
+    const result = await request();
+    state.token = result.verificationToken;
+    state.recipient = recipient;
+    state.input.value = "";
+    state.input.disabled = false;
+    setFieldError(state.input.id, errorId, false);
+    if (state.note) {
+      state.note.textContent = sentMessage;
+    }
+    startCodeCooldown(state, Number(result.cooldownSeconds ?? 60));
+  } catch (error) {
+    restore();
+    setFieldError(state.input.id, errorId, true, authErrorMessage(error, "verification"));
+  }
+}
+
+function resetCodeState(state, noteText) {
+  if (!state) {
+    return;
+  }
+  state.token = null;
+  state.recipient = null;
+  if (state.timer) {
+    clearInterval(state.timer);
+    state.timer = null;
+  }
+  if (state.button) {
+    state.button.disabled = false;
+    state.button.textContent = state.defaultLabel;
+  }
+  if (state.note) {
+    state.note.textContent = noteText;
+  }
+}
+
+function startCodeCooldown(state, seconds) {
+  if (!state?.button) {
+    return;
+  }
+  if (state.timer) {
+    clearInterval(state.timer);
+  }
+  let remaining = Math.max(1, seconds);
+  state.button.disabled = true;
+  state.button.textContent = `${remaining}s 后重发`;
+  state.timer = setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) {
+      clearInterval(state.timer);
+      state.timer = null;
+      state.button.disabled = false;
+      state.button.textContent = state.defaultLabel;
+      return;
+    }
+    state.button.textContent = `${remaining}s 后重发`;
+  }, 1000);
 }
 
 function bindAdminLoginForm() {

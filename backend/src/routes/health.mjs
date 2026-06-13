@@ -20,7 +20,9 @@ export async function readyPayload(config, startedAt = new Date()) {
       details: publicConfigStatus(config)
     },
     mysql: await mysqlCheck(config),
-    uploadRoot: await uploadRootCheck(config)
+    migrations: await migrationCheck(config),
+    uploadRoot: await uploadRootCheck(config),
+    externalServices: externalServicesCheck(config)
   };
   const ok = Object.values(checks).every((item) => item.ok);
   return {
@@ -50,6 +52,56 @@ async function mysqlCheck(config) {
       message: error.message
     };
   }
+}
+
+async function migrationCheck(config) {
+  if (config.authStore !== "mysql") {
+    return {
+      ok: true,
+      skipped: true,
+      message: "Memory store is active."
+    };
+  }
+  try {
+    const mysql = await import("mysql2/promise");
+    const connection = await mysql.createConnection({
+      host: config.db.host,
+      port: config.db.port,
+      user: config.db.user,
+      password: config.db.password,
+      database: config.db.database
+    });
+    try {
+      const [rows] = await connection.execute("SELECT COUNT(*) AS count FROM `schema_migrations` WHERE `filename` = '0004_production_readiness.sql'");
+      return {
+        ok: Number(rows?.[0]?.count ?? 0) > 0,
+        applied: Number(rows?.[0]?.count ?? 0) > 0,
+        required: "0004_production_readiness.sql"
+      };
+    } finally {
+      await connection.end();
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error.message
+    };
+  }
+}
+
+function externalServicesCheck(config) {
+  const smsConfigured = Boolean(config.sms.accessKeyId && config.sms.accessKeySecret && config.sms.signName && config.sms.templateCode);
+  const smtpConfigured = Boolean(config.smtp.host && config.smtp.user && config.smtp.pass && config.smtp.from);
+  const openaiConfigured = Boolean(config.openai.baseUrl && config.openai.apiKey && config.openai.model);
+  const required = config.isProduction;
+  return {
+    ok: !required || (smsConfigured && smtpConfigured && openaiConfigured),
+    details: {
+      smsConfigured,
+      smtpConfigured,
+      openaiConfigured
+    }
+  };
 }
 
 async function uploadRootCheck(config) {
