@@ -37,7 +37,7 @@ export const routes = [
   route("profile", "个人中心", "screens/profile.html", "/profile", "user", "userShell"),
   route("post-detail", "帖子详情", "screens/post-detail.html", "/posts/:id", "user", "userShell", {
     demoPath: "/posts/demo",
-    match: /^\/posts\/[^/]+$/
+    match: /^\/(?:posts|community-posts)\/[^/]+$/
   }),
   route("user-public", "服务者公开主页", "screens/user-public.html", "/users/:id", "user", "userShell", {
     demoPath: "/users/demo",
@@ -62,7 +62,7 @@ export const routes = [
   route("jury-voting", "陪审投票", "screens/jury-voting.html", "/jury/voting", "user", "userShell", {
     match: /^\/jury\/disputes\/[^/]+$/
   }),
-  route("help", "帮助与规则", "screens/help.html", "/help", "user", "userShell"),
+  route("help", "帮助与规则", "screens/help.html", "/help", "public", "userShell"),
   route("ai-assistant", "AI 助手", "screens/ai-assistant.html", "/ai/assistant", "user", "userShell"),
   route("ai-results", "AI 筛选结果", "screens/ai-results.html", "/ai/results", "user", "userShell"),
   route("admin-login", "管理员登录", "screens/admin-login.html", "/admin/login", "adminAuth", "adminAuth"),

@@ -143,6 +143,14 @@ export async function handleAdminRoutes({ request, response, url, authService })
     return true;
   }
 
+  if (url.pathname === "/api/admin/sensitive-words/import") {
+    allowOnly(request, response, ["POST"]);
+    const context = await requireAdmin(request, authService);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    sendJson(response, 200, await importSensitiveWordsPayload(authService.store, body, context, request));
+    return true;
+  }
+
   const sensitiveWordMatch = url.pathname.match(ADMIN_SENSITIVE_WORD_DETAIL_RE);
   if (sensitiveWordMatch) {
     allowOnly(request, response, ["PUT"]);
@@ -156,6 +164,14 @@ export async function handleAdminRoutes({ request, response, url, authService })
     allowOnly(request, response, ["GET"]);
     await requireAdmin(request, authService);
     sendJson(response, 200, await riskContentPayload(authService.store, url.searchParams));
+    return true;
+  }
+
+  if (url.pathname === "/api/admin/risk-content/batch-review") {
+    allowOnly(request, response, ["POST"]);
+    const context = await requireAdmin(request, authService);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    sendJson(response, 200, await batchReviewRiskContentPayload(authService.store, body, context, request));
     return true;
   }
 
@@ -250,6 +266,21 @@ export async function handleAdminRoutes({ request, response, url, authService })
     return true;
   }
 
+  if (url.pathname === "/api/admin/ai/feedback/batch-resolve") {
+    allowOnly(request, response, ["POST"]);
+    const context = await requireAdmin(request, authService);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    sendJson(response, 200, await batchResolveAiFeedbackPayload(authService.store, body, context, request));
+    return true;
+  }
+
+  if (url.pathname === "/api/admin/ai/feedback/report") {
+    allowOnly(request, response, ["GET"]);
+    const context = await requireAdmin(request, authService);
+    sendJson(response, 200, await aiFeedbackReportPayload(authService.store, url.searchParams, context, request));
+    return true;
+  }
+
   const aiFeedbackResolveMatch = url.pathname.match(ADMIN_AI_FEEDBACK_RESOLVE_RE);
   if (aiFeedbackResolveMatch) {
     allowOnly(request, response, ["POST"]);
@@ -263,6 +294,22 @@ export async function handleAdminRoutes({ request, response, url, authService })
     allowOnly(request, response, ["GET"]);
     await requireAdmin(request, authService);
     sendJson(response, 200, await aiErrorsPayload(authService.store, url.searchParams));
+    return true;
+  }
+
+  if (url.pathname === "/api/admin/ai/errors/retry") {
+    allowOnly(request, response, ["POST"]);
+    const context = await requireAdmin(request, authService);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    sendJson(response, 200, await retryAiErrorsPayload(authService.store, body, context, request));
+    return true;
+  }
+
+  if (url.pathname === "/api/admin/ai/errors/incidents") {
+    allowOnly(request, response, ["POST"]);
+    const context = await requireAdmin(request, authService);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    sendJson(response, 201, await createAiIncidentPayload(authService.store, body, context, request));
     return true;
   }
 
@@ -324,6 +371,14 @@ export async function handleAdminRoutes({ request, response, url, authService })
     const context = await requireAdmin(request, authService);
     const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
     sendJson(response, 200, await deleteBackupPayload(authService.store, backupDetailMatch[1], body, context, request));
+    return true;
+  }
+
+  if (url.pathname === "/api/admin/maintenance/message-cleanup") {
+    allowOnly(request, response, ["POST"]);
+    const context = await requireAdmin(request, authService);
+    const body = await readJsonBody(request, { maxBytes: REQUEST_BODY_MAX_BYTES });
+    sendJson(response, 200, await messageCleanupPayload(authService.store, body, context, request));
     return true;
   }
 
@@ -493,6 +548,74 @@ async function resolveAiFeedbackPayload(store, rawFeedbackId, body, context, req
   };
 }
 
+async function batchResolveAiFeedbackPayload(store, body, context, request) {
+  ensureStoreMethod(store, "resolveAiFeedback", "ADMIN_AI_STORE_UNAVAILABLE");
+  const feedbackIds = normalizeIdList(body?.feedbackIds ?? body?.ids, "INVALID_AI_FEEDBACK_IDS", 100);
+  const resolution = optionalText(body?.resolution ?? body?.note, 500) ?? "批量标记为已读";
+  const resolved = [];
+  const failed = [];
+  for (const feedbackId of feedbackIds) {
+    try {
+      const feedback = await store.resolveAiFeedback(feedbackId, {
+        resolution,
+        actorId: context.user.userId,
+        resolvedAt: new Date().toISOString()
+      });
+      resolved.push(aiFeedbackDto(feedback));
+    } catch (error) {
+      failed.push({ feedbackId, code: error?.code ?? "AI_FEEDBACK_RESOLVE_FAILED", message: error?.message ?? "AI feedback resolve failed." });
+    }
+  }
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.ai_feedback.batch_resolve",
+    targetType: "ai_feedback",
+    targetId: null,
+    detail: {
+      feedbackIds,
+      resolvedCount: resolved.length,
+      failedCount: failed.length,
+      resolution
+    }
+  });
+  return {
+    feedback: resolved,
+    failed,
+    summary: {
+      requestedCount: feedbackIds.length,
+      resolvedCount: resolved.length,
+      failedCount: failed.length
+    },
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
+async function aiFeedbackReportPayload(store, searchParams, context, request) {
+  ensureStoreMethod(store, "listAdminAiFeedback", "ADMIN_AI_STORE_UNAVAILABLE");
+  const query = normalizeAiFeedbackQuery(searchParams);
+  const result = await store.listAdminAiFeedback({ ...query, page: 1, pageSize: Math.min(200, Math.max(query.pageSize, 100)) });
+  const feedback = Array.isArray(result?.feedback) ? result.feedback.map(aiFeedbackDto) : [];
+  const summary = aiFeedbackSummaryDto(result?.summary, feedback);
+  const report = buildAiFeedbackReport(feedback, summary);
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.ai_feedback.report",
+    targetType: "ai_feedback",
+    targetId: null,
+    detail: {
+      filters: aiFiltersDto(query),
+      includedCount: feedback.length,
+      negativeCount: summary.negativeCount,
+      unsafeCount: summary.unsafeCount
+    }
+  });
+  return {
+    report,
+    feedback,
+    summary,
+    generatedAt: new Date().toISOString(),
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
 async function aiErrorsPayload(store, searchParams) {
   ensureStoreMethod(store, "listAdminAiErrors", "ADMIN_AI_STORE_UNAVAILABLE");
   const query = normalizeAiErrorQuery(searchParams);
@@ -504,6 +627,72 @@ async function aiErrorsPayload(store, searchParams) {
     pagination: paginationDto(query.page, query.pageSize, total),
     summary: aiErrorSummaryDto(result?.summary, errors),
     filters: aiFiltersDto(query)
+  };
+}
+
+async function retryAiErrorsPayload(store, body, context, request) {
+  ensureStoreMethod(store, "listAdminAiErrors", "ADMIN_AI_STORE_UNAVAILABLE");
+  const errorIds = normalizeOptionalIdList(body?.callIds ?? body?.ids, "INVALID_AI_ERROR_IDS", 100);
+  const query = errorIds.length > 0
+    ? { page: 1, pageSize: Math.min(100, errorIds.length), type: "all", status: "all" }
+    : normalizeAiErrorQuery(searchParamsFromObject(body?.filters ?? { type: "all", page: 1, pageSize: 100 }));
+  const result = await store.listAdminAiErrors(query);
+  const requestedCount = errorIds.length || Number(result?.total ?? 0);
+  const candidates = (Array.isArray(result?.errors) ? result.errors : [])
+    .filter((item) => errorIds.length === 0 || errorIds.includes(Number(item.callId)))
+    .filter(isRetryableAiError)
+    .slice(0, 100)
+    .map(aiErrorDto);
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.ai_error.retry",
+    targetType: "ai_call_log",
+    targetId: null,
+    detail: {
+      callIds: candidates.map((item) => item.callId),
+      requestedIds: errorIds,
+      retryCount: candidates.length,
+      mode: "manual_internal_retry_review"
+    }
+  });
+  return {
+    retries: candidates.map((item) => ({
+      callId: item.callId,
+      conversationId: item.conversationId,
+      scene: item.scene,
+      status: "queued",
+      reason: "已加入内部测试重试队列，需人工复核后重新触发真实 AI 调用。"
+    })),
+    summary: {
+      requestedCount,
+      retryCount: candidates.length,
+      skippedCount: Math.max(0, requestedCount - candidates.length)
+    },
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
+async function createAiIncidentPayload(store, body, context, request) {
+  const callIds = normalizeOptionalIdList(body?.callIds ?? body?.ids, "INVALID_AI_ERROR_IDS", 100);
+  const title = optionalText(body?.title, 120) ?? "AI 异常事件单";
+  const note = optionalText(body?.note ?? body?.reason, 500) ?? "管理员从 AI 异常页创建内部事件单";
+  const incident = {
+    incidentId: `AI-${Date.now().toString(36).toUpperCase()}`,
+    title,
+    status: "open",
+    callIds,
+    createdBy: context.user.userId,
+    createdAt: new Date().toISOString(),
+    note
+  };
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.ai_error.incident_create",
+    targetType: "ai_incident",
+    targetId: null,
+    detail: incident
+  });
+  return {
+    incident,
+    auditLog: auditLog ? auditLogDto(auditLog) : null
   };
 }
 
@@ -682,6 +871,56 @@ async function createSensitiveWordPayload(store, body, context, request) {
   };
 }
 
+async function importSensitiveWordsPayload(store, body, context, request) {
+  ensureStoreMethod(store, "createSensitiveWord", "ADMIN_SENSITIVE_WORD_STORE_UNAVAILABLE");
+  const entries = normalizeSensitiveWordImportInput(body, context.user.userId);
+  const created = [];
+  const skipped = [];
+  const failed = [];
+  for (const entry of entries) {
+    try {
+      const word = await store.createSensitiveWord(entry);
+      created.push(sensitiveWordDto(word));
+    } catch (error) {
+      const mapped = sensitiveWordError(error);
+      const item = {
+        word: entry.word,
+        code: mapped?.code ?? error?.code ?? "IMPORT_FAILED",
+        message: mapped?.message ?? error?.message ?? "Import failed."
+      };
+      if (mapped instanceof HttpError && mapped.status === 409) {
+        skipped.push(item);
+      } else {
+        failed.push(item);
+      }
+    }
+  }
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.sensitive_word.import",
+    targetType: "sensitive_word",
+    targetId: null,
+    detail: {
+      requestedCount: entries.length,
+      createdCount: created.length,
+      skippedCount: skipped.length,
+      failedCount: failed.length,
+      words: created.map((item) => item.word).slice(0, 50)
+    }
+  });
+  return {
+    created,
+    skipped,
+    failed,
+    summary: {
+      requestedCount: entries.length,
+      createdCount: created.length,
+      skippedCount: skipped.length,
+      failedCount: failed.length
+    },
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
 async function updateSensitiveWordPayload(store, rawWordId, body, context, request) {
   ensureStoreMethod(store, "updateSensitiveWord", "ADMIN_SENSITIVE_WORD_STORE_UNAVAILABLE");
   const wordId = parsePositiveResourceId(rawWordId, "SENSITIVE_WORD_NOT_FOUND", "Sensitive word was not found.");
@@ -715,6 +954,47 @@ async function riskContentPayload(store, searchParams) {
     pagination: paginationDto(query.page, query.pageSize, total),
     summary: riskContentSummaryDto(result?.summary, items),
     filters: query
+  };
+}
+
+async function batchReviewRiskContentPayload(store, body, context, request) {
+  ensureStoreMethod(store, "resolveRiskContent", "ADMIN_RISK_CONTENT_STORE_UNAVAILABLE");
+  const riskIds = normalizeIdList(body?.riskIds ?? body?.ids, "INVALID_RISK_CONTENT_IDS", 100);
+  const note = optionalText(body?.note ?? body?.reason, 500) ?? "批量进入人工复核";
+  const updated = [];
+  const failed = [];
+  for (const riskId of riskIds) {
+    try {
+      const riskContent = await store.resolveRiskContent(riskId, {
+        status: "reviewing",
+        note,
+        actorId: context.user.userId
+      });
+      updated.push(riskContentDto(riskContent));
+    } catch (error) {
+      failed.push({ riskId, code: error?.code ?? "RISK_CONTENT_UPDATE_FAILED", message: error?.message ?? "Risk content update failed." });
+    }
+  }
+  const auditLog = await createAudit(store, context, request, {
+    action: "admin.risk_content.batch_review",
+    targetType: "risk_content",
+    targetId: null,
+    detail: {
+      riskIds,
+      updatedCount: updated.length,
+      failedCount: failed.length,
+      note
+    }
+  });
+  return {
+    riskContents: updated,
+    failed,
+    summary: {
+      requestedCount: riskIds.length,
+      updatedCount: updated.length,
+      failedCount: failed.length
+    },
+    auditLog: auditLog ? auditLogDto(auditLog) : null
   };
 }
 
@@ -918,6 +1198,32 @@ async function deleteBackupPayload(store, backupId, body, context, request) {
   });
   return {
     backup: backupDto(backup),
+    auditLog: auditLog ? auditLogDto(auditLog) : null
+  };
+}
+
+async function messageCleanupPayload(store, body, context, request) {
+  ensureStoreMethod(store, "cleanupArchivedMessages", "ADMIN_MAINTENANCE_STORE_UNAVAILABLE");
+  const mode = String(body?.mode ?? "preview").trim().toLowerCase() === "execute" ? "execute" : "preview";
+  const days = parseInteger(body?.days ?? body?.retentionDays ?? 90, "INVALID_RETENTION_DAYS", 1, 3650);
+  if (mode === "execute" && String(body?.confirmText ?? body?.confirm ?? "").trim() !== "清理归档消息") {
+    throw new HttpError(400, "CONFIRMATION_REQUIRED", "Confirmation text must be \"清理归档消息\".");
+  }
+  const result = await store.cleanupArchivedMessages({ mode, days });
+  const auditLog = await createAudit(store, context, request, {
+    action: mode === "execute" ? "admin.maintenance.message_cleanup.execute" : "admin.maintenance.message_cleanup.preview",
+    targetType: "maintenance",
+    targetId: null,
+    detail: {
+      mode,
+      days,
+      result
+    }
+  });
+  return {
+    mode,
+    days,
+    result,
     auditLog: auditLog ? auditLogDto(auditLog) : null
   };
 }
@@ -1237,12 +1543,24 @@ function aiConfigDto(config = {}) {
   return {
     enabled: Boolean(config.enabled),
     rateLimitPerHour: Number(config.rateLimitPerHour ?? 60),
+    rateLimitPerMinute: Number(config.rateLimitPerMinute ?? config.ratePerMin ?? 20),
+    rateLimitPerDay: Number(config.rateLimitPerDay ?? config.ratePerDay ?? 200),
+    concurrencyLimit: Number(config.concurrencyLimit ?? config.concurrency ?? 30),
     contextMessages: Number(config.contextMessages ?? config.contextLength ?? 12),
     contextTokenLimit: Number(config.contextTokenLimit ?? 4000),
     logRetentionDays: Number(config.logRetentionDays ?? 180),
     safetyThreshold: Number(config.safetyThreshold ?? 80),
     blockHighRisk: Boolean(config.blockHighRisk ?? config.aiHighRiskBlock ?? true),
     model: config.model ?? "local-rule-assistant",
+    timeoutMs: Number(config.timeoutMs ?? config.timeout ?? 15000),
+    maxTokens: Number(config.maxTokens ?? 1024),
+    temperature: Number(config.temperature ?? 0.3),
+    sceneEnabled: normalizeAiSceneConfig(config.sceneEnabled),
+    sensitiveFilterEnabled: Boolean(config.sensitiveFilterEnabled ?? config.sensitiveFilter ?? true),
+    detectionMode: config.detectionMode ?? "balanced",
+    requireConfirm: Boolean(config.requireConfirm ?? true),
+    alertThreshold: Number(config.alertThreshold ?? 90),
+    conversationRetentionDays: Number(config.conversationRetentionDays ?? config.conversationRetention ?? config.logRetentionDays ?? 180),
     updatedAt: config.updatedAt ?? null
   };
 }
@@ -1766,6 +2084,15 @@ function normalizeAiConfigInput(input = {}) {
   if (hasPatchValue(input, "rateLimitPerHour") || hasPatchValue(input, "frequencyLimit")) {
     output.rateLimitPerHour = parseInteger(input.rateLimitPerHour ?? input.frequencyLimit, "INVALID_AI_RATE_LIMIT", 1, 1000);
   }
+  if (hasPatchValue(input, "rateLimitPerMinute") || hasPatchValue(input, "ratePerMin")) {
+    output.rateLimitPerMinute = parseInteger(input.rateLimitPerMinute ?? input.ratePerMin, "INVALID_AI_RATE_LIMIT_MINUTE", 1, 200);
+  }
+  if (hasPatchValue(input, "rateLimitPerDay") || hasPatchValue(input, "ratePerDay")) {
+    output.rateLimitPerDay = parseInteger(input.rateLimitPerDay ?? input.ratePerDay, "INVALID_AI_RATE_LIMIT_DAY", 1, 2000);
+  }
+  if (hasPatchValue(input, "concurrencyLimit") || hasPatchValue(input, "concurrency")) {
+    output.concurrencyLimit = parseInteger(input.concurrencyLimit ?? input.concurrency, "INVALID_AI_CONCURRENCY", 1, 200);
+  }
   if (hasPatchValue(input, "contextMessages") || hasPatchValue(input, "contextLength")) {
     output.contextMessages = parseInteger(input.contextMessages ?? input.contextLength, "INVALID_AI_CONTEXT_MESSAGES", 1, 100);
   }
@@ -1783,6 +2110,37 @@ function normalizeAiConfigInput(input = {}) {
   }
   if (hasPatchValue(input, "model")) {
     output.model = optionalText(input.model, 80) ?? "local-rule-assistant";
+  }
+  if (hasPatchValue(input, "timeoutMs") || hasPatchValue(input, "timeout")) {
+    output.timeoutMs = parseInteger(input.timeoutMs ?? input.timeout, "INVALID_AI_TIMEOUT", 3000, 60000);
+  }
+  if (hasPatchValue(input, "maxTokens")) {
+    output.maxTokens = parseInteger(input.maxTokens, "INVALID_AI_MAX_TOKENS", 128, 8192);
+  }
+  if (hasPatchValue(input, "temperature")) {
+    output.temperature = parseNumber(input.temperature, "INVALID_AI_TEMPERATURE", 0, 1);
+  }
+  if (hasPatchValue(input, "sceneEnabled")) {
+    output.sceneEnabled = normalizeAiSceneConfig(input.sceneEnabled);
+  }
+  if (hasPatchValue(input, "sensitiveFilterEnabled") || hasPatchValue(input, "sensitiveFilter")) {
+    output.sensitiveFilterEnabled = Boolean(input.sensitiveFilterEnabled ?? input.sensitiveFilter);
+  }
+  if (hasPatchValue(input, "detectionMode")) {
+    const detectionMode = optionalLower(input.detectionMode, 30);
+    if (!["strict", "balanced", "loose", "manual"].includes(detectionMode)) {
+      throw new HttpError(400, "INVALID_AI_DETECTION_MODE", "AI detection mode is not supported.");
+    }
+    output.detectionMode = detectionMode;
+  }
+  if (hasPatchValue(input, "requireConfirm")) {
+    output.requireConfirm = Boolean(input.requireConfirm);
+  }
+  if (hasPatchValue(input, "alertThreshold")) {
+    output.alertThreshold = parseInteger(input.alertThreshold, "INVALID_AI_ALERT_THRESHOLD", 1, 100);
+  }
+  if (hasPatchValue(input, "conversationRetentionDays") || hasPatchValue(input, "conversationRetention")) {
+    output.conversationRetentionDays = parseInteger(input.conversationRetentionDays ?? input.conversationRetention, "INVALID_AI_CONVERSATION_RETENTION", 1, 3650);
   }
   return output;
 }
@@ -1864,7 +2222,8 @@ function normalizeSensitiveWordInput(input, options = {}) {
     output.replacement = optionalText(input.replacement, 40) ?? "***";
   }
   if (hasPatchValue(input, "level")) {
-    const level = optionalLower(input.level, 20);
+    const rawLevel = optionalLower(input.level, 20);
+    const level = { strong: "block", mild: "warn" }[rawLevel] ?? rawLevel;
     if (!["block", "warn", "review"].includes(level)) {
       throw new HttpError(400, "INVALID_SENSITIVE_LEVEL", "Sensitive word level must be block, warn, or review.");
     }
@@ -1886,6 +2245,41 @@ function normalizeSensitiveWordInput(input, options = {}) {
     output.createdBy = Number(options.actorId);
   }
   return output;
+}
+
+function normalizeSensitiveWordImportInput(input = {}, actorId) {
+  const rawItems = Array.isArray(input.words)
+    ? input.words
+    : String(input.text ?? input.content ?? "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  if (rawItems.length === 0) {
+    throw new HttpError(400, "INVALID_SENSITIVE_WORD_IMPORT", "Sensitive word import must include at least one word.");
+  }
+  if (rawItems.length > 200) {
+    throw new HttpError(400, "SENSITIVE_WORD_IMPORT_TOO_LARGE", "Sensitive word import supports at most 200 entries.");
+  }
+  return rawItems.map((item) => {
+    const parsed = typeof item === "string" ? parseSensitiveWordImportLine(item) : item;
+    return normalizeSensitiveWordInput({
+      word: parsed.word,
+      replacement: parsed.replacement ?? input.replacement ?? "***",
+      level: parsed.level ?? input.level ?? "review",
+      category: parsed.category ?? input.category ?? "批量导入",
+      reason: parsed.reason ?? input.reason ?? "批量导入敏感词规则",
+      status: parsed.status ?? input.status ?? ACTIVE_STATUS
+    }, { partial: false, actorId });
+  });
+}
+
+function parseSensitiveWordImportLine(line) {
+  const [word, second, third, fourth, fifth] = String(line).split(/[,，\t|]/).map((item) => item.trim());
+  const levelValues = new Set(["block", "warn", "review", "strong", "mild"]);
+  if (levelValues.has(String(second ?? "").toLowerCase())) {
+    return { word, level: second, category: third, reason: fourth, replacement: fifth };
+  }
+  return { word, replacement: second, level: third, category: fourth, reason: fifth };
 }
 
 function normalizeRiskResolveInput(input, actorId) {
@@ -2019,6 +2413,28 @@ function parseOptionalPositiveInt(raw, code) {
   return parsePositiveInt(raw, code, 1, Number.MAX_SAFE_INTEGER);
 }
 
+function normalizeIdList(raw, code, max = 100) {
+  const ids = normalizeOptionalIdList(raw, code, max);
+  if (ids.length === 0) {
+    throw new HttpError(400, code, "At least one id is required.");
+  }
+  return ids;
+}
+
+function normalizeOptionalIdList(raw, code, max = 100) {
+  const values = Array.isArray(raw)
+    ? raw
+    : String(raw ?? "")
+      .split(/[,，\s]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  const ids = Array.from(new Set(values.map((item) => parsePositiveInt(item, code, 1, Number.MAX_SAFE_INTEGER))));
+  if (ids.length > max) {
+    throw new HttpError(400, code, `At most ${max} ids are supported.`);
+  }
+  return ids;
+}
+
 function parseOptionalNonNegativeInt(raw, code) {
   if (raw === undefined || raw === null || raw === "") {
     return null;
@@ -2054,6 +2470,16 @@ function parseNumber(raw, code, min = -Infinity, max = Infinity) {
     throw new HttpError(400, code, "Expected a number in the supported range.");
   }
   return value;
+}
+
+function searchParamsFromObject(input = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(input ?? {})) {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, String(value));
+    }
+  }
+  return params;
 }
 
 function parseCredit(raw, code) {
@@ -2267,12 +2693,77 @@ function aiExceptionText(type) {
   return map.get(type) ?? "异常调用";
 }
 
+function isRetryableAiError(item) {
+  const type = item.exceptionType ?? item.type;
+  const riskLevel = item.riskLevel ?? "medium";
+  return ["failed", "timeout"].includes(type) && !["high", "critical"].includes(riskLevel);
+}
+
+function buildAiFeedbackReport(feedback, summary) {
+  const lines = [
+    "AI 用户反馈周报",
+    `生成时间：${new Date().toISOString()}`,
+    `总反馈：${summary.total}`,
+    `负向反馈：${summary.negativeCount}`,
+    `不安全反馈：${summary.unsafeCount}`,
+    `待处理：${summary.pendingCount}`,
+    `已处理：${summary.resolvedCount}`,
+    "",
+    "明细：",
+    ...feedback.slice(0, 100).map((item) => [
+      `#${item.feedbackId}`,
+      item.ratingText || item.rating,
+      item.statusText || item.status,
+      item.user?.displayName || item.user?.username || `用户 #${item.userId}`,
+      item.comment || "无文字反馈"
+    ].join(" | "))
+  ];
+  return {
+    title: "AI 用户反馈周报",
+    content: lines.join("\n"),
+    rows: feedback.map((item) => ({
+      feedbackId: item.feedbackId,
+      rating: item.rating,
+      ratingText: item.ratingText,
+      status: item.status,
+      userId: item.userId,
+      scene: item.conversation?.scene ?? null,
+      comment: item.comment ?? "",
+      createdAt: item.createdAt
+    }))
+  };
+}
+
 function aiSafetyBoundaries() {
   return {
     aiCan: ["回答规则问题", "整理会话摘要", "辅助筛选需求", "生成发布草稿"],
     aiCannot: ["自动接单", "确认订单", "执行结算", "退款退币", "裁决纠纷", "封禁用户"],
     auditRequired: ["AI 配置变更", "反馈处理", "高风险拦截规则调整"]
   };
+}
+
+function normalizeAiSceneConfig(value) {
+  const defaults = {
+    help: true,
+    request_filter: true,
+    request_draft: true,
+    order_summary: true,
+    dispute_summary: true,
+    rules: true,
+    chat: true,
+    admin: true
+  };
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaults;
+  }
+  const output = { ...defaults };
+  for (const [key, enabled] of Object.entries(value)) {
+    const normalized = optionalLower(key, 50);
+    if (normalized) {
+      output[normalized] = Boolean(enabled);
+    }
+  }
+  return output;
 }
 
 function redactSensitiveText(value) {

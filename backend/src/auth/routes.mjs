@@ -1,5 +1,8 @@
 import { HttpError, methodNotAllowed, readJsonBody, sendJson } from "../http.mjs";
 import { appendCookie, clearCookie } from "../cookies.mjs";
+import { hashPassword, verifyPassword } from "./password.mjs";
+
+const AUTH_SESSION_DETAIL_RE = /^\/api\/auth\/sessions\/([^/]+)$/;
 
 export async function handleAuthRoutes({ request, response, url, authService }) {
   if (url.pathname === "/api/auth/register") {
@@ -33,6 +36,71 @@ export async function handleAuthRoutes({ request, response, url, authService }) 
     allowOnly(request, response, ["GET"]);
     const context = await authService.authenticateRequest(request);
     sendJson(response, 200, { user: authService.publicUser(context.user) });
+    return true;
+  }
+
+  if (url.pathname === "/api/auth/me/password") {
+    allowOnly(request, response, ["PUT"]);
+    const context = await authService.authenticateRequest(request);
+    const body = await readJsonBody(request);
+    const currentPassword = String(body.currentPassword ?? body.oldPassword ?? "");
+    const nextPassword = String(body.newPassword ?? body.password ?? "");
+    if (!verifyPassword(currentPassword, context.user.passwordHash)) {
+      throw new HttpError(401, "INVALID_CREDENTIALS", "Current password is incorrect.");
+    }
+    if (nextPassword.length < 8 || nextPassword.length > 128) {
+      throw new HttpError(400, "INVALID_PASSWORD", "Password must be 8-128 characters.");
+    }
+    if (typeof authService.store.updateUserPasswordHash !== "function") {
+      throw new HttpError(500, "AUTH_STORE_UNAVAILABLE", "Password update is not available.");
+    }
+    await authService.store.updateUserPasswordHash(context.user.userId, hashPassword(nextPassword));
+    const revoked = typeof authService.store.revokeOtherSessions === "function"
+      ? await authService.store.revokeOtherSessions({ userId: context.user.userId, keepSessionId: context.session.sessionId })
+      : { revoked: 0 };
+    sendJson(response, 200, { ok: true, revoked });
+    return true;
+  }
+
+  if (url.pathname === "/api/auth/sessions") {
+    allowOnly(request, response, ["GET"]);
+    const context = await authService.authenticateRequest(request);
+    if (typeof authService.store.listSessionsForUserId !== "function") {
+      throw new HttpError(500, "AUTH_STORE_UNAVAILABLE", "Session listing is not available.");
+    }
+    const sessions = await authService.store.listSessionsForUserId(context.user.userId);
+    sendJson(response, 200, {
+      sessions: sessions.map((session) => sessionDto(session, context.session.sessionId))
+    });
+    return true;
+  }
+
+  if (url.pathname === "/api/auth/sessions/others") {
+    allowOnly(request, response, ["DELETE"]);
+    const context = await authService.authenticateRequest(request);
+    if (typeof authService.store.revokeOtherSessions !== "function") {
+      throw new HttpError(500, "AUTH_STORE_UNAVAILABLE", "Session revocation is not available.");
+    }
+    sendJson(response, 200, await authService.store.revokeOtherSessions({
+      userId: context.user.userId,
+      keepSessionId: context.session.sessionId
+    }));
+    return true;
+  }
+
+  const sessionMatch = url.pathname.match(AUTH_SESSION_DETAIL_RE);
+  if (sessionMatch) {
+    allowOnly(request, response, ["DELETE"]);
+    const context = await authService.authenticateRequest(request);
+    const sessionId = decodeURIComponent(sessionMatch[1]);
+    if (sessionId === "others") {
+      return false;
+    }
+    await authService.store.revokeSession(sessionId);
+    if (sessionId === context.session.sessionId) {
+      clearAuthCookies(response, authService);
+    }
+    sendJson(response, 200, { ok: true, revokedSessionId: sessionId });
     return true;
   }
 
@@ -103,6 +171,21 @@ function clientIp(request) {
     return forwarded.split(",")[0].trim();
   }
   return request.socket?.remoteAddress ?? null;
+}
+
+function sessionDto(session, currentSessionId) {
+  return {
+    sessionId: session.sessionId,
+    userId: session.userId,
+    role: session.role,
+    ipAddress: session.ipAddress ?? null,
+    userAgent: session.userAgent ?? null,
+    createdAt: session.createdAt,
+    expiresAt: session.expiresAt,
+    revokedAt: session.revokedAt ?? null,
+    current: session.sessionId === currentSessionId,
+    active: !session.revokedAt && new Date(session.expiresAt).getTime() > Date.now()
+  };
 }
 
 function allowOnly(request, response, methods) {

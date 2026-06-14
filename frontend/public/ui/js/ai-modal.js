@@ -6,6 +6,7 @@
 
   let overlay, sheet, chatArea, inputEl, sendBtn, isProcessing = false;
   let currentScene = 'all';
+  let currentConversationId = null;
   let initialized = false;
 
   const SCENE_LABELS = {
@@ -26,6 +27,7 @@
 
   const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
   function esc(s) { return String(s).replace(/[&<>"]/g, c => ESCAPE_MAP[c]); }
+  function attr(s) { return esc(s).replace(/'/g, '&#39;'); }
 
   const icons = {
     close: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
@@ -521,6 +523,7 @@
   }
 
   function resetChat() {
+    currentConversationId = null;
     const suggestedQs = [
       { q: '我想找一个信用高、今天发布的电脑维修需求', icon: 'search', bg: 'var(--secondary-light, #e0e7ff)', color: 'var(--secondary, #4f46e5)' },
       { q: '如何发起纠纷？需要什么条件？', icon: 'alert', bg: 'var(--warning-light, #fef3c7)', color: 'var(--warning, #d97706)' },
@@ -547,34 +550,42 @@
   }
 
   function buildAIResponseHTML(resp) {
-    let html = `<div class="ai-modal-msg assistant">
+    const messageId = resp.messageId || resp.message?.messageId || '';
+    let html = `<div class="ai-modal-msg assistant" ${messageId ? `data-ai-message-id="${attr(messageId)}"` : ''}>
       <div class="ai-modal-msg-avatar">${icons.sparkle.replace('width="16"','width="14"').replace('height="16"','height="14"')}</div>
       <div><div class="ai-modal-msg-bubble"><p>${esc(resp.text)}</p>`;
 
     if (resp.type === 'filter') {
+      const prompt = resp.prompt || resp.criteria?.prompt || '';
+      const tags = resp.tags || aiCriteriaTags(resp.criteria);
       html += `<div class="apply-filter-card">
-        <div class="filter-tags">${resp.tags.map(t => `<span class="filter-tag">${t}</span>`).join('')}</div>
-        <button class="apply-filter-btn" data-ai-modal-action="navigate" data-target="/tasks">
+        <div class="filter-tags">${tags.map(t => `<span class="filter-tag">${esc(t)}</span>`).join('')}</div>
+        <button class="apply-filter-btn" data-ai-modal-action="results" data-prompt="${attr(prompt)}">
           ${icons.search.replace('width="14"','').replace('height="14"','')} 查看匹配结果（${resp.resultCount} 个任务）
         </button>
       </div>`;
     }
-    if (resp.type === 'rules' && resp.rules) {
+    if ((resp.type === 'rules' || resp.type === 'blocked') && resp.rules) {
       html += '<ul class="ai-rules-list">';
       resp.rules.forEach(r => { html += `<li>${esc(r)}</li>`; });
       html += '</ul>';
       if (resp.footer) html += `<p class="ai-rules-footer">${esc(resp.footer)}</p>`;
     }
     if (resp.type === 'draft') {
+      const draft = resp.draft || {};
+      const draftTitle = resp.draftTitle || draft.title || 'AI 草稿';
+      const draftBody = resp.draftBody || draft.description || '';
+      const draftTags = resp.draftTags || draft.tags || [];
+      const draftReward = resp.draftReward || draft.coinAmount || '';
       html += `<div class="draft-card">
-        <div class="draft-title">${esc(resp.draftTitle)}</div>
-        <div class="draft-body">${esc(resp.draftBody)}</div>
+        <div class="draft-title">${esc(draftTitle)}</div>
+        <div class="draft-body">${esc(draftBody)}</div>
         <div class="draft-tags">
-          ${resp.draftTags.map(t => `<span class="filter-tag" style="background:var(--accent-subtle, rgba(99,102,241,0.08));color:var(--accent, #6366f1);">${t}</span>`).join('')}
-          <span class="filter-tag" style="background:var(--warning-light, #fef3c7);color:var(--warning, #d97706);">悬赏 ${esc(resp.draftReward)}</span>
+          ${draftTags.map(t => `<span class="filter-tag" style="background:var(--accent-subtle, rgba(99,102,241,0.08));color:var(--accent, #6366f1);">${esc(t)}</span>`).join('')}
+          ${draftReward ? `<span class="filter-tag" style="background:var(--warning-light, #fef3c7);color:var(--warning, #d97706);">悬赏 ${esc(draftReward)}</span>` : ''}
         </div>
         <div class="draft-actions">
-          <button class="btn btn--primary btn--sm" data-ai-modal-action="navigate" data-target="/post">确认并填入发布表单</button>
+          <button class="btn btn--primary btn--sm" data-ai-modal-action="draft" data-draft='${attr(JSON.stringify(draft))}'>确认并填入发布表单</button>
           <button class="btn btn--ghost btn--sm" data-ai-modal-action="regenerate" data-question="帮我写一段发布代取快递任务的描述">重新生成</button>
         </div>
       </div>`;
@@ -583,10 +594,21 @@
     html += `</div>
       <div class="ai-modal-msg-actions">
         <button class="ai-modal-msg-action-btn" data-ai-modal-action="copy">${icons.copy} 复制</button>
-        <button class="ai-modal-msg-action-btn" data-ai-modal-action="feedback">${icons.thumbsUp} 有用</button>
-        <button class="ai-modal-msg-action-btn" data-ai-modal-action="feedback">${icons.thumbsDown} 没用</button>
+        ${messageId ? `<button class="ai-modal-msg-action-btn" data-ai-modal-action="feedback" data-rating="useful">${icons.thumbsUp} 有用</button>
+        <button class="ai-modal-msg-action-btn" data-ai-modal-action="feedback" data-rating="useless">${icons.thumbsDown} 没用</button>` : ''}
       </div></div></div>`;
     return html;
+  }
+
+  function aiCriteriaTags(criteria) {
+    if (!criteria) return [];
+    const tags = [];
+    if (criteria.category?.name || criteria.categoryName) tags.push(criteria.category?.name || criteria.categoryName);
+    if (criteria.keyword) tags.push(criteria.keyword);
+    if (criteria.minCredit) tags.push('信用 ' + criteria.minCredit + '+');
+    if (criteria.sort === 'coin_desc') tags.push('时间币优先');
+    if (criteria.sort === 'credit_desc') tags.push('信用优先');
+    return [...tags, ...(criteria.tags || [])].filter(Boolean).slice(0, 6);
   }
 
   function resizeModalInput() {
@@ -613,6 +635,15 @@
       navigateFromModal(action.dataset.target || '/tasks');
       return;
     }
+    if (type === 'results') {
+      const params = new URLSearchParams({ prompt: action.dataset.prompt || inputEl.value.trim() || '' });
+      navigateFromModal('/ai/results?' + params.toString());
+      return;
+    }
+    if (type === 'draft') {
+      navigateFromModal('/post?draft=' + encodeURIComponent(action.dataset.draft || '{}'));
+      return;
+    }
     if (type === 'regenerate') {
       inputEl.value = action.dataset.question || '';
       resizeModalInput();
@@ -624,7 +655,7 @@
       return;
     }
     if (type === 'feedback') {
-      action.classList.toggle('active');
+      sendModalFeedback(action);
     }
   }
 
@@ -691,33 +722,116 @@
   }
 
   async function requestAiChat(query) {
-    const token = readUserToken();
-    if (!token) {
-      return {
-        text: '请先登录后使用 AI 助手。',
-        type: 'default',
-        response: 'AI 助手需要读取你的会话权限，并通过后端接口生成回答。'
-      };
-    }
+    const payload = {
+      message: query,
+      scene: currentScene,
+      conversationId: currentConversationId
+    };
+    const data = await requestJson('/api/ai/chat', payload);
+    currentConversationId = data.conversation?.conversationId || currentConversationId;
+    return normalizeAiChatResponse(data, query);
+  }
 
-    const response = await fetch(resolveApiUrl('/api/ai/chat'), {
+  async function sendModalFeedback(button) {
+    const messageId = button.closest('.ai-modal-msg')?.dataset.aiMessageId;
+    if (!messageId || button.dataset.pending === 'true') {
+      return;
+    }
+    button.dataset.pending = 'true';
+    const previous = button.innerHTML;
+    try {
+      await requestJson('/api/ai/messages/' + encodeURIComponent(messageId) + '/feedback', {
+        rating: button.dataset.rating || 'useful'
+      });
+      button.textContent = '已反馈';
+      button.classList.add('active');
+      button.closest('.ai-modal-msg-actions')?.querySelectorAll('[data-ai-modal-action="feedback"]').forEach(item => {
+        if (item !== button) item.disabled = true;
+      });
+    } catch (error) {
+      button.innerHTML = previous;
+      chatArea.insertAdjacentHTML('beforeend', buildAIResponseHTML({
+        text: error.message || '反馈提交失败，请稍后再试。',
+        type: 'default'
+      }));
+    } finally {
+      delete button.dataset.pending;
+    }
+  }
+
+  async function requestJson(path, body) {
+    const headers = { 'content-type': 'application/json' };
+    const csrfToken = readCookie('csrf_token');
+    if (csrfToken) {
+      headers['x-csrf-token'] = csrfToken;
+    }
+    const response = await fetch(resolveApiUrl(path), {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: 'Bearer ' + token
-      },
-      body: JSON.stringify({ message: query, scene: currentScene })
+      credentials: 'include',
+      headers,
+      body: JSON.stringify(body)
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload?.error?.message || 'AI 服务请求失败。');
+      throw new Error(aiErrorMessage(payload, response.status));
     }
+    return payload;
+  }
 
+  function normalizeAiChatResponse(payload, prompt) {
+    const type = payload.type || 'default';
+    const text = payload.answer || payload.message?.content || 'AI 已返回结果。';
+    if (type === 'filter') {
+      return {
+        text,
+        type,
+        messageId: payload.message?.messageId,
+        prompt,
+        criteria: payload.criteria,
+        tags: aiCriteriaTags(payload.criteria),
+        resultCount: payload.resultCount ?? (payload.recommendations || []).length
+      };
+    }
+    if (type === 'draft') {
+      return {
+        text,
+        type,
+        messageId: payload.message?.messageId,
+        draft: payload.draft,
+        draftTitle: payload.draft?.title,
+        draftBody: payload.draft?.description,
+        draftTags: payload.draft?.tags || [],
+        draftReward: payload.draft?.coinAmount
+      };
+    }
+    if (type === 'rules' || type === 'blocked') {
+      return {
+        text,
+        type,
+        messageId: payload.message?.messageId,
+        rules: payload.bullets || [],
+        footer: payload.guidance || null
+      };
+    }
     return {
-      text: payload.answer || payload.message?.content || 'AI 已返回结果。',
+      text,
       type: 'default',
-      response: ''
+      messageId: payload.message?.messageId
     };
+  }
+
+  function aiErrorMessage(payload, status) {
+    const code = payload?.error?.code;
+    if (status === 401 || (status === 403 && code === 'CSRF_TOKEN_INVALID')) {
+      return '登录状态已过期，请重新登录后使用 AI 助手。';
+    }
+    if (code === 'AI_UNAVAILABLE') {
+      return 'AI 助手已被管理员暂时关闭。';
+    }
+    if (code === 'RATE_LIMIT_EXCEEDED') {
+      return 'AI 调用过于频繁，请稍后再试。';
+    }
+    return payload?.error?.message || 'AI 服务请求失败。';
   }
 
   function resolveApiUrl(path) {
@@ -728,14 +842,9 @@
     return new URL(path, base).toString();
   }
 
-  function readUserToken() {
-    try {
-      const raw = window.localStorage?.getItem('neighbor:userSession');
-      const parsed = raw ? JSON.parse(raw) : null;
-      return parsed?.token || null;
-    } catch (_error) {
-      return null;
-    }
+  function readCookie(name) {
+    const prefix = encodeURIComponent(name) + '=';
+    return document.cookie.split(';').map(part => part.trim()).find(part => part.startsWith(prefix))?.slice(prefix.length) || '';
   }
 
   // Expose to window

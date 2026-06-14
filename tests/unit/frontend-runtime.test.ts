@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, test } from "vitest";
 import { normalizeRuntimeConfig } from "../../frontend/src/spa/runtime";
 import { withQuery, createApiClient } from "../../frontend/src/spa/api";
+import { routes } from "../../frontend/src/routes.mjs";
 
 describe("frontend runtime config", () => {
   test("normalizes defaults and clamps Sentry sample rate", () => {
@@ -55,5 +58,77 @@ describe("frontend runtime config", () => {
     expect(calls[0].url).toBe("https://api.example.test/api/requests");
     expect(calls[0].init.credentials).toBe("include");
     expect(new Headers(calls[0].init.headers).get("x-csrf-token")).toBe("csrf-123");
+  });
+
+  test("prototype shell binds visible controls without inline onclick handlers", () => {
+    const shell = fs.readFileSync(path.join(process.cwd(), "frontend", "src", "prototype-shell.mjs"), "utf8");
+
+    for (const expected of [
+      "function bindBackButton(selector, fallbackPath)",
+      "\".wallet-back\"",
+      "\".disp-back\"",
+      "\".dd-back\"",
+      "\".detail-back\"",
+      "\".orders-back\"",
+      "\".review-back\"",
+      "navigateTo(\"/profile\")",
+      "navigateTo(\"/wallet/freeze\")",
+      "showGlobalMessage(\"时间币用于发布任务",
+      "window.__adminAiConfigSnapshot",
+      "restoreAdminAiConfigSnapshot",
+      "window.__adminAuditLogsCurrentPage",
+      "exportAdminAuditLogsCsv",
+      "downloadCsv(`audit-logs-current-page-${timestampForFilename(new Date())}.csv`, rows)",
+      "function saveAdminFinalDraft(dispute)",
+      "function restoreAdminFinalDraft(dispute)",
+      "adminDisputeFinalDraft:",
+      "if (route.id === \"help\")",
+      "function hydrateHelpRoute()",
+      "rewriteHelpLinks()",
+      "api.admin.importSensitiveWords",
+      "api.admin.batchReviewRiskContent",
+      "api.admin.batchResolveAiFeedback",
+      "api.admin.retryAiErrors",
+      "api.admin.createAiIncident",
+      "function updateCoinEstimate()",
+      "function installDisputeEvidenceUpload",
+      "uploadFileAsset(userSession, file, \"dispute-evidence\"",
+      "data-ai-select=\"feedback\"",
+      "data-risk-select-row"
+    ]) {
+      expect(shell).toContain(expected);
+    }
+
+    expect(shell).not.toContain("onclick=\"history.back()\"");
+    expect(shell).not.toContain("onclick=\"showHelp()\"");
+    expect(shell).not.toContain("onclick=\"exportCSV()\"");
+  });
+
+  test("global AI modal uses cookie and CSRF authenticated backend actions", () => {
+    const modal = fs.readFileSync(path.join(process.cwd(), "frontend", "public", "ui", "js", "ai-modal.js"), "utf8");
+
+    for (const expected of [
+      "credentials: 'include'",
+      "readCookie('csrf_token')",
+      "headers['x-csrf-token'] = csrfToken",
+      "requestJson('/api/ai/chat'",
+      "requestJson('/api/ai/messages/' + encodeURIComponent(messageId) + '/feedback'",
+      "data-ai-modal-action=\"results\"",
+      "data-ai-modal-action=\"draft\"",
+      "currentConversationId = data.conversation?.conversationId || currentConversationId"
+    ]) {
+      expect(modal).toContain(expected);
+    }
+
+    expect(modal).not.toContain("neighbor:userSession");
+    expect(modal).not.toContain("readUserToken");
+    expect(modal).not.toContain("authorization: 'Bearer '");
+  });
+
+  test("help route is public read-only and hydrated by the prototype shell", () => {
+    const help = routes.find((item) => item.id === "help");
+
+    expect(help?.surface).toBe("public");
+    expect(help?.path).toBe("/help");
   });
 });

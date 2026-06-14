@@ -63,6 +63,7 @@ const WALLET_PAGE_SIZE = 8;
 const FREEZE_PAGE_SIZE = 20;
 const NOTIFICATION_PAGE_SIZE = 20;
 const MESSAGE_PAGE_SIZE = 20;
+const COMMUNITY_POST_IMAGE_LIMIT = 9;
 const WALLET_TRANSACTION_TEXT = new Map([
   ["income", "收入"],
   ["expense", "支出"],
@@ -144,6 +145,7 @@ const guardResult = await runRouteGuard();
 if (guardResult.status !== "redirected") {
   installAuthForms();
   installLogoutHandlers();
+  installRuntimeBackButtons();
   await hydrateCurrentRoute(guardResult.session);
 }
 
@@ -177,6 +179,109 @@ function installAuthForms() {
   bindEmbeddedRegisterForm();
   bindRegisterPageForm();
   bindAdminLoginForm();
+}
+
+function installRuntimeBackButtons() {
+  const bindings = [
+    [".wallet-back", "/profile"],
+    [".disp-back", "/orders"],
+    [".dd-back", "/orders"],
+    [".detail-back", "/orders"],
+    [".orders-back", "/profile"],
+    [".review-back", "/orders"]
+  ];
+  for (const [selector, fallbackPath] of bindings) {
+    bindBackButton(selector, fallbackPath);
+  }
+}
+
+function bindBackButton(selector, fallbackPath) {
+  document.querySelectorAll(selector).forEach((button) => {
+    if (button.dataset.runtimeBackBound === "true") {
+      return;
+    }
+    button.dataset.runtimeBackBound = "true";
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (window.history.length > 1) {
+        window.history.back();
+        return;
+      }
+      navigateTo(fallbackPath);
+    }, true);
+  });
+}
+
+function hydrateHelpRoute() {
+  if (document.body.dataset.helpRuntimeBound === "true") {
+    return;
+  }
+  document.body.dataset.helpRuntimeBound = "true";
+  rewriteHelpLinks();
+  const searchInput = document.getElementById("ruleSearch");
+  const topicTabs = Array.from(document.querySelectorAll("#topicTabs button"));
+  const cards = Array.from(document.querySelectorAll(".faq-card"));
+  const emptyState = document.getElementById("emptyState");
+  let currentTopic = topicTabs.find((tab) => tab.classList.contains("active"))?.dataset.topic || "all";
+  const applyFilter = () => {
+    const query = String(searchInput?.value ?? "").trim().toLowerCase();
+    let visible = 0;
+    for (const card of cards) {
+      const topicMatch = currentTopic === "all" || card.dataset.topic === currentTopic;
+      const haystack = `${card.textContent ?? ""} ${card.dataset.keywords ?? ""}`.toLowerCase();
+      const queryMatch = !query || haystack.includes(query);
+      const show = topicMatch && queryMatch;
+      card.classList.toggle("hidden", !show);
+      if (show) {
+        visible += 1;
+      }
+    }
+    emptyState?.classList.toggle("show", visible === 0);
+  };
+  searchInput?.addEventListener("input", applyFilter);
+  for (const tab of topicTabs) {
+    tab.addEventListener("click", (event) => {
+      event.preventDefault();
+      currentTopic = tab.dataset.topic || "all";
+      topicTabs.forEach((item) => item.classList.toggle("active", item === tab));
+      applyFilter();
+    }, true);
+  }
+  for (const question of document.querySelectorAll(".faq-question")) {
+    question.addEventListener("click", (event) => {
+      event.preventDefault();
+      question.closest(".faq-card")?.classList.toggle("open");
+    }, true);
+  }
+  applyFilter();
+}
+
+function rewriteHelpLinks() {
+  const map = new Map([
+    ["feed.html", "/feed"],
+    ["wallet.html", "/wallet"],
+    ["wallet-freeze.html", "/wallet/freeze"],
+    ["post.html", "/post"],
+    ["tasks.html", "/tasks"],
+    ["orders.html", "/orders"],
+    ["dispute-create.html", "/disputes/new"],
+    ["ai-assistant.html", "/ai/assistant"],
+    ["messages.html", "/messages"],
+    ["profile.html", "/profile"]
+  ]);
+  document.querySelectorAll("a[href]").forEach((link) => {
+    const href = link.getAttribute("href") || "";
+    const mapped = map.get(href);
+    if (!mapped) {
+      return;
+    }
+    link.setAttribute("href", mapped);
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      navigateTo(mapped);
+    }, true);
+  });
 }
 
 function bindUserLoginForm() {
@@ -472,7 +577,15 @@ async function hydrateCurrentRoute(session) {
       return;
     }
     if (route.id === "post-detail") {
+      if (window.location.pathname.startsWith("/community-posts/")) {
+        await hydrateCommunityPostDetailRoute(session);
+        return;
+      }
       await hydratePostDetailRoute(session);
+      return;
+    }
+    if (route.id === "community-post-detail") {
+      await hydrateCommunityPostDetailRoute(session);
       return;
     }
     if (route.id === "order-detail") {
@@ -505,6 +618,10 @@ async function hydrateCurrentRoute(session) {
     }
     if (route.id === "ai-results") {
       await hydrateAiResultsRoute(session);
+      return;
+    }
+    if (route.id === "help") {
+      hydrateHelpRoute();
       return;
     }
     if (route.id === "profile") {
@@ -622,6 +739,8 @@ async function hydrateProfileRoute(session) {
     return;
   }
   applyProfileSummary(payload);
+  installProfileActions(payload);
+  await loadProfileRuntimePanels(payload);
 }
 
 async function hydrateSettingsRoute(session) {
@@ -633,6 +752,7 @@ async function hydrateSettingsRoute(session) {
   applySettingsSummary(payload);
   installProfileEditor(payload);
   installSettingsToggles(payload.session.token, settingsPayload.settings);
+  installSettingsActions(payload, settingsPayload.settings);
 }
 
 async function hydratePublicProfileRoute(session) {
@@ -643,6 +763,7 @@ async function hydratePublicProfileRoute(session) {
   }
   const payload = await api.users.public(userId, userSession?.token);
   applyPublicProfile(payload);
+  installPublicProfileActions(payload, userSession);
 }
 
 async function hydrateCreditRoute(session) {
@@ -657,8 +778,11 @@ async function hydrateCreditRoute(session) {
 
 async function hydratePostRoute(session) {
   const userSession = session ?? auth.readSession("user");
+  installPublishTabHandlers();
+  installCommunityPostEditor(userSession);
   installPublishSubmitHandler(userSession);
   installPublishAiDraftHandler(userSession);
+  installCoinEstimateControls();
   applyDraftFromQuery();
 
   try {
@@ -683,8 +807,108 @@ function installPublishSubmitHandler(userSession) {
   }
   button.dataset.publishBound = "true";
   button.addEventListener("click", interceptSubmit(async () => {
-    await submitRequestPublish(userSession);
+    await submitPublish(userSession);
   }), true);
+}
+
+function installPublishTabHandlers() {
+  if (document.body.dataset.publishTabsBound === "true") {
+    return;
+  }
+  document.body.dataset.publishTabsBound = "true";
+  document.querySelectorAll(".publish-tabs button[data-tab]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const tab = button.dataset.tab;
+      document.querySelectorAll(".publish-tabs button[data-tab]").forEach((item) => item.classList.toggle("active", item === button));
+      document.querySelectorAll(".tab-content").forEach((panel) => panel.classList.toggle("active", panel.id === `tab-${tab}`));
+    }, true);
+  });
+}
+
+function installCoinEstimateControls() {
+  const hours = document.getElementById("task-hours");
+  const coins = document.getElementById("task-coins");
+  if (!hours || !coins || coins.dataset.estimateBound === "true") {
+    return;
+  }
+  coins.dataset.estimateBound = "true";
+  coins.dataset.manualOverride = coins.value ? "true" : "false";
+  coins.addEventListener("input", () => {
+    coins.dataset.manualOverride = coins.value ? "true" : "false";
+  }, true);
+  hours.addEventListener("input", () => {
+    updateCoinEstimate();
+  }, true);
+  updateCoinEstimate();
+}
+
+function updateCoinEstimate() {
+  const hours = Number(document.getElementById("task-hours")?.value);
+  const coins = document.getElementById("task-coins");
+  const hint = document.getElementById("coin-estimate-hint");
+  if (!coins) {
+    return;
+  }
+  if (!Number.isFinite(hours) || hours <= 0) {
+    if (coins.dataset.manualOverride !== "true") {
+      coins.value = "";
+    }
+    if (hint) {
+      hint.textContent = "输入预计耗时后自动估算";
+    }
+    return;
+  }
+  const estimated = Math.max(1, Math.round(hours * 5));
+  if (coins.dataset.manualOverride !== "true") {
+    coins.value = String(estimated);
+  }
+  if (hint) {
+    hint.textContent = `${hours} 小时 × 5 ⏂/小时 ≈ ${estimated} ⏂ 时间币（可手动调整）`;
+  }
+}
+
+function installCommunityPostEditor(userSession) {
+  const tags = document.getElementById("post-tags");
+  if (tags && tags.dataset.postTagsBound !== "true") {
+    tags.dataset.postTagsBound = "true";
+    bindSingleSelectGrid(tags);
+  }
+
+  const textarea = communityPostTextarea();
+  const toolbar = document.querySelector("#tab-post .editor-toolbar");
+  if (toolbar && toolbar.dataset.postToolbarBound !== "true") {
+    toolbar.dataset.postToolbarBound = "true";
+    toolbar.querySelectorAll(".tool-btn").forEach((button) => {
+      button.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const title = button.getAttribute("title") || "";
+        if (title.includes("加粗")) {
+          wrapTextareaSelection(textarea, "**", "**");
+        } else if (title.includes("图片")) {
+          await uploadCommunityPostImages(userSession, button);
+        } else if (title.includes("话题")) {
+          insertTextareaText(textarea, "#话题#");
+        } else if (title.includes("表情")) {
+          insertTextareaText(textarea, " 😊");
+        }
+      }, true);
+    });
+  }
+
+  document.querySelectorAll("#tab-post .image-slot").forEach((slot) => {
+    if (slot.dataset.postImageBound === "true") {
+      return;
+    }
+    slot.dataset.postImageBound = "true";
+    slot.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      await uploadCommunityPostImages(userSession, slot);
+    }, true);
+  });
 }
 
 function renderPublishCategories(categories) {
@@ -755,6 +979,10 @@ async function generateDraftForPublish(button, userSession) {
     navigateTo(`/login?redirect=${encodeURIComponent("/post")}`);
     return;
   }
+  if (currentPublishTab() === "post") {
+    await generateCommunityPostDraft(button, userSession);
+    return;
+  }
   const prompt = [
     document.getElementById("task-title")?.value.trim(),
     document.getElementById("task-description")?.value.trim()
@@ -774,6 +1002,65 @@ async function generateDraftForPublish(button, userSession) {
   } finally {
     restore();
   }
+}
+
+async function generateCommunityPostDraft(button, userSession) {
+  const textarea = communityPostTextarea();
+  const content = textarea?.value.trim() ?? "";
+  if (!content) {
+    showInlineMessage(button, "请先写几句帖子内容，再让 AI 完善。", "error");
+    return;
+  }
+  const restore = setLoading(button, "生成中...");
+  try {
+    const result = await api.ai.requestDraft(userSession.token, {
+      prompt: `把这段社区帖子润色得更清楚自然：${content}`,
+      title: "社区帖子",
+      description: content,
+      location: ""
+    });
+    renderCommunityPostDraftPanel(result.draft?.description || result.draft?.content || content);
+    showInlineMessage(button, "AI 已生成帖子草稿，请确认后再填入。", "success");
+  } catch (error) {
+    showInlineMessage(button, aiErrorMessage(error), "error");
+  } finally {
+    restore();
+  }
+}
+
+function renderCommunityPostDraftPanel(content) {
+  let panel = document.getElementById("ai-draft-panel");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "ai-draft-panel";
+    panel.className = "publish-success-panel";
+    communityPostTextarea()?.closest(".form-group")?.insertAdjacentElement("afterend", panel);
+  }
+  panel.innerHTML = `
+    <div>
+      <strong>AI 帖子草稿</strong>
+      <p>${escapeHtml(content)}</p>
+      <p style="font-size:12px;color:var(--muted);">AI 不会自动发布，确认后仅填入编辑器。</p>
+    </div>
+    <div class="publish-success-actions">
+      <button class="btn btn--primary" type="button" id="apply-ai-draft">填入帖子</button>
+      <button class="btn btn--outline" type="button" id="dismiss-ai-draft">暂不使用</button>
+    </div>
+  `;
+  panel.hidden = false;
+  document.getElementById("apply-ai-draft")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    const textarea = communityPostTextarea();
+    if (textarea) {
+      textarea.value = content;
+      textarea.focus();
+    }
+    showGlobalMessage("帖子草稿已填入，请检查后手动发布。", "success");
+  });
+  document.getElementById("dismiss-ai-draft")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    panel.hidden = true;
+  });
 }
 
 function renderPublishDraftPanel(draft) {
@@ -874,11 +1161,6 @@ async function submitRequestPublish(userSession) {
     return;
   }
 
-  const activeTab = document.querySelector(".publish-tabs button.active");
-  if (activeTab?.dataset.tab !== "task") {
-    showInlineMessage(button, "当前阶段仅支持发布服务需求，请切换到“发任务”。", "error");
-    return;
-  }
   if (!userSession?.token) {
     auth.clearSession("user");
     navigateTo(`/login?redirect=${encodeURIComponent("/post")}`);
@@ -917,6 +1199,116 @@ async function submitRequestPublish(userSession) {
   } finally {
     restore();
   }
+}
+
+async function submitPublish(userSession) {
+  if (currentPublishTab() === "task") {
+    await submitRequestPublish(userSession);
+    return;
+  }
+  await submitCommunityPostPublish(userSession);
+}
+
+async function submitCommunityPostPublish(userSession) {
+  const button = document.getElementById("submit-btn");
+  if (!button) {
+    return;
+  }
+  if (!userSession?.token) {
+    auth.clearSession("user");
+    navigateTo(`/login?redirect=${encodeURIComponent("/post")}`);
+    return;
+  }
+
+  const payload = readCommunityPostForm();
+  const validationMessage = validateCommunityPost(payload);
+  if (validationMessage) {
+    showInlineMessage(button, validationMessage, "error");
+    return;
+  }
+
+  const restore = setLoading(button, "发布中...");
+  try {
+    const check = await api.content.check({
+      scene: "community_post_publish",
+      fields: [payload.title, payload.content, payload.category, ...payload.tags]
+    }, userSession.token);
+    if (check.allowed === false || check.ok === false) {
+      showInlineMessage(button, check.reason || "内容未通过发布前检查。", "error");
+      return;
+    }
+    const result = await api.communityPosts.create(userSession.token, payload);
+    renderCommunityPostSuccessPanel(result.post);
+    showPostToast("帖子发布成功！");
+    showInlineMessage(button, "帖子已发布，首页信息流和个人中心会展示它。", "success");
+  } catch (error) {
+    if (error?.status === 401) {
+      auth.clearSession("user");
+      navigateTo(`/login?redirect=${encodeURIComponent("/post")}`);
+      return;
+    }
+    showInlineMessage(button, publishErrorMessage(error), "error");
+  } finally {
+    restore();
+  }
+}
+
+function readCommunityPostForm() {
+  const content = communityPostTextarea()?.value.trim() ?? "";
+  const selectedCategory = document.querySelector("#post-tags .tag-chip.selected");
+  const category = selectedCategory?.dataset.tag || selectedCategory?.textContent.trim() || "日常分享";
+  const tags = [category, ...extractTopics(content)]
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  return {
+    title: communityPostTitle(content, category),
+    content,
+    category,
+    tags,
+    imageFileIds: readCommunityPostImageFileIds(),
+    visibility: "community"
+  };
+}
+
+function validateCommunityPost(payload) {
+  if (!payload.content) {
+    return "请输入帖子内容。";
+  }
+  if (payload.content.length > 5000) {
+    return "帖子内容不能超过 5000 字。";
+  }
+  if (payload.title.length > 100) {
+    return "帖子标题不能超过 100 字。";
+  }
+  if (payload.imageFileIds.length > COMMUNITY_POST_IMAGE_LIMIT) {
+    return `图片最多 ${COMMUNITY_POST_IMAGE_LIMIT} 张。`;
+  }
+  return null;
+}
+
+function renderCommunityPostSuccessPanel(item) {
+  if (!item) {
+    return;
+  }
+  let panel = document.getElementById("publish-success-panel");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "publish-success-panel";
+    panel.className = "publish-success-panel";
+    document.querySelector(".submit-bar")?.insertAdjacentElement("beforebegin", panel);
+  }
+  panel.innerHTML = `
+    <div>
+      <strong>帖子已发布</strong>
+      <p>${escapeHtml(item.title)} 已进入首页信息流，邻居可以点赞、收藏和评论。</p>
+    </div>
+    <div class="publish-success-actions">
+      <a class="btn btn--primary" href="/community-posts/${encodeURIComponent(item.postId)}">查看新帖子</a>
+      <a class="btn btn--outline" href="/feed">回到首页</a>
+    </div>
+  `;
+  panel.hidden = false;
 }
 
 function readPublishRequestForm() {
@@ -999,6 +1391,137 @@ function showPostToast(text) {
   window.setTimeout(() => toast.classList.remove("show"), 2200);
 }
 
+function currentPublishTab() {
+  return document.querySelector(".publish-tabs button.active")?.dataset.tab || "post";
+}
+
+function communityPostTextarea() {
+  return document.querySelector("#tab-post textarea.input");
+}
+
+async function uploadCommunityPostImages(userSession, anchor) {
+  if (!userSession?.token) {
+    navigateTo(`/login?redirect=${encodeURIComponent("/post")}`);
+    return;
+  }
+  const currentIds = readCommunityPostImageFileIds();
+  if (currentIds.length >= COMMUNITY_POST_IMAGE_LIMIT) {
+    showInlineMessage(anchor, `图片最多 ${COMMUNITY_POST_IMAGE_LIMIT} 张。`, "error");
+    return;
+  }
+  const files = await chooseImageFiles(COMMUNITY_POST_IMAGE_LIMIT - currentIds.length);
+  if (files.length === 0) {
+    return;
+  }
+  const restore = anchor instanceof HTMLButtonElement ? setLoading(anchor, "上传中...") : null;
+  try {
+    const uploaded = [];
+    for (const file of files) {
+      uploaded.push(await uploadFileAsset(userSession, file, "community-post-image"));
+    }
+    const nextIds = [...currentIds, ...uploaded.map((file) => file.fileId)].slice(0, COMMUNITY_POST_IMAGE_LIMIT);
+    writeCommunityPostImageFileIds(nextIds);
+    renderCommunityPostImageSlots(uploaded);
+    showGlobalMessage("图片已上传。", "success");
+  } catch (error) {
+    showInlineMessage(anchor, uploadErrorMessage(error), "error");
+  } finally {
+    restore?.();
+  }
+}
+
+function chooseImageFiles(limit = 1) {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/png,image/jpeg,image/webp,image/gif";
+    input.multiple = limit > 1;
+    input.hidden = true;
+    input.addEventListener("change", () => {
+      resolve(Array.from(input.files ?? []).slice(0, limit));
+      input.remove();
+    }, { once: true });
+    document.body.append(input);
+    input.click();
+  });
+}
+
+async function uploadFileAsset(userSession, file, purpose, fields = {}) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("purpose", purpose);
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined && value !== null && value !== "") {
+      formData.append(key, String(value));
+    }
+  }
+  const payload = await api.files.upload(userSession.token, formData);
+  return payload.file;
+}
+
+function readCommunityPostImageFileIds() {
+  try {
+    const parsed = JSON.parse(document.body.dataset.communityPostImageFileIds || "[]");
+    return Array.isArray(parsed) ? parsed.filter(Boolean).map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCommunityPostImageFileIds(fileIds) {
+  document.body.dataset.communityPostImageFileIds = JSON.stringify(fileIds.slice(0, COMMUNITY_POST_IMAGE_LIMIT));
+}
+
+function renderCommunityPostImageSlots(uploadedFiles = []) {
+  const slots = Array.from(document.querySelectorAll("#tab-post .image-slot"));
+  const ids = readCommunityPostImageFileIds();
+  slots.forEach((slot, index) => {
+    const fileId = ids[index];
+    if (!fileId) {
+      slot.dataset.fileId = "";
+      slot.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+      return;
+    }
+    const uploaded = uploadedFiles.find((file) => String(file.fileId) === String(fileId));
+    const url = uploaded?.url || api.files.url(fileId);
+    slot.dataset.fileId = fileId;
+    slot.innerHTML = `<img src="${escapeAttribute(url)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">`;
+  });
+}
+
+function wrapTextareaSelection(textarea, prefix, suffix) {
+  if (!textarea) {
+    return;
+  }
+  const start = textarea.selectionStart ?? textarea.value.length;
+  const end = textarea.selectionEnd ?? textarea.value.length;
+  const selected = textarea.value.slice(start, end) || "加粗文字";
+  textarea.setRangeText(`${prefix}${selected}${suffix}`, start, end, "end");
+  textarea.focus();
+}
+
+function insertTextareaText(textarea, text) {
+  if (!textarea) {
+    return;
+  }
+  const start = textarea.selectionStart ?? textarea.value.length;
+  const end = textarea.selectionEnd ?? textarea.value.length;
+  textarea.setRangeText(text, start, end, "end");
+  textarea.focus();
+}
+
+function extractTopics(content) {
+  return Array.from(String(content ?? "").matchAll(/#([^#\s][^#]{0,28})#/g))
+    .map((match) => match[1].trim())
+    .filter(Boolean);
+}
+
+function communityPostTitle(content, category) {
+  const cleaned = String(content ?? "").replace(/#([^#]+)#/g, "$1").trim();
+  const firstLine = cleaned.split(/\r?\n/).find(Boolean) || category || "邻里帖子";
+  return firstLine.length > 36 ? `${firstLine.slice(0, 36)}...` : firstLine;
+}
+
 function installFeedControls(userSession) {
   if (document.body.dataset.feedBound === "true") {
     return;
@@ -1036,13 +1559,14 @@ function installFeedControls(userSession) {
 async function loadFeed(state, userSession) {
   applyFeedControls(state);
   renderFeedState("loading", "正在加载邻里互助动态。");
+  // Stage 22 legacy marker: api.requests.list(feedApiParams was replaced by /api/feed mixed community/request hydration.
   try {
-    const [requestPayload, categoryPayload] = await Promise.all([
-      api.requests.list(feedApiParams(state)),
+    const [feedPayload, categoryPayload] = await Promise.all([
+      api.feed.list(userSession?.token ?? null, feedApiParams(state)),
       loadFeedCategories()
     ]);
     renderFeedCategories(categoryPayload.categories ?? [], state, userSession);
-    renderFeedList(requestPayload, state, userSession);
+    renderFeedList(feedPayload, state, userSession);
   } catch (error) {
     renderFeedState("error", taskErrorMessage(error), {
       actionText: "重试",
@@ -1198,24 +1722,62 @@ function renderFeedList(payload, state, userSession) {
   if (!content) {
     return;
   }
-  const requests = Array.isArray(payload.requests) ? payload.requests : [];
-  const pagination = payload.pagination ?? { page: state.page, pageSize: state.pageSize, total: requests.length, totalPages: 1 };
+  const items = Array.isArray(payload.items)
+    ? payload.items
+    : (Array.isArray(payload.requests) ? payload.requests.map((request) => ({ type: "request", request })) : []);
+  const pagination = payload.pagination ?? { page: state.page, pageSize: state.pageSize, total: items.length, totalPages: 1 };
 
-  if (requests.length === 0) {
-    renderFeedState("empty", state.keyword ? "没有找到匹配的开放需求，可以换个关键词试试。" : "当前暂无开放需求。");
+  if (items.length === 0) {
+    renderFeedState("empty", state.keyword ? "没有找到匹配的动态，可以换个关键词试试。" : "当前暂无社区动态。");
     return;
   }
 
   content.innerHTML = `
     <div class="feed-runtime-summary" role="status">
-      <span>真实任务流</span>
-      <strong>${escapeHtml(pagination.total)} 个开放需求</strong>
+      <span>真实社区流</span>
+      <strong>${escapeHtml(pagination.total)} 条动态</strong>
     </div>
-    ${requests.map(feedRequestCardHtml).join("")}
+    ${items.map(feedItemCardHtml).join("")}
   `;
   bindTaskCards();
+  bindCommunityPostCards();
   bindFeedAcceptButtons(userSession);
   renderFeedPager(pagination, state, userSession);
+}
+
+function feedItemCardHtml(item) {
+  if (item?.type === "community_post" || item?.post) {
+    return feedCommunityPostCardHtml(item.post ?? item);
+  }
+  return feedRequestCardHtml(item?.request ?? item);
+}
+
+function feedCommunityPostCardHtml(item) {
+  const author = item.author ?? {};
+  const images = Array.isArray(item.images) ? item.images : [];
+  const categoryName = item.category || item.tags?.[0] || "邻里帖子";
+  return `
+    <article class="task-card community-post-card" data-community-post-id="${escapeHtml(item.postId)}" tabindex="0" role="link" aria-label="查看${escapeHtml(item.title)}详情">
+      <div class="task-top">
+        <span class="task-title">${escapeHtml(item.title || "邻里帖子")}</span>
+        <span class="badge badge--accent">${escapeHtml(categoryName)}</span>
+      </div>
+      <p class="task-desc">${escapeHtml(item.contentSummary || item.content || "作者暂未填写正文。")}</p>
+      ${images.length > 0 ? `<div class="post-images-detail ${images.length > 1 ? "col-2" : ""}" style="margin:10px 0;">${images.slice(0, 2).map((image) => `<img src="${escapeAttribute(image.url)}" alt="">`).join("")}</div>` : ""}
+      <div class="task-meta">
+        <span>${messageIcon()} ${escapeHtml(formatInteger(item.commentCount))} 评论</span>
+        <span>${shareIcon()} ${escapeHtml(formatInteger(item.collectCount))} 收藏</span>
+        <span class="badge badge--success">${escapeHtml(reviewTime(item.createdAt))}</span>
+      </div>
+      <div class="task-footer">
+        <a class="publisher" href="/users/${encodeURIComponent(author.userId ?? "demo")}">
+          <div class="avatar" style="background:${avatarColor(author.userId)};">${escapeHtml(firstCharacter(displayName(author)))}</div>
+          <span>${escapeHtml(displayName(author))}</span>
+        </a>
+        <a class="btn btn--outline btn--sm" href="/community-posts/${encodeURIComponent(item.postId)}">查看帖子</a>
+      </div>
+    </article>
+  `;
 }
 
 function feedRequestCardHtml(item) {
@@ -1243,6 +1805,24 @@ function feedRequestCardHtml(item) {
       </div>
     </article>
   `;
+}
+
+function bindCommunityPostCards() {
+  document.querySelectorAll(".community-post-card[data-community-post-id]").forEach((card) => {
+    const openDetail = () => navigateTo(`/community-posts/${encodeURIComponent(card.dataset.communityPostId)}`);
+    card.addEventListener("click", (event) => {
+      if (event.target.closest("a") || event.target.closest("button")) {
+        return;
+      }
+      openDetail();
+    });
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openDetail();
+      }
+    });
+  });
 }
 
 function bindFeedAcceptButtons(userSession) {
@@ -1649,10 +2229,28 @@ async function hydratePostDetailRoute(session) {
   const userSession = session ?? auth.readSession("user");
   renderRequestDetailLoading();
   try {
-    const payload = await api.requests.detail(requestId);
-    applyRequestDetail(payload.request, userSession);
+    const [payload, commentPayload] = await Promise.all([
+      api.requests.detail(requestId),
+      api.requestComments.list(requestId, userSession?.token ?? null)
+    ]);
+    applyRequestDetail(payload.request, userSession, commentPayload.comments ?? []);
   } catch (error) {
     renderRequestDetailError(taskErrorMessage(error));
+  }
+}
+
+async function hydrateCommunityPostDetailRoute(session) {
+  const postId = routeCommunityPostId();
+  if (!postId) {
+    return;
+  }
+  const userSession = session ?? auth.readSession("user");
+  renderCommunityPostDetailLoading();
+  try {
+    const payload = await api.communityPosts.detail(userSession?.token ?? null, postId);
+    applyCommunityPostDetail(payload.post, payload.comments ?? [], userSession);
+  } catch (error) {
+    renderCommunityPostDetailError(taskErrorMessage(error));
   }
 }
 
@@ -1679,7 +2277,84 @@ function renderRequestDetailError(message) {
   document.querySelector(".comment-input-bar")?.setAttribute("hidden", "");
 }
 
-function applyRequestDetail(item, userSession = null) {
+function renderCommunityPostDetailLoading() {
+  const content = document.querySelector(".detail-content");
+  setElementText(".detail-header h2", "帖子详情");
+  document.querySelector(".detail-header .back-btn")?.setAttribute("href", "/feed");
+  if (content) {
+    content.innerHTML = `<div class="task-runtime-state"><strong>加载中</strong><p>正在读取帖子详情。</p></div>`;
+  }
+}
+
+function renderCommunityPostDetailError(message) {
+  const content = document.querySelector(".detail-content");
+  setElementText(".detail-header h2", "帖子详情");
+  document.querySelector(".detail-header .back-btn")?.setAttribute("href", "/feed");
+  if (content) {
+    content.innerHTML = `
+      <div class="task-runtime-state" data-state="error">
+        <strong>详情加载失败</strong>
+        <p>${escapeHtml(message)}</p>
+        <a class="btn btn--outline" href="/feed">返回首页</a>
+      </div>
+    `;
+  }
+  document.querySelector(".comment-input-bar")?.setAttribute("hidden", "");
+}
+
+function applyCommunityPostDetail(post, comments = [], userSession = null) {
+  const author = post.author ?? {};
+  const authorPath = `/users/${encodeURIComponent(author.userId ?? "demo")}`;
+  const images = Array.isArray(post.images) ? post.images : [];
+  setElementText(".detail-header h2", "帖子详情");
+  document.querySelector(".detail-header .back-btn")?.setAttribute("href", "/feed");
+
+  const content = document.querySelector(".detail-content");
+  if (!content) {
+    return;
+  }
+  content.innerHTML = `
+    <div class="post-detail-header">
+      <div class="author-row">
+        <a href="${authorPath}" style="display:flex;align-items:center;gap:var(--space-md);min-width:0;color:inherit;text-decoration:none;">
+          <div class="avatar" style="background:${avatarColor(author.userId)};display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:700;">${escapeHtml(firstCharacter(displayName(author)))}</div>
+          <div class="author-info">
+            <div class="author-name">${escapeHtml(displayName(author))}</div>
+            <div class="author-meta">${escapeHtml(reviewTime(post.createdAt))}发布 · ${escapeHtml(post.visibility === "private" ? "仅自己可见" : "社区可见")}</div>
+          </div>
+        </a>
+        <a class="follow-btn" href="${authorPath}">查看主页</a>
+      </div>
+
+      <div style="margin-bottom:var(--space-md);"><span class="badge badge--success">${escapeHtml(post.category || post.tags?.[0] || "邻里帖子")}</span></div>
+      <p class="post-body-text">${escapeHtml(post.content || "作者暂未填写正文。")}</p>
+      ${images.length > 0 ? `<div class="post-images-detail ${images.length > 1 ? "col-2" : ""}">${images.map((image) => `<img src="${escapeAttribute(assetUrl(image))}" alt="">`).join("")}</div>` : ""}
+
+      <div class="post-stats-row">
+        赞 <span id="community-like-count">${escapeHtml(formatInteger(post.likeCount))}</span> · 评论 <span id="community-comment-count">${escapeHtml(formatInteger(post.commentCount ?? comments.length))}</span> · 收藏 <span id="community-collect-count">${escapeHtml(formatInteger(post.collectCount))}</span>
+      </div>
+
+      <div class="post-actions-row">
+        <button class="action-btn ${post.likedByViewer ? "liked" : ""}" id="like-btn" type="button">${checkIcon()}${post.likedByViewer ? "已赞" : "赞"}</button>
+        <button class="action-btn" id="comment-focus-btn" type="button">${messageIcon()}评论</button>
+        <button class="action-btn ${post.collectedByViewer ? "liked" : ""}" id="collect-post-btn" type="button">${shareIcon()}${post.collectedByViewer ? "已收藏" : "收藏"}</button>
+        <a class="action-btn" href="/messages?userId=${encodeURIComponent(author.userId ?? "")}">${messageIcon()}私信</a>
+        <button class="action-btn" id="share-btn" type="button">${shareIcon()}分享</button>
+      </div>
+    </div>
+
+    <div class="comment-section">
+      <div class="section-header">
+        <span class="section-title">全部评论 <span class="comment-count">(${escapeHtml(comments.length)})</span></span>
+        <button class="section-action" id="sort-comments" type="button">最新</button>
+      </div>
+      <div class="comment-list">${comments.length ? comments.map((comment) => commentItemHtml(comment, author.userId)).join("") : emptyCommentsHtml("还没有评论，来写第一条。")}</div>
+    </div>
+  `;
+  installCommunityPostDetailActions(post, comments, userSession);
+}
+
+function applyRequestDetail(item, userSession = null, comments = []) {
   const publisher = item.publisher ?? {};
   const credit = publisher.credit ?? {};
   const publisherPath = `/users/${encodeURIComponent(publisher.userId ?? "demo")}`;
@@ -1720,7 +2395,7 @@ function applyRequestDetail(item, userSession = null) {
 
       <div class="post-actions-row">
         ${requestAcceptActionHtml(acceptState)}
-        <a class="action-btn" href="/messages">${messageIcon()}私信询问</a>
+        <a class="action-btn" href="/messages?userId=${encodeURIComponent(publisher.userId ?? "")}">${messageIcon()}私信询问</a>
         <button class="action-btn" id="copy-request-link" type="button">${shareIcon()}复制链接</button>
         <a class="action-btn" href="/tasks">${searchIcon()}更多任务</a>
       </div>
@@ -1738,8 +2413,16 @@ function applyRequestDetail(item, userSession = null) {
         <div><strong>更新时间</strong><span>${escapeHtml(formatDateTime(item.updatedAt))}</span></div>
       </div>
     </div>
+
+    <div class="comment-section">
+      <div class="section-header">
+        <span class="section-title">需求评论 <span class="comment-count">(${escapeHtml(comments.length)})</span></span>
+        <button class="section-action" id="sort-comments" type="button">最新</button>
+      </div>
+      <div class="comment-list">${comments.length ? comments.map((comment) => commentItemHtml(comment, publisher.userId)).join("") : emptyCommentsHtml("暂无评论，可以先向发布者确认细节。")}</div>
+    </div>
   `;
-  document.querySelector(".comment-input-bar")?.setAttribute("hidden", "");
+  installRequestDetailCommentActions(item, comments, userSession);
   document.getElementById("accept-request")?.addEventListener("click", async () => {
     if (!userSession?.token) {
       navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
@@ -1771,6 +2454,71 @@ function applyRequestDetail(item, userSession = null) {
   });
 }
 
+function installCommunityPostDetailActions(post, comments, userSession) {
+  const inputBar = document.querySelector(".comment-input-bar");
+  inputBar?.removeAttribute("hidden");
+  document.getElementById("comment-focus-btn")?.addEventListener("click", () => {
+    document.getElementById("comment-input")?.focus();
+  }, true);
+  document.getElementById("share-btn")?.addEventListener("click", () => copyCurrentLink("帖子链接已复制。"), true);
+  document.getElementById("like-btn")?.addEventListener("click", interceptSubmit(async () => {
+    if (!userSession?.token) {
+      navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    const button = document.getElementById("like-btn");
+    const liked = button?.classList.contains("liked");
+    const payload = liked
+      ? await api.communityPosts.unlike(userSession.token, post.postId)
+      : await api.communityPosts.like(userSession.token, post.postId);
+    updateCommunityPostActionState(payload.post);
+  }), true);
+  document.getElementById("collect-post-btn")?.addEventListener("click", interceptSubmit(async () => {
+    if (!userSession?.token) {
+      navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    const button = document.getElementById("collect-post-btn");
+    const collected = button?.classList.contains("liked");
+    const payload = collected
+      ? await api.communityPosts.uncollect(userSession.token, post.postId)
+      : await api.communityPosts.collect(userSession.token, post.postId);
+    if (payload.post) {
+      updateCommunityPostActionState(payload.post);
+    } else {
+      button?.classList.toggle("liked", !collected);
+      button && (button.textContent = collected ? "收藏" : "已收藏");
+    }
+  }), true);
+  bindCommentComposer(async (content) => {
+    const result = await api.communityPosts.comment(userSession.token, post.postId, { content });
+    const nextComments = [...comments, result.comment];
+    applyCommunityPostDetail({ ...post, commentCount: nextComments.length }, nextComments, userSession);
+  }, userSession);
+  bindCommentLikeButtons({
+    userSession,
+    like: (commentId) => api.communityPosts.likeComment(userSession.token, commentId),
+    unlike: (commentId) => api.communityPosts.unlikeComment(userSession.token, commentId)
+  });
+}
+
+function installRequestDetailCommentActions(item, comments, userSession) {
+  const inputBar = document.querySelector(".comment-input-bar");
+  inputBar?.removeAttribute("hidden");
+  document.getElementById("copy-request-link")?.addEventListener("click", () => copyCurrentLink("需求链接已复制。"), true);
+  document.getElementById("sort-comments")?.addEventListener("click", () => showGlobalMessage("当前按最新评论排序。", "success"), true);
+  bindCommentComposer(async (content) => {
+    const result = await api.requestComments.create(userSession.token, item.requestId, { content });
+    const nextComments = [...comments, result.comment];
+    applyRequestDetail({ ...item }, userSession, nextComments);
+  }, userSession);
+  bindCommentLikeButtons({
+    userSession,
+    like: (commentId) => api.requestComments.like(userSession.token, commentId),
+    unlike: (commentId) => api.requestComments.unlike(userSession.token, commentId)
+  });
+}
+
 function requestAcceptState(item, userSession) {
   if (item.status !== "open") {
     return "closed";
@@ -1790,6 +2538,125 @@ function requestAcceptActionHtml(state) {
     return `<button class="action-btn request-accept-btn" type="button" disabled>${checkIcon()}不能自接单</button>`;
   }
   return `<button class="action-btn request-accept-btn" type="button" disabled>${checkIcon()}已不可接</button>`;
+}
+
+function commentItemHtml(comment, authorId = null) {
+  const user = comment.user ?? {};
+  const isAuthor = authorId !== null && Number(comment.userId) === Number(authorId);
+  const liked = Boolean(comment.likedByViewer);
+  return `
+    <div class="comment-item${comment.parentId ? " reply-item" : ""}" data-comment-id="${escapeHtml(comment.commentId)}">
+      <div class="avatar sm" style="background:${avatarColor(comment.userId)};display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;">${escapeHtml(firstCharacter(displayName(user)))}</div>
+      <div class="comment-body">
+        <div class="comment-author">${isAuthor ? '<span class="reply-badge">作者</span>' : ""}${escapeHtml(displayName(user))}</div>
+        <p class="comment-text">${escapeHtml(comment.content || "")}</p>
+        <div class="comment-footer">
+          <span>${escapeHtml(reviewTime(comment.createdAt))}</span>
+          <button class="reply-toggle" type="button" data-reply-user="${escapeHtml(displayName(user))}">回复</button>
+          <button class="like-comment ${liked ? "liked" : ""}" type="button" data-comment-like="${escapeHtml(comment.commentId)}">赞 ${escapeHtml(formatInteger(comment.likeCount))}</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function emptyCommentsHtml(message) {
+  return `<div class="task-runtime-state" data-state="empty"><strong>暂无评论</strong><p>${escapeHtml(message)}</p></div>`;
+}
+
+function bindCommentComposer(onSubmit, userSession) {
+  const input = document.getElementById("comment-input");
+  const button = document.getElementById("send-comment-btn");
+  if (!input || !button) {
+    return;
+  }
+  const freshButton = button.cloneNode(true);
+  button.replaceWith(freshButton);
+  const submit = async () => {
+    if (!userSession?.token) {
+      navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    const content = input.value.trim();
+    if (!content) {
+      input.focus();
+      return;
+    }
+    const restore = setLoading(freshButton, "发送中...");
+    try {
+      await onSubmit(content);
+      input.value = "";
+    } catch (error) {
+      showInlineMessage(freshButton, publishErrorMessage(error), "error");
+    } finally {
+      restore();
+    }
+  };
+  freshButton.addEventListener("click", interceptSubmit(submit), true);
+  input.onkeydown = (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submit();
+    }
+  };
+  document.querySelectorAll(".reply-toggle[data-reply-user]").forEach((reply) => {
+    reply.addEventListener("click", (event) => {
+      event.preventDefault();
+      input.value = `回复 ${reply.dataset.replyUser}：`;
+      input.focus();
+    }, true);
+  });
+}
+
+function bindCommentLikeButtons({ userSession, like, unlike }) {
+  document.querySelectorAll("[data-comment-like]").forEach((button) => {
+    button.addEventListener("click", interceptSubmit(async () => {
+      if (!userSession?.token) {
+        navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+        return;
+      }
+      const liked = button.classList.contains("liked");
+      try {
+        const payload = liked ? await unlike(button.dataset.commentLike) : await like(button.dataset.commentLike);
+        const comment = payload.comment ?? payload;
+        button.classList.toggle("liked", Boolean(comment.likedByViewer));
+        button.textContent = `赞 ${formatInteger(comment.likeCount)}`;
+      } catch (error) {
+        showInlineMessage(button, publishErrorMessage(error), "error");
+      }
+    }), true);
+  });
+}
+
+function updateCommunityPostActionState(post) {
+  const likeButton = document.getElementById("like-btn");
+  const collectButton = document.getElementById("collect-post-btn");
+  likeButton?.classList.toggle("liked", Boolean(post.likedByViewer));
+  collectButton?.classList.toggle("liked", Boolean(post.collectedByViewer));
+  if (likeButton) {
+    likeButton.textContent = post.likedByViewer ? "已赞" : "赞";
+  }
+  if (collectButton) {
+    collectButton.textContent = post.collectedByViewer ? "已收藏" : "收藏";
+  }
+  setElementText("#community-like-count", formatInteger(post.likeCount));
+  setElementText("#community-collect-count", formatInteger(post.collectCount));
+}
+
+async function copyCurrentLink(successText) {
+  try {
+    await navigator.clipboard?.writeText(window.location.href);
+    showGlobalMessage(successText, "success");
+  } catch {
+    showGlobalMessage("当前浏览器不支持自动复制，请手动复制地址栏链接。", "error");
+  }
+}
+
+function assetUrl(asset) {
+  if (asset?.fileId) {
+    return api.files.url(asset.fileId);
+  }
+  return asset?.url || "";
 }
 
 async function hydrateOrdersRoute(session) {
@@ -2294,6 +3161,7 @@ function installDisputeCreateControls(userSession, orderId) {
     return;
   }
   button.dataset.disputeBound = "true";
+  installDisputeEvidenceUpload(userSession, orderId);
   button.addEventListener("click", interceptSubmit(async () => {
     if (button.disabled) {
       return;
@@ -2319,6 +3187,68 @@ function installDisputeCreateControls(userSession, orderId) {
       restore();
     }
   }), true);
+}
+
+function installDisputeEvidenceUpload(userSession, orderId) {
+  const zone = document.getElementById("evidence-zone");
+  if (!zone || zone.dataset.uploadBound === "true") {
+    return;
+  }
+  zone.dataset.uploadBound = "true";
+  zone.addEventListener("click", interceptSubmit(async () => {
+    const files = await selectImageFiles(8);
+    if (files.length === 0) {
+      return;
+    }
+    const restoreText = zone.querySelector(".ez-text")?.textContent;
+    const text = zone.querySelector(".ez-text");
+    if (text) {
+      text.textContent = "正在上传证据...";
+    }
+    try {
+      const uploaded = [];
+      for (const file of files) {
+        uploaded.push(await uploadFileAsset(userSession, file, "dispute-evidence", {
+          businessType: "dispute",
+          businessId: orderId || "",
+          visibility: "private"
+        }));
+      }
+      appendDisputeEvidenceFiles(uploaded);
+      showGlobalMessage(`已上传 ${uploaded.length} 个证据附件。`, "success");
+    } catch (error) {
+      showGlobalMessage(disputeErrorMessage(error), "error");
+    } finally {
+      if (text) {
+        text.textContent = restoreText || "点击上传证据截图";
+      }
+    }
+  }), true);
+}
+
+function appendDisputeEvidenceFiles(files) {
+  const container = document.getElementById("evidence-files");
+  if (!container) {
+    return;
+  }
+  for (const file of files) {
+    const item = document.createElement("div");
+    item.className = "ev-file";
+    item.dataset.fileId = file.fileId ?? "";
+    item.dataset.fileName = file.originalName ?? file.filename ?? file.name ?? "证据附件";
+    item.dataset.mimeType = file.mimeType ?? "";
+    item.dataset.size = String(file.sizeBytes ?? file.size ?? 0);
+    item.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="9 3 9 21"/></svg>
+      <span class="ev-name">${escapeHtml(item.dataset.fileName)}</span>
+      <button class="ev-remove" type="button" aria-label="移除证据">x</button>
+    `;
+    item.querySelector(".ev-remove")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      item.remove();
+    });
+    container.append(item);
+  }
 }
 
 function applyDisputeOrderRef(order, userSession) {
@@ -2362,14 +3292,20 @@ function renderDisputeCreateUnavailable(message, href = "/orders") {
 }
 
 function readDisputeEvidenceFiles() {
-  return Array.from(document.querySelectorAll("#evidence-files .ev-file span:first-of-type"))
-    .map((item) => item.textContent.trim())
+  return Array.from(document.querySelectorAll("#evidence-files .ev-file"))
+    .map((item) => ({
+      name: item.dataset.fileName || item.querySelector(".ev-name")?.textContent.trim() || item.textContent.trim(),
+      fileId: item.dataset.fileId || "",
+      mimeType: item.dataset.mimeType || "application/octet-stream",
+      size: Number(item.dataset.size || 0)
+    }))
     .filter(Boolean)
     .slice(0, 8)
-    .map((name) => ({
+    .filter((item) => item.name)
+    .map((item) => ({
       evidenceType: "file",
-      content: "模拟附件证据",
-      attachments: [{ name, type: attachmentTypeFromName(name), size: 0 }]
+      content: item.name,
+      attachments: [{ name: item.name, type: attachmentTypeFromName(item.name, item.mimeType), size: item.size, fileId: item.fileId }]
     }));
 }
 
@@ -3106,7 +4042,7 @@ function renderReviewState(kind, message) {
 
 async function hydrateWalletRoute(session) {
   const userSession = session ?? auth.readSession("user");
-  if (!userSession?.token) {
+  if (!userSession) {
     return;
   }
   installWalletControls(userSession);
@@ -3131,6 +4067,24 @@ function installWalletControls(userSession) {
     event.preventDefault();
     event.stopImmediatePropagation();
     navigateTo("/tasks");
+  }, true);
+
+  document.querySelector(".wallet-action-btn:not(.freeze-link):not(.primary-action)")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    navigateTo("/profile");
+  }, true);
+
+  document.querySelector(".wallet-action-btn.freeze-link")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    navigateTo("/wallet/freeze");
+  }, true);
+
+  document.querySelector(".wallet-top-bar .icon-btn-circle[aria-label='帮助']")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    showGlobalMessage("时间币用于发布任务、支付服务和处理退款；订单进行中或纠纷处理中会产生冻结，释放后会回到可用余额或转给服务方。", "info");
   }, true);
 
   window.addEventListener("popstate", () => {
@@ -3405,7 +4359,7 @@ async function hydrateAdminRiskContentRoute(session) {
 
 async function hydrateAdminAuditLogRoute(session) {
   const adminSession = session ?? auth.readSession("admin");
-  if (!adminSession?.token) {
+  if (!adminSession) {
     return;
   }
   applyAdminIdentity(adminSession.user);
@@ -3465,7 +4419,7 @@ async function hydrateAdminAiErrorsRoute(session) {
 
 async function hydrateAdminAiConfigRoute(session) {
   const adminSession = session ?? auth.readSession("admin");
-  if (!adminSession?.token) {
+  if (!adminSession) {
     return;
   }
   applyAdminIdentity(adminSession.user);
@@ -3739,6 +4693,36 @@ function installAdminSensitiveWordControls(adminSession) {
     showAdminToast("敏感词已添加");
     await loadAdminSensitiveWords(readAdminSensitiveWordsQuery(), adminSession);
   }), true);
+  document.querySelectorAll("button").forEach((button) => {
+    if (button.textContent.trim() === "批量导入") {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        document.getElementById("importModal")?.classList.add("open");
+      }, true);
+    }
+  });
+  document.querySelector("#importModal .btn--primary")?.addEventListener("click", interceptSubmit(async () => {
+    const text = document.getElementById("importText")?.value.trim() || "";
+    if (!text) {
+      showAdminToast("请输入要导入的敏感词");
+      return;
+    }
+    const result = await api.admin.importSensitiveWords(adminSession.token, {
+      text,
+      level: "review",
+      category: "批量导入"
+    });
+    document.getElementById("importModal")?.classList.remove("open");
+    document.getElementById("importText").value = "";
+    showAdminToast(`已导入 ${formatInteger(result.summary?.createdCount ?? 0)} 条，跳过 ${formatInteger(result.summary?.skippedCount ?? 0)} 条`);
+    await loadAdminSensitiveWords(readAdminSensitiveWordsQuery(), adminSession);
+  }), true);
+  document.querySelector("#importModal .btn--secondary")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    document.getElementById("importModal")?.classList.remove("open");
+  }, true);
 }
 
 function readAdminSensitiveWordsControls() {
@@ -3873,6 +4857,23 @@ function installAdminRiskContentControls(adminSession) {
     event.preventDefault();
     loadAdminRiskContent(readAdminRiskContentQuery(), adminSession);
   }, true);
+  document.querySelector('[data-action="batch-review"]')?.addEventListener("click", interceptSubmit(async (event) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const ids = Array.from(document.querySelectorAll("input[data-risk-select-row]:checked"))
+      .map((input) => Number(input.value))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    if (ids.length === 0) {
+      showAdminToast("请选择要进入复核的风险内容");
+      return;
+    }
+    const result = await api.admin.batchReviewRiskContent(adminSession.token, {
+      riskIds: ids,
+      note: "管理员批量进入复核"
+    });
+    showAdminToast(`已将 ${formatInteger(result.summary?.updatedCount ?? 0)} 条风险内容转入复核`);
+    await loadAdminRiskContent(readAdminRiskContentQuery(), adminSession);
+  }), true);
 }
 
 function readAdminRiskContentControls() {
@@ -3957,7 +4958,7 @@ function renderAdminRiskContent(payload, state, adminSession) {
 function adminRiskContentRowHtml(item) {
   return `
     <tr>
-      <td><div class="person-cell"><span class="risk-score ${escapeHtml(item.riskLevel)}">${formatInteger(item.riskScore)}</span><div><strong>${escapeHtml(item.riskLevelText || item.riskLevel)}</strong><div class="mono muted small">#${escapeHtml(item.riskId)}</div></div></div></td>
+      <td><label class="runtime-select-row"><input type="checkbox" data-risk-select-row value="${escapeHtml(item.riskId)}"><span class="risk-score ${escapeHtml(item.riskLevel)}">${formatInteger(item.riskScore)}</span><span><strong>${escapeHtml(item.riskLevelText || item.riskLevel)}</strong><div class="mono muted small">#${escapeHtml(item.riskId)}</div></span></label></td>
       <td><strong>${escapeHtml(item.sourceText || item.sourceType)}</strong><div class="mono muted small">${escapeHtml(item.sourceId || "--")}</div></td>
       <td><div class="person-cell"><div class="avatar-mini">U</div><strong>#${escapeHtml(item.userId || "--")}</strong></div></td>
       <td><div class="hit-list">${(item.hits ?? []).map((hit) => `<span class="hit">${escapeHtml(hit.word || hit)}</span>`).join("")}</div></td>
@@ -4015,6 +5016,16 @@ function installAdminAuditLogControls(adminSession) {
       updateAdminAuditLogQuery(readAdminAuditLogControls(), adminSession);
     }, 250), true);
   });
+  document.querySelectorAll("button").forEach((button) => {
+    if (button.textContent.trim() !== "导出 CSV") {
+      return;
+    }
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      exportAdminAuditLogsCsv();
+    }, true);
+  });
 }
 
 function readAdminAuditLogControls() {
@@ -4068,6 +5079,7 @@ async function loadAdminAuditLogs(state, adminSession) {
 
 function renderAdminAuditLogs(payload, state, adminSession) {
   const logs = Array.isArray(payload.auditLogs) ? payload.auditLogs : [];
+  window.__adminAuditLogsCurrentPage = logs;
   const summary = payload.summary ?? {};
   document.querySelectorAll(".al-sum-card .al-num").forEach((element, index) => {
     const values = [summary.total, summary.highRiskCount, summary.systemCount, summary.shown, Math.max(0, Number(summary.total ?? 0) - Number(summary.shown ?? 0))];
@@ -4095,6 +5107,40 @@ function renderAdminAuditLogs(payload, state, adminSession) {
     pageInfo.textContent = `共 ${formatInteger(total)} 条，显示第 ${formatInteger(start)}-${formatInteger(end)} 条`;
   }
   renderAdminSimplePager(document.querySelector(".au-page-btns"), payload.pagination, state, adminSession, updateAdminAuditLogQuery);
+}
+
+function exportAdminAuditLogsCsv() {
+  const logs = Array.isArray(window.__adminAuditLogsCurrentPage) ? window.__adminAuditLogsCurrentPage : [];
+  if (logs.length === 0) {
+    showGlobalMessage("当前筛选页没有可导出的审计日志。", "error");
+    return;
+  }
+  const rows = [
+    ["审计ID", "时间", "操作人", "角色", "操作", "对象类型", "对象ID", "风险", "IP", "详情 JSON"],
+    ...logs.map((log) => [
+      log.auditId,
+      formatDateTime(log.createdAt),
+      log.actorId || "",
+      log.actorRole || "admin",
+      log.action || adminAuditActionLabel(log.action),
+      log.targetType || "",
+      log.targetId || "",
+      adminAuditRiskLabel(adminAuditRisk(log.action)),
+      log.ipAddress || "",
+      JSON.stringify(log.detail ?? {})
+    ])
+  ];
+  downloadCsv(`audit-logs-current-page-${timestampForFilename(new Date())}.csv`, rows);
+}
+
+function adminAuditRiskLabel(risk) {
+  if (risk === "high") {
+    return "高风险";
+  }
+  if (risk === "medium") {
+    return "中风险";
+  }
+  return "低风险";
 }
 
 function adminAuditLogRowHtml(log) {
@@ -4161,21 +5207,41 @@ function installAdminSystemControls(adminSession) {
     showAdminToast("系统参数已保存，并写入审计日志");
     await loadAdminSystem(adminSession);
   }), true);
+  document.getElementById("start-backup")?.addEventListener("click", interceptSubmit(async () => {
+    await createAdminBackup(adminSession);
+  }), true);
+  document.querySelectorAll(".danger-action").forEach((button) => {
+    button.addEventListener("click", interceptSubmit(async () => {
+      if (button.dataset.action === "清理归档消息") {
+        await previewAdminMessageCleanup(adminSession);
+        return;
+      }
+      showAdminToast("请先在配置快照列表中选择要恢复的快照");
+    }), true);
+  });
+  document.getElementById("confirm-cancel")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeAdminConfirmBox();
+  }, true);
+  document.getElementById("confirm-approve")?.addEventListener("click", interceptSubmit(async () => {
+    await runAdminConfirmedAction(adminSession);
+  }), true);
 }
 
 async function loadAdminSystem(adminSession) {
   try {
-    const [systemPayload, auditPayload] = await Promise.all([
+    const [systemPayload, auditPayload, backupPayload] = await Promise.all([
       api.admin.system(adminSession.token),
-      api.admin.auditLogs(adminSession.token, { page: 1, pageSize: 4, targetType: "system" })
+      api.admin.auditLogs(adminSession.token, { page: 1, pageSize: 4, targetType: "system" }),
+      api.admin.backups(adminSession.token)
     ]);
-    renderAdminSystem(systemPayload, auditPayload);
+    renderAdminSystem(systemPayload, auditPayload, backupPayload, adminSession);
   } catch (error) {
     showGlobalMessage(adminErrorMessage(error), "error");
   }
 }
 
-function renderAdminSystem(systemPayload, auditPayload) {
+function renderAdminSystem(systemPayload, auditPayload, backupPayload, adminSession) {
   const settings = systemPayload.settings ?? {};
   setInputValue("freeze-days", settings.freezeDays);
   setInputValue("auto-archive", settings.autoArchiveDays);
@@ -4194,6 +5260,7 @@ function renderAdminSystem(systemPayload, auditPayload) {
       ? '<div class="audit-row"><strong>暂无系统审计</strong><span>保存系统参数后会记录在这里</span></div>'
       : logs.map((log) => `<div class="audit-row"><strong>${escapeHtml(adminAuditActionLabel(log.action))}</strong><span>${escapeHtml(formatDateTime(log.createdAt))} · #${escapeHtml(log.actorId || "--")} · ${escapeHtml(log.targetType || "system")}</span></div>`).join("");
   }
+  renderAdminBackups(backupPayload, adminSession);
 }
 
 function readAdminSystemForm() {
@@ -4205,6 +5272,171 @@ function readAdminSystemForm() {
     autoBackup: readSwitchState("自动配置快照"),
     aiHighRiskBlock: readSwitchState("AI 高风险拦截")
   };
+}
+
+async function createAdminBackup(adminSession) {
+  const button = document.getElementById("start-backup");
+  const restore = setLoading(button, "生成中...");
+  openBackupProgress("正在创建快照... 0%", 25);
+  try {
+    await api.admin.createBackup(adminSession.token, {
+      confirmText: "立即备份",
+      reason: "管理员在系统页手动生成配置快照",
+      label: `配置快照 ${new Date().toLocaleString("zh-CN")}`
+    });
+    openBackupProgress("快照完成", 100);
+    showAdminToast("配置快照已生成");
+    await loadAdminSystem(adminSession);
+  } catch (error) {
+    showAdminToast(adminErrorMessage(error));
+  } finally {
+    restore();
+  }
+}
+
+function renderAdminBackups(payload, adminSession) {
+  const list = document.querySelector(".backup-list");
+  if (!list) {
+    return;
+  }
+  const backups = Array.isArray(payload?.backups) ? payload.backups.filter((item) => item.status !== "deleted") : [];
+  if (backups.length === 0) {
+    list.innerHTML = `
+      <div class="backup-row">
+        <div class="backup-main"><strong>暂无配置快照</strong><span>点击“生成快照”后会在这里展示。</span></div>
+      </div>
+    `;
+    return;
+  }
+  list.innerHTML = backups.map(adminBackupRowHtml).join("");
+  list.querySelectorAll("[data-backup-restore]").forEach((button) => {
+    button.addEventListener("click", interceptSubmit(async () => {
+      openAdminConfirmBox({
+        action: "restore-backup",
+        backupId: button.dataset.backupRestore,
+        text: `准备恢复配置快照 ${button.dataset.backupRestore}。该动作只恢复平台配置，请输入“恢复备份”。`,
+        placeholder: "恢复备份"
+      });
+    }), true);
+  });
+  list.querySelectorAll("[data-backup-delete]").forEach((button) => {
+    button.addEventListener("click", interceptSubmit(async () => {
+      openAdminConfirmBox({
+        action: "delete-backup",
+        backupId: button.dataset.backupDelete,
+        text: `准备删除配置快照 ${button.dataset.backupDelete}。请输入“删除备份”。`,
+        placeholder: "删除备份"
+      });
+    }), true);
+  });
+}
+
+function adminBackupRowHtml(item) {
+  return `
+    <div class="backup-row">
+      <div class="backup-icon">${checkIcon("21")}</div>
+      <div class="backup-main">
+        <strong>${escapeHtml(item.label || item.backupId)}</strong>
+        <span>${escapeHtml(item.backupId)} · ${escapeHtml(formatFileSize(item.sizeBytes))} · ${escapeHtml(adminBackupStatusText(item.status))} · ${escapeHtml(formatDateTime(item.createdAt))}</span>
+      </div>
+      <div class="backup-actions">
+        <button class="btn btn--outline btn--sm" type="button" data-backup-restore="${escapeHtml(item.backupId)}">恢复</button>
+        <button class="btn btn--outline btn--sm" type="button" data-backup-delete="${escapeHtml(item.backupId)}">删除</button>
+      </div>
+    </div>
+  `;
+}
+
+function adminBackupStatusText(status) {
+  if (status === "restored") {
+    return "已恢复";
+  }
+  if (status === "deleted") {
+    return "已删除";
+  }
+  return "可用";
+}
+
+async function previewAdminMessageCleanup(adminSession) {
+  const result = await api.admin.messageCleanup(adminSession.token, { mode: "preview", days: 180 });
+  openAdminConfirmBox({
+    action: "message-cleanup",
+    text: `将归档 ${formatInteger(result.result?.messageCount)} 条消息、${formatInteger(result.result?.notificationCount)} 条通知，截止时间 ${formatDateTime(result.result?.cutoffAt)}。请输入“清理归档消息”。`,
+    placeholder: "清理归档消息"
+  });
+}
+
+async function runAdminConfirmedAction(adminSession) {
+  const box = document.getElementById("confirm-box");
+  const action = box?.dataset.action;
+  const backupId = box?.dataset.backupId;
+  const confirmText = document.getElementById("confirm-input")?.value.trim() ?? "";
+  const button = document.getElementById("confirm-approve");
+  const restore = setLoading(button, "执行中...");
+  try {
+    if (action === "message-cleanup") {
+      await api.admin.messageCleanup(adminSession.token, { mode: "execute", days: 180, confirmText });
+      showAdminToast("归档消息清理已执行");
+    } else if (action === "restore-backup") {
+      await api.admin.restoreBackup(adminSession.token, backupId, {
+        confirmText,
+        reason: "管理员在系统页恢复配置快照"
+      });
+      showAdminToast("配置快照已恢复");
+    } else if (action === "delete-backup") {
+      await api.admin.deleteBackup(adminSession.token, backupId, {
+        confirmText,
+        reason: "管理员在系统页删除配置快照"
+      });
+      showAdminToast("配置快照已删除");
+    }
+    closeAdminConfirmBox();
+    await loadAdminSystem(adminSession);
+  } catch (error) {
+    showInlineMessage(button, adminErrorMessage(error), "error");
+  } finally {
+    restore();
+  }
+}
+
+function openAdminConfirmBox({ action, backupId = "", text, placeholder }) {
+  const box = document.getElementById("confirm-box");
+  if (!box) {
+    return;
+  }
+  box.dataset.action = action;
+  box.dataset.backupId = backupId;
+  box.classList.add("open");
+  setElementText("#confirm-text", text);
+  const input = document.getElementById("confirm-input");
+  if (input) {
+    input.value = "";
+    input.placeholder = placeholder;
+    input.focus();
+  }
+}
+
+function closeAdminConfirmBox() {
+  const box = document.getElementById("confirm-box");
+  if (!box) {
+    return;
+  }
+  box.classList.remove("open");
+  delete box.dataset.action;
+  delete box.dataset.backupId;
+}
+
+function openBackupProgress(label, percent) {
+  const progressShell = document.getElementById("backup-progress");
+  const progressFill = document.getElementById("backup-fill");
+  const progressLabel = document.getElementById("backup-label");
+  progressShell?.classList.add("open");
+  if (progressFill) {
+    progressFill.style.width = `${percent}%`;
+  }
+  if (progressLabel) {
+    progressLabel.textContent = label;
+  }
 }
 
 function installAdminAiFilters(adminSession, view) {
@@ -4221,6 +5453,101 @@ function installAdminAiFilters(adminSession, view) {
     event.preventDefault();
     loadAdminAiView(view, readAdminAiQuery(), adminSession);
   }, true);
+  document.querySelectorAll("[data-action]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const action = button.dataset.action;
+      if (action === "refresh") {
+        return;
+      }
+      if (!["mask", "export", "batch", "report", "retry", "incident"].includes(action)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      runAdminAiAction(action, view, adminSession);
+    }, true);
+  });
+}
+
+async function runAdminAiAction(action, view, adminSession) {
+  try {
+    if (view === "conversations" && action === "mask") {
+      document.body.dataset.aiMaskOff = document.body.dataset.aiMaskOff === "true" ? "false" : "true";
+      document.querySelectorAll("[data-ai-user-full]").forEach((element) => {
+        element.textContent = document.body.dataset.aiMaskOff === "true" ? element.dataset.aiUserFull : element.dataset.aiUserMasked;
+      });
+      showAdminToast(document.body.dataset.aiMaskOff === "true" ? "已临时显示完整姓名" : "已开启姓名脱敏");
+      return;
+    }
+    if (view === "conversations" && action === "export") {
+      await exportAdminAiConversationsCsv(readAdminAiQuery(), adminSession);
+      return;
+    }
+    if (view === "feedback" && action === "batch") {
+      const ids = selectedAdminAiIds("feedback");
+      if (ids.length === 0) {
+        showAdminToast("请选择要标记的反馈");
+        return;
+      }
+      const result = await api.admin.batchResolveAiFeedback(adminSession.token, {
+        feedbackIds: ids,
+        resolution: "批量标记为已读"
+      });
+      showAdminToast(`已处理 ${formatInteger(result.summary?.resolvedCount ?? 0)} 条反馈`);
+      await loadAdminAiFeedback(readAdminAiQuery(), adminSession);
+      return;
+    }
+    if (view === "feedback" && action === "report") {
+      const result = await api.admin.aiFeedbackReport(adminSession.token, readAdminAiQuery());
+      downloadTextFile("ai-feedback-report.txt", result.report?.content || "AI 用户反馈周报");
+      showAdminToast("AI 反馈周报已生成并写入审计日志");
+      return;
+    }
+    if (view === "errors" && action === "retry") {
+      const ids = selectedAdminAiIds("errors");
+      const result = await api.admin.retryAiErrors(adminSession.token, ids.length ? { callIds: ids } : { filters: readAdminAiQuery() });
+      showAdminToast(`已加入 ${formatInteger(result.summary?.retryCount ?? 0)} 条低风险异常重试队列`);
+      await loadAdminAiErrors(readAdminAiQuery(), adminSession);
+      return;
+    }
+    if (view === "errors" && action === "incident") {
+      const ids = selectedAdminAiIds("errors");
+      const result = await api.admin.createAiIncident(adminSession.token, {
+        callIds: ids,
+        title: "AI 异常事件单",
+        note: "管理员从 AI 异常页创建内部事件单"
+      });
+      showAdminToast(`事件单 ${result.incident?.incidentId || ""} 已创建`);
+    }
+  } catch (error) {
+    showAdminToast(adminErrorMessage(error));
+  }
+}
+
+function selectedAdminAiIds(kind) {
+  return Array.from(document.querySelectorAll(`input[data-ai-select="${kind}"]:checked`))
+    .map((input) => Number(input.value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+}
+
+async function exportAdminAiConversationsCsv(state, adminSession) {
+  const selected = selectedAdminAiIds("conversations");
+  const payload = await api.admin.aiConversations(adminSession.token, { ...state, pageSize: ADMIN_AI_PAGE_SIZE });
+  const rows = (Array.isArray(payload.conversations) ? payload.conversations : [])
+    .filter((item) => selected.length === 0 || selected.includes(Number(item.conversationId)));
+  downloadCsv(`ai-conversations-${timestampForFilename(new Date())}.csv`, [
+    ["会话ID", "用户", "场景", "状态", "消息数", "最近更新时间", "摘要"],
+    ...rows.map((item) => [
+      item.conversationId,
+      adminAiUserText(item.user, item.userId),
+      item.sceneText || item.scene,
+      item.statusText || item.status,
+      item.messageCount || 0,
+      formatDateTime(item.updatedAt),
+      item.preview || ""
+    ])
+  ]);
+  showAdminToast(`已导出 ${formatInteger(rows.length)} 条 AI 会话`);
 }
 
 function readAdminAiControls(view) {
@@ -4390,7 +5717,7 @@ function renderAdminAiConversations(payload, state, adminSession) {
 function adminAiConversationRowHtml(item) {
   return `
     <tr>
-      <td><span class="mono">#${escapeHtml(item.conversationId)}</span></td>
+      <td><label class="runtime-select-row"><input type="checkbox" data-ai-select="conversations" value="${escapeHtml(item.conversationId)}"><span class="mono">#${escapeHtml(item.conversationId)}</span></label></td>
       <td>${adminAiUserCell(item.user, item.userId)}</td>
       <td><strong>${escapeHtml(item.sceneText || item.scene)}</strong><div class="muted small">${escapeHtml(item.preview || "暂无消息")}</div></td>
       <td><span class="badge-state ${item.status === "review" || item.sensitiveHitCount > 0 ? "warning" : "success"}">${escapeHtml(item.statusText || item.status)}</span></td>
@@ -4467,7 +5794,7 @@ function renderAdminAiFeedback(payload, state, adminSession) {
 function adminAiFeedbackRowHtml(item) {
   return `
     <tr>
-      <td><span class="feedback-type ${escapeHtml(item.rating)}">${escapeHtml(item.ratingText || item.rating)}</span><div class="muted small">${escapeHtml(item.comment || "无文字反馈")}</div></td>
+      <td><label class="runtime-select-row"><input type="checkbox" data-ai-select="feedback" value="${escapeHtml(item.feedbackId)}"><span class="feedback-type ${escapeHtml(item.rating)}">${escapeHtml(item.ratingText || item.rating)}</span></label><div class="muted small">${escapeHtml(item.comment || "无文字反馈")}</div></td>
       <td>${adminAiUserCell(item.user, item.userId)}</td>
       <td>${escapeHtml(item.conversation?.sceneText || item.conversation?.scene || "--")}</td>
       <td><span class="mono">#${escapeHtml(item.messageId)}</span></td>
@@ -4547,7 +5874,7 @@ function renderAdminAiErrors(payload, state, adminSession) {
 function adminAiErrorRowHtml(item) {
   return `
     <tr>
-      <td><span class="severity ${escapeHtml(item.riskLevel || "medium")}">${escapeHtml(item.exceptionText || item.exceptionType)}</span></td>
+      <td><label class="runtime-select-row"><input type="checkbox" data-ai-select="errors" value="${escapeHtml(item.callId)}"><span class="severity ${escapeHtml(item.riskLevel || "medium")}">${escapeHtml(item.exceptionText || item.exceptionType)}</span></label></td>
       <td><span class="mono">#${escapeHtml(item.callId)}</span></td>
       <td>${adminAiUserCell(item.user, item.userId)}</td>
       <td>${escapeHtml(item.sceneText || item.scene)}</td>
@@ -4601,17 +5928,41 @@ function installAdminAiConfigControls(adminSession) {
     showAdminToast("AI 配置已保存，并写入审计日志");
     await loadAdminAiConfig(adminSession);
   }), true);
+  document.querySelectorAll(".save-bar .btn--ghost, [data-action='reset']").forEach((button) => {
+    if (!button.textContent.includes("恢复")) {
+      return;
+    }
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      restoreAdminAiConfigSnapshot();
+    }, true);
+  });
 }
 
 function renderAdminAiConfig(payload) {
   const config = payload.config ?? {};
-  setSwitchState("AI 服务总开关", config.enabled);
-  setSwitchState("高风险请求拦截", config.blockHighRisk);
-  setSwitchState("AI 高风险拦截", config.blockHighRisk);
-  setFirstInputByLabels(["调用频率", "频率"], config.rateLimitPerHour);
-  setFirstInputByLabels(["上下文长度", "上下文消息"], config.contextMessages);
-  setFirstInputByLabels(["日志保留周期", "保留周期"], config.logRetentionDays);
-  setFirstInputByLabels(["安全阈值", "风险阈值"], config.safetyThreshold);
+  window.__adminAiConfigSnapshot = { ...config };
+  applyAdminAiConfigForm(config);
+}
+
+function applyAdminAiConfigForm(config) {
+  setToggleState("masterSwitch", config.enabled);
+  setToggleState("sensitiveFilter", config.sensitiveFilterEnabled ?? true);
+  setToggleState("requireConfirm", config.requireConfirm ?? true);
+  setSelectValue("contextLength", String(config.contextTokenLimit ?? config.contextLength ?? 4096));
+  setSelectValue("maxTokens", String(config.maxTokens ?? 1024));
+  setSelectValue("filterMode", config.detectionMode ?? "balanced");
+  setNumericValue("ratePerMin", config.rateLimitPerMinute ?? config.ratePerMin ?? 20);
+  setNumericValue("ratePerDay", config.rateLimitPerDay ?? config.ratePerDay ?? 200);
+  setNumericValue("concurrency", config.concurrencyLimit ?? config.concurrency ?? 30);
+  setNumericValue("timeout", Math.max(3, Math.round(Number(config.timeoutMs ?? config.timeout ?? 15000) / 1000)));
+  setNumericValue("logRetention", config.logRetentionDays ?? 180);
+  setNumericValue("conversationRetention", config.conversationRetentionDays ?? config.conversationRetention ?? config.logRetentionDays ?? 180);
+  setNumericValue("alertThreshold", config.alertThreshold ?? 90);
+  setRangeValue("temperature", config.temperature ?? 0.3);
+  setRangeDisplay("temperature", "tempVal");
+  setSceneCheckboxes(config.sceneEnabled);
   const status = document.querySelector(".status-indicator");
   if (status) {
     status.innerHTML = `<span class="status-dot ${config.enabled ? "on" : "off"}"></span>${config.enabled ? "AI 服务可用" : "AI 服务已关闭"}`;
@@ -4620,39 +5971,107 @@ function renderAdminAiConfig(payload) {
   if (auditPreview) {
     auditPreview.innerHTML = `
       <div class="ap-label">当前配置</div>
-      <div class="audit-entry"><span class="ae-action">AI</span><span class="ae-detail">频率 ${escapeHtml(config.rateLimitPerHour)} 次/小时 · 上下文 ${escapeHtml(config.contextMessages)} 条 · 保留 ${escapeHtml(config.logRetentionDays)} 天 · 安全阈值 ${escapeHtml(config.safetyThreshold)}</span></div>
+      <div class="audit-entry"><span class="ae-action">AI</span><span class="ae-detail">每分钟 ${escapeHtml(config.rateLimitPerMinute ?? config.ratePerMin ?? 20)} 次 · 每日 ${escapeHtml(config.rateLimitPerDay ?? config.ratePerDay ?? 200)} 次 · 并发 ${escapeHtml(config.concurrencyLimit ?? config.concurrency ?? 30)} · 超时 ${escapeHtml(Math.max(3, Math.round(Number(config.timeoutMs ?? config.timeout ?? 15000) / 1000)))} 秒</span></div>
+      <div class="audit-entry"><span class="ae-action">AI</span><span class="ae-detail">上下文 ${escapeHtml(config.contextTokenLimit ?? 4096)} · 回复上限 ${escapeHtml(config.maxTokens ?? 1024)} · 温度 ${escapeHtml(Number(config.temperature ?? 0.3).toFixed(2))} · 检测模式 ${escapeHtml(config.detectionMode ?? "balanced")}</span></div>
     `;
   }
 }
 
+function restoreAdminAiConfigSnapshot() {
+  const snapshot = window.__adminAiConfigSnapshot;
+  if (!snapshot) {
+    showAdminToast("暂无可恢复的已保存配置");
+    return;
+  }
+  applyAdminAiConfigForm(snapshot);
+  showAdminToast("已恢复为上次保存配置，保存后生效");
+}
+
 function readAdminAiConfigForm() {
   return {
-    enabled: readSwitchState("AI 服务总开关"),
-    blockHighRisk: readSwitchState("高风险请求拦截") || readSwitchState("AI 高风险拦截"),
-    rateLimitPerHour: readFirstInputByLabels(["调用频率", "频率"], 60),
-    contextMessages: readFirstInputByLabels(["上下文长度", "上下文消息"], 12),
-    logRetentionDays: readFirstInputByLabels(["日志保留周期", "保留周期"], 180),
-    safetyThreshold: readFirstInputByLabels(["安全阈值", "风险阈值"], 80)
+    enabled: readToggleState("masterSwitch"),
+    rateLimitPerMinute: readNumericValue("ratePerMin", 20),
+    rateLimitPerDay: readNumericValue("ratePerDay", 200),
+    concurrencyLimit: readNumericValue("concurrency", 30),
+    timeoutMs: readNumericValue("timeout", 15) * 1000,
+    contextTokenLimit: Number(readSelectValue("contextLength", 4096)),
+    maxTokens: Number(readSelectValue("maxTokens", 1024)),
+    temperature: Number(readRangeValue("temperature", 0.3)),
+    sensitiveFilterEnabled: readToggleState("sensitiveFilter"),
+    detectionMode: readSelectValue("filterMode", "balanced"),
+    requireConfirm: readToggleState("requireConfirm"),
+    logRetentionDays: readNumericValue("logRetention", 180),
+    conversationRetentionDays: readNumericValue("conversationRetention", 180),
+    alertThreshold: readNumericValue("alertThreshold", 90),
+    sceneEnabled: readSceneCheckboxes(),
+    blockHighRisk: readToggleState("sensitiveFilter")
   };
 }
 
-function setFirstInputByLabels(labels, value) {
-  const input = findInputByLabels(labels);
+function setNumericValue(id, value) {
+  const input = document.getElementById(id);
   if (input) {
     input.value = value ?? "";
     input.dispatchEvent(new Event("input", { bubbles: true }));
   }
 }
 
-function readFirstInputByLabels(labels, fallback) {
-  const value = Number(findInputByLabels(labels)?.value);
+function setRangeValue(id, value) {
+  const input = document.getElementById(id);
+  if (input) {
+    input.value = value ?? "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+
+function setRangeDisplay(rangeId, displayId) {
+  const range = document.getElementById(rangeId);
+  const display = document.getElementById(displayId);
+  if (range && display) {
+    display.textContent = Number(range.value).toFixed(2);
+  }
+}
+
+function setToggleState(id, enabled) {
+  const input = document.getElementById(id);
+  if (input) {
+    input.checked = Boolean(enabled);
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+}
+
+function setSceneCheckboxes(sceneEnabled = {}) {
+  document.querySelectorAll(".scene-card input[type='checkbox']").forEach((checkbox) => {
+    const scene = checkbox.dataset.scene || "";
+    const normalized = scene === "filter" ? "request_filter" : scene === "draft" ? "request_draft" : scene === "summary" ? "order_summary" : scene === "guide" ? "rules" : scene;
+    checkbox.checked = sceneEnabled[normalized] !== false;
+  });
+}
+
+function readNumericValue(id, fallback) {
+  const value = Number(document.getElementById(id)?.value);
   return Number.isFinite(value) ? value : fallback;
 }
 
-function findInputByLabels(labels) {
-  const rows = Array.from(document.querySelectorAll(".cfg-row"));
-  const row = rows.find((item) => labels.some((label) => item.textContent.includes(label)));
-  return row?.querySelector("input[type='number'], input.cfg-input, input[type='range'], select") ?? null;
+function readSelectValue(id, fallback) {
+  return document.getElementById(id)?.value ?? fallback;
+}
+
+function readRangeValue(id, fallback) {
+  const value = Number(document.getElementById(id)?.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function readToggleState(id) {
+  return Boolean(document.getElementById(id)?.checked);
+}
+
+function readSceneCheckboxes() {
+  return Object.fromEntries(Array.from(document.querySelectorAll(".scene-card input[type='checkbox']")).map((checkbox) => {
+    const scene = checkbox.dataset.scene || "";
+    const normalized = scene === "filter" ? "request_filter" : scene === "draft" ? "request_draft" : scene === "summary" ? "order_summary" : scene === "guide" ? "rules" : scene;
+    return [normalized, checkbox.checked];
+  }));
 }
 
 function setAdminAiMetrics(values) {
@@ -5292,9 +6711,8 @@ function exportAdminTransactionsCsv() {
     showGlobalMessage("当前没有可导出的流水。", "error");
     return;
   }
-  const header = ["流水ID", "时间", "类型", "订单", "用户", "金额", "状态", "风险", "备注"];
-  const lines = [
-    header.join(","),
+  downloadCsv(`admin-transactions-${Date.now()}.csv`, [
+    ["流水ID", "时间", "类型", "订单", "用户", "金额", "状态", "风险", "备注"],
     ...rows.map((item) => [
       `TX-${item.logId}`,
       formatDateTime(item.createdAt),
@@ -5305,15 +6723,8 @@ function exportAdminTransactionsCsv() {
       adminTransactionStatusLabel(item.status),
       adminTransactionRiskLabel(item.risk),
       item.remark || ""
-    ].map(csvCell).join(","))
-  ];
-  const blob = new Blob([`\ufeff${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `admin-transactions-${Date.now()}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+    ])
+  ]);
 }
 
 function adminTransactionFilterName(id) {
@@ -5339,6 +6750,7 @@ function setSelectValue(id, value) {
   const element = document.getElementById(id);
   if (element) {
     element.value = value ?? "";
+    element.dispatchEvent(new Event("change", { bubbles: true }));
   }
 }
 
@@ -5413,7 +6825,7 @@ async function hydrateAdminDisputesRoute(session) {
 
 async function hydrateAdminDisputeFinalRoute(session) {
   const adminSession = session ?? auth.readSession("admin");
-  if (!adminSession?.token) {
+  if (!adminSession) {
     return;
   }
   applyAdminIdentity(adminSession.user);
@@ -5673,6 +7085,7 @@ function renderAdminDisputeFinal(dispute, adminSession) {
   renderAdminDisputeFinalEvidence(dispute);
   renderAdminDisputeFinalJury(dispute);
   installAdminDisputeFinalControls(dispute, adminSession);
+  restoreAdminFinalDraft(dispute);
   if (!dispute.isFinalizable) {
     renderAdminDisputeAlreadyFinalized(dispute);
   }
@@ -5761,6 +7174,11 @@ function installAdminDisputeFinalControls(dispute, adminSession) {
     event.stopImmediatePropagation();
     await submitAdminFinalRuling(dispute, adminSession, submit);
   }, true);
+  form.querySelector(".ruling-actions .btn--secondary")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    saveAdminFinalDraft(dispute);
+  }, true);
 }
 
 async function submitAdminFinalRuling(dispute, adminSession, button) {
@@ -5779,12 +7197,65 @@ async function submitAdminFinalRuling(dispute, adminSession, button) {
   const restore = setLoading(button, "提交中...");
   try {
     const payload = await api.admin.finalizeDispute(adminSession.token, dispute.disputeId, { result, refundAmount, reason });
+    removeAdminFinalDraft(dispute);
     showGlobalMessage("终审裁决已提交，订单、流水和通知已同步。", "success");
     renderAdminDisputeFinal(payload.dispute, adminSession);
   } catch (error) {
     showInlineMessage(button, adminErrorMessage(error), "error");
   } finally {
     restore();
+  }
+}
+
+function adminFinalDraftKey(dispute) {
+  return `adminDisputeFinalDraft:${dispute.disputeId}`;
+}
+
+function saveAdminFinalDraft(dispute) {
+  if (!dispute?.disputeId) {
+    return;
+  }
+  const draft = {
+    ruling: document.querySelector(".ruling-opt.selected")?.dataset.ruling || window.selectedRuling || "",
+    refundAmount: document.getElementById("refundAmount")?.value ?? "",
+    reason: document.getElementById("rulingReason")?.value ?? "",
+    savedAt: new Date().toISOString()
+  };
+  localStorage.setItem(adminFinalDraftKey(dispute), JSON.stringify(draft));
+  showAdminToast("草稿已暂存到本机浏览器");
+}
+
+function restoreAdminFinalDraft(dispute) {
+  if (!dispute?.disputeId || !dispute.isFinalizable) {
+    return;
+  }
+  const raw = localStorage.getItem(adminFinalDraftKey(dispute));
+  if (!raw) {
+    return;
+  }
+  try {
+    const draft = JSON.parse(raw);
+    const option = Array.from(document.querySelectorAll(".ruling-opt")).find((item) => item.dataset.ruling === draft.ruling);
+    if (option) {
+      option.dispatchEvent(new Event("click", { bubbles: true }));
+    }
+    const amount = document.getElementById("refundAmount");
+    if (amount && draft.refundAmount !== undefined) {
+      amount.value = draft.refundAmount;
+    }
+    const reason = document.getElementById("rulingReason");
+    if (reason && draft.reason !== undefined) {
+      reason.value = draft.reason;
+    }
+    showAdminToast("已恢复本机草稿");
+  } catch {
+    localStorage.removeItem(adminFinalDraftKey(dispute));
+  }
+}
+
+function removeAdminFinalDraft(dispute) {
+  if (dispute?.disputeId) {
+    localStorage.removeItem(adminFinalDraftKey(dispute));
   }
 }
 
@@ -5900,6 +7371,40 @@ function csvCell(value) {
   return `"${text.replaceAll('"', '""')}"`;
 }
 
+function downloadCsv(filename, rows) {
+  const lines = rows.map((row) => row.map(csvCell).join(","));
+  const blob = new Blob([`\ufeff${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadTextFile(filename, content, type = "text/plain;charset=utf-8") {
+  const blob = new Blob([`\ufeff${content ?? ""}`], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function timestampForFilename(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    "-",
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds())
+  ].join("");
+}
+
 function debounce(fn, delay) {
   let timer = 0;
   return (...args) => {
@@ -5927,7 +7432,7 @@ function adminErrorMessage(error) {
 
 async function hydrateWalletFreezeRoute(session) {
   const userSession = session ?? auth.readSession("user");
-  if (!userSession?.token) {
+  if (!userSession) {
     return;
   }
   installWalletFreezeControls(userSession);
@@ -6183,15 +7688,20 @@ async function hydrateMessagesRoute(session) {
   if (!userSession?.token) {
     return;
   }
+  installMessageControls(userSession);
   renderMessageListState("loading", "正在加载私信会话。");
   renderMessageNotificationState("loading", "正在加载通知。");
   try {
     const [messagePayload, notificationPayload] = await Promise.all([
-      api.messages.list(userSession.token, { pageSize: MESSAGE_PAGE_SIZE }),
+      api.messages.list(userSession.token, messageApiParams(readMessageQuery())),
       api.notifications.list(userSession.token, { pageSize: 10 })
     ]);
-    renderMessageConversations(messagePayload);
+    renderMessageConversations(messagePayload, userSession);
     renderMessageNotifications(notificationPayload, userSession);
+    const targetUserId = messageTargetUserId();
+    if (targetUserId) {
+      await openMessageThread(userSession, { userId: targetUserId });
+    }
   } catch (error) {
     const message = notificationErrorMessage(error);
     renderMessageListState("error", message, {
@@ -6203,6 +7713,114 @@ async function hydrateMessagesRoute(session) {
       onAction: () => hydrateMessagesRoute(userSession)
     });
   }
+}
+
+function installMessageControls(userSession) {
+  if (document.body.dataset.messagesBound === "true") {
+    return;
+  }
+  document.body.dataset.messagesBound = "true";
+  document.querySelectorAll("#msg-tabs button[data-tab]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const tab = button.dataset.tab;
+      document.querySelectorAll("#msg-tabs button[data-tab]").forEach((item) => item.classList.toggle("active", item === button));
+      document.querySelectorAll(".conv-list-view > .tab-content").forEach((panel) => panel.classList.toggle("active", panel.id === `tab-${tab}`));
+    }, true);
+  });
+
+  const searchButton = document.querySelector(".msgs-header .icon-btn[aria-label='搜索消息']");
+  searchButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const search = ensureMessageSearch();
+    search.hidden = !search.hidden;
+    if (!search.hidden) {
+      search.querySelector("input")?.focus();
+    }
+  }, true);
+  ensureMessageSearch().querySelector("input")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      updateMessageQuery({ keyword: event.currentTarget.value.trim() }, userSession);
+    }
+  });
+  ensureMessageSearch().querySelector("button")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    const input = ensureMessageSearch().querySelector("input");
+    updateMessageQuery({ keyword: input?.value.trim() || "" }, userSession);
+  });
+
+  document.getElementById("chat-back")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeMessageThread();
+  }, true);
+
+  document.getElementById("send-btn")?.addEventListener("click", interceptSubmit(async () => {
+    await sendActiveMessage(userSession);
+  }), true);
+  document.getElementById("chat-input")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendActiveMessage(userSession);
+    }
+  }, true);
+  document.querySelector(".chat-input-bar .icon-btn[aria-label='添加图片']")?.addEventListener("click", interceptSubmit(async () => {
+    await sendMessageImage(userSession);
+  }), true);
+}
+
+function ensureMessageSearch() {
+  let search = document.getElementById("message-search-row");
+  if (search) {
+    return search;
+  }
+  search = document.createElement("div");
+  search.id = "message-search-row";
+  search.className = "runtime-field-grid";
+  search.hidden = true;
+  search.style.cssText = "padding:0 var(--space-lg) var(--space-sm);display:flex;gap:8px;";
+  search.innerHTML = `
+    <input class="input" type="search" placeholder="搜索会话、昵称或消息内容" style="flex:1;">
+    <button class="btn btn--outline btn--sm" type="button">搜索</button>
+  `;
+  document.getElementById("msgsHeader")?.insertAdjacentElement("afterend", search);
+  return search;
+}
+
+function readMessageQuery() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    keyword: params.get("keyword") || "",
+    page: positiveInteger(params.get("page"), 1),
+    pageSize: positiveInteger(params.get("pageSize"), MESSAGE_PAGE_SIZE)
+  };
+}
+
+function messageApiParams(state) {
+  return {
+    keyword: state.keyword,
+    page: state.page,
+    pageSize: state.pageSize
+  };
+}
+
+function updateMessageQuery(patch, userSession) {
+  const next = { ...readMessageQuery(), ...patch, page: 1 };
+  const params = new URLSearchParams(window.location.search);
+  if (next.keyword) {
+    params.set("keyword", next.keyword);
+  } else {
+    params.delete("keyword");
+  }
+  params.delete("page");
+  const targetUserId = messageTargetUserId();
+  if (targetUserId) {
+    params.set("userId", targetUserId);
+  }
+  history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
+  hydrateMessagesRoute(userSession);
 }
 
 async function hydrateNotificationsRoute(session) {
@@ -6484,7 +8102,7 @@ function renderNotificationPager(pagination, state, userSession) {
   });
 }
 
-function renderMessageConversations(payload) {
+function renderMessageConversations(payload, userSession) {
   const list = document.querySelector("#tab-chat .msg-list");
   if (!list) {
     return;
@@ -6496,6 +8114,15 @@ function renderMessageConversations(payload) {
     return;
   }
   list.innerHTML = conversations.map(conversationItemHtml).join("");
+  list.querySelectorAll(".conv-item[data-message-user-id]").forEach((item) => {
+    item.addEventListener("click", async (event) => {
+      event.preventDefault();
+      await openMessageThread(userSession, {
+        userId: item.dataset.messageUserId,
+        orderId: item.dataset.orderId || null
+      });
+    }, true);
+  });
 }
 
 function renderMessageNotifications(payload, userSession) {
@@ -6555,10 +8182,10 @@ function messageStateHtml(kind, message, actionText = "") {
 function conversationItemHtml(item) {
   const participant = item.participant ?? {};
   const name = participant.displayName || participant.username || item.title || "邻帮用户";
-  const href = item.href || (item.orderId ? `/orders/${encodeURIComponent(item.orderId)}` : "/notifications");
+  const href = participant.userId ? `/messages?userId=${encodeURIComponent(participant.userId)}` : (item.href || "/notifications");
   const unread = Number(item.unreadCount ?? 0);
   return `
-    <a class="conv-item ${unread > 0 ? "unread" : ""}" href="${escapeHtml(href)}" style="text-decoration:none;color:inherit;">
+    <a class="conv-item ${unread > 0 ? "unread" : ""}" href="${escapeHtml(href)}" data-message-user-id="${escapeHtml(participant.userId ?? "")}" data-order-id="${escapeHtml(item.orderId ?? "")}" style="text-decoration:none;color:inherit;">
       <div class="conv-avatar">
         <div class="avatar" style="background:${escapeHtml(avatarColor(participant.userId ?? item.orderId ?? 1))};display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:700;">${escapeHtml(firstCharacter(name))}</div>
       </div>
@@ -6572,6 +8199,156 @@ function conversationItemHtml(item) {
       ${unread > 0 ? `<div class="conv-right"><span class="unread-badge">${escapeHtml(unread)}</span></div>` : ""}
     </a>
   `;
+}
+
+async function openMessageThread(userSession, { userId, orderId = null }) {
+  if (!userSession?.token || !userId) {
+    return;
+  }
+  const chatView = document.getElementById("chat-view");
+  const listView = document.getElementById("conv-list");
+  const messages = document.getElementById("chat-messages");
+  if (messages) {
+    messages.innerHTML = messageStateHtml("loading", "正在加载聊天记录。");
+  }
+  listView?.classList.add("hidden");
+  chatView?.classList.add("active");
+  document.body.dataset.activeMessageUserId = String(userId);
+  document.body.dataset.activeMessageOrderId = orderId ? String(orderId) : "";
+  const params = new URLSearchParams(window.location.search);
+  params.set("userId", String(userId));
+  if (orderId) {
+    params.set("orderId", String(orderId));
+  } else {
+    params.delete("orderId");
+  }
+  history.replaceState({}, "", `${window.location.pathname}?${params}`);
+
+  try {
+    const payload = await api.messages.thread(userSession.token, { userId, orderId, pageSize: 50 });
+    renderMessageThread(payload, userSession);
+    await api.messages.readThread(userSession.token, { userId, orderId });
+    document.querySelector(`.conv-item[data-message-user-id="${CSS.escape(String(userId))}"]`)?.classList.remove("unread");
+  } catch (error) {
+    if (messages) {
+      messages.innerHTML = messageStateHtml("error", notificationErrorMessage(error));
+    }
+  }
+}
+
+function closeMessageThread() {
+  document.getElementById("conv-list")?.classList.remove("hidden");
+  document.getElementById("chat-view")?.classList.remove("active");
+  delete document.body.dataset.activeMessageUserId;
+  delete document.body.dataset.activeMessageOrderId;
+  const params = new URLSearchParams(window.location.search);
+  params.delete("userId");
+  params.delete("orderId");
+  history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
+}
+
+function renderMessageThread(payload, userSession) {
+  const participant = payload.participant ?? {};
+  const name = displayName(participant);
+  setElementText("#chat-name", name);
+  setElementText("#chat-avatar", firstCharacter(name));
+  const avatar = document.getElementById("chat-avatar");
+  if (avatar) {
+    avatar.style.background = avatarColor(participant.userId);
+  }
+  const status = document.querySelector(".chat-partner .status");
+  if (status) {
+    status.textContent = "私信会话";
+    status.style.color = "var(--muted)";
+  }
+  const list = document.getElementById("chat-messages");
+  if (!list) {
+    return;
+  }
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  list.innerHTML = messages.length === 0
+    ? messageStateHtml("empty", "还没有消息，发一条开始沟通。")
+    : messages.map((message) => messageBubbleHtml(message, userSession)).join("");
+  list.scrollTop = list.scrollHeight;
+  document.getElementById("chat-input")?.focus();
+}
+
+function messageBubbleHtml(message, userSession) {
+  const outgoing = Number(message.senderId) === Number(userSession?.user?.userId);
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  return `
+    <div class="msg-bubble ${outgoing ? "outgoing" : "incoming"}">
+      ${message.content ? `<div class="bubble-content">${escapeHtml(message.content)}</div>` : ""}
+      ${attachments.map(messageAttachmentHtml).join("")}
+      <span class="bubble-time">${escapeHtml(formatDateTime(message.createdAt))}</span>
+    </div>
+  `;
+}
+
+function messageAttachmentHtml(attachment) {
+  const url = assetUrl(attachment);
+  if (String(attachment.mimeType ?? "").startsWith("image/") || url) {
+    return `<div class="bubble-content" style="padding:4px;"><img src="${escapeAttribute(url)}" alt="${escapeAttribute(attachment.originalName || "图片")}" style="display:block;max-width:220px;max-height:220px;border-radius:10px;object-fit:cover;"></div>`;
+  }
+  return `<div class="bubble-content"><a href="${escapeAttribute(url)}" target="_blank" rel="noreferrer">${escapeHtml(attachment.originalName || "附件")}</a></div>`;
+}
+
+async function sendActiveMessage(userSession, attachments = []) {
+  const userId = document.body.dataset.activeMessageUserId;
+  const orderId = document.body.dataset.activeMessageOrderId || null;
+  const input = document.getElementById("chat-input");
+  const content = input?.value.trim() ?? "";
+  if (!userId || (!content && attachments.length === 0)) {
+    input?.focus();
+    return;
+  }
+  const button = document.getElementById("send-btn");
+  const restore = button ? setLoading(button, "发送中...") : null;
+  try {
+    await api.messages.send(userSession.token, {
+      receiverId: userId,
+      orderId,
+      content,
+      attachments
+    });
+    if (input) {
+      input.value = "";
+      input.style.height = "";
+    }
+    await openMessageThread(userSession, { userId, orderId });
+    const payload = await api.messages.list(userSession.token, messageApiParams(readMessageQuery()));
+    renderMessageConversations(payload, userSession);
+  } catch (error) {
+    showInlineMessage(button ?? input, notificationErrorMessage(error), "error");
+  } finally {
+    restore?.();
+  }
+}
+
+async function sendMessageImage(userSession) {
+  const userId = document.body.dataset.activeMessageUserId;
+  if (!userId) {
+    return;
+  }
+  const files = await chooseImageFiles(1);
+  if (files.length === 0) {
+    return;
+  }
+  const button = document.querySelector(".chat-input-bar .icon-btn[aria-label='添加图片']");
+  const restore = button instanceof HTMLButtonElement ? setLoading(button, "上传中...") : null;
+  try {
+    const file = await uploadFileAsset(userSession, files[0], "message-image");
+    await sendActiveMessage(userSession, [{ fileId: file.fileId }]);
+  } catch (error) {
+    showInlineMessage(button ?? document.getElementById("chat-input"), uploadErrorMessage(error), "error");
+  } finally {
+    restore?.();
+  }
+}
+
+function messageTargetUserId() {
+  const raw = new URLSearchParams(window.location.search).get("userId");
+  return raw && /^\d+$/.test(raw) ? raw : null;
 }
 
 function messageNotificationHtml(item) {
@@ -7032,6 +8809,221 @@ function applyProfileSummary(payload) {
   }
 }
 
+function installProfileActions(payload) {
+  if (document.body.dataset.profileActionsBound === "true") {
+    return;
+  }
+  document.body.dataset.profileActionsBound = "true";
+  document.querySelector(".edit-avatar")?.addEventListener("click", interceptSubmit(async () => {
+    const button = document.querySelector(".edit-avatar");
+    const files = await chooseImageFiles(1);
+    if (files.length === 0) {
+      return;
+    }
+    const restore = button instanceof HTMLButtonElement ? setLoading(button, "上传中...") : null;
+    try {
+      const file = await uploadFileAsset(payload.session, files[0], "avatar");
+      const result = await api.users.avatar(payload.session.token, file.fileId);
+      const nextSession = { ...payload.session, user: result.user };
+      auth.saveSession("user", nextSession);
+      setElementText(".avatar.lg", firstCharacter(displayName(result.user)));
+      showGlobalMessage("头像已更新。", "success");
+    } catch (error) {
+      showInlineMessage(button, uploadErrorMessage(error), "error");
+    } finally {
+      restore?.();
+    }
+  }), true);
+
+  document.querySelectorAll("#profile-tabs button[data-panel]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      document.querySelectorAll("#profile-tabs button[data-panel]").forEach((item) => item.classList.toggle("active", item === button));
+      document.querySelectorAll(".content-list .tab-panel").forEach((panel) => panel.classList.toggle("active", panel.id === `panel-${button.dataset.panel}`));
+    }, true);
+  });
+
+  document.querySelector(".wallet-card")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    navigateTo("/wallet");
+  }, true);
+  findSettingsItemByTitle("我的订单")?.setAttribute("href", "/orders");
+  findSettingsItemByTitle("我的纠纷")?.setAttribute("href", "/orders?status=disputed");
+  const collectionsItem = findSettingsItemByTitle("我的收藏");
+  collectionsItem?.addEventListener("click", (event) => {
+    event.preventDefault();
+    showProfileCollections(payload);
+  }, true);
+}
+
+async function loadProfileRuntimePanels(payload) {
+  const { session, user } = payload;
+  renderProfilePanelState("myposts", "正在加载我的帖子。");
+  renderProfilePanelState("mytasks", "正在加载我的任务。");
+  renderProfilePanelState("accepted", "正在加载接单记录。");
+  try {
+    const [postsPayload, requestsPayload, ordersPayload] = await Promise.all([
+      api.communityPosts.list(session.token, { authorId: user.userId, pageSize: 6 }),
+      api.requests.list({ publisherId: "me", pageSize: 6, status: "all" }, session.token),
+      api.orders.list(session.token, { role: "accepted", pageSize: 6 })
+    ]);
+    renderProfilePosts(postsPayload.posts ?? []);
+    renderProfileRequests(requestsPayload.requests ?? []);
+    renderProfileAcceptedOrders(ordersPayload.orders ?? []);
+    const stats = document.querySelectorAll(".stats-row .stat-item .num");
+    if (stats[0]) {
+      stats[0].textContent = String(postsPayload.pagination?.total ?? postsPayload.posts?.length ?? 0);
+    }
+    if (stats[1]) {
+      stats[1].textContent = String(requestsPayload.pagination?.total ?? requestsPayload.requests?.length ?? 0);
+    }
+    if (stats[2]) {
+      stats[2].textContent = String(ordersPayload.pagination?.total ?? ordersPayload.orders?.length ?? 0);
+    }
+  } catch (error) {
+    renderProfilePanelState("myposts", authErrorMessage(error), "error");
+    renderProfilePanelState("mytasks", authErrorMessage(error), "error");
+    renderProfilePanelState("accepted", authErrorMessage(error), "error");
+  }
+}
+
+function renderProfilePanelState(panel, message, state = "loading") {
+  const element = document.getElementById(`panel-${panel}`);
+  if (element) {
+    element.innerHTML = `<div class="mini-card" data-state="${escapeHtml(state)}"><p class="card-excerpt">${escapeHtml(message)}</p></div>`;
+  }
+}
+
+function renderProfilePosts(posts) {
+  const panel = document.getElementById("panel-myposts");
+  if (!panel) {
+    return;
+  }
+  panel.innerHTML = posts.length === 0
+    ? `<div class="mini-card"><p class="card-excerpt">还没有发布帖子。</p></div>`
+    : posts.map(profilePostMiniCardHtml).join("");
+}
+
+function profilePostMiniCardHtml(post) {
+  return `
+    <a class="mini-card" href="/community-posts/${encodeURIComponent(post.postId)}" style="display:block;text-decoration:none;color:inherit;">
+      <div class="card-top-row">
+        <span class="card-title">${escapeHtml(post.title)}</span>
+        <span class="badge badge--success">${escapeHtml(post.category || post.tags?.[0] || "帖子")}</span>
+      </div>
+      <p class="card-excerpt">${escapeHtml(post.contentSummary || post.content || "")}</p>
+      <div class="card-meta">
+        <span>赞 ${escapeHtml(formatInteger(post.likeCount))}</span>
+        <span>评论 ${escapeHtml(formatInteger(post.commentCount))}</span>
+        <span style="margin-left:auto;">${escapeHtml(reviewTime(post.createdAt))}</span>
+      </div>
+    </a>
+  `;
+}
+
+function renderProfileRequests(requests) {
+  const panel = document.getElementById("panel-mytasks");
+  if (!panel) {
+    return;
+  }
+  panel.innerHTML = requests.length === 0
+    ? `<div class="mini-card"><p class="card-excerpt">还没有发布任务。</p></div>`
+    : requests.map(profileRequestMiniCardHtml).join("");
+}
+
+function profileRequestMiniCardHtml(item) {
+  return `
+    <a class="mini-card" href="/posts/${encodeURIComponent(item.requestId)}" style="display:block;text-decoration:none;color:inherit;">
+      <div class="card-top-row">
+        <span class="card-title">${escapeHtml(item.title)}</span>
+        <span class="reward-badge sm">⏂ ${escapeHtml(formatAmount(item.coinAmount))}</span>
+      </div>
+      <div class="card-meta" style="margin-bottom:var(--space-sm);">
+        <span><span class="status-dot ${item.status === "completed" ? "done" : item.status === "accepted" ? "active" : "pending"}"></span> ${escapeHtml(REQUEST_STATUS_TEXT.get(item.status) ?? item.status)}</span>
+        <span style="margin-left:auto;">${escapeHtml(reviewTime(item.createdAt))}</span>
+      </div>
+    </a>
+  `;
+}
+
+function renderProfileAcceptedOrders(orders) {
+  const panel = document.getElementById("panel-accepted");
+  if (!panel) {
+    return;
+  }
+  panel.innerHTML = orders.length === 0
+    ? `<div class="mini-card"><p class="card-excerpt">还没有接单记录。</p></div>`
+    : orders.map(profileOrderMiniCardHtml).join("");
+}
+
+function profileOrderMiniCardHtml(order) {
+  const request = order.request ?? {};
+  return `
+    <a class="mini-card" href="/orders/${encodeURIComponent(order.orderId)}" style="display:block;text-decoration:none;color:inherit;">
+      <div class="card-top-row">
+        <span class="card-title">${escapeHtml(request.title || `订单 #${order.orderId}`)}</span>
+        <span class="reward-badge sm">⏂ ${escapeHtml(formatAmount(order.coinAmount))}</span>
+      </div>
+      <div class="card-meta" style="margin-bottom:var(--space-sm);">
+        <span><span class="status-dot ${order.status === "completed" ? "done" : order.status === "disputed" ? "pending" : "active"}"></span> ${escapeHtml(ORDER_STATUS_TEXT.get(order.status) ?? order.status)}</span>
+        <span style="margin-left:auto;">${escapeHtml(reviewTime(order.createdAt))}</span>
+      </div>
+    </a>
+  `;
+}
+
+async function showProfileCollections(payload) {
+  let panel = document.getElementById("profile-collections-panel");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "profile-collections-panel";
+    panel.className = "tab-panel active";
+    document.querySelector(".content-list .settings-list")?.insertAdjacentElement("beforebegin", panel);
+  }
+  panel.innerHTML = `<div class="mini-card"><p class="card-excerpt">正在加载我的收藏。</p></div>`;
+  document.querySelectorAll(".content-list .tab-panel").forEach((item) => item.classList.toggle("active", item === panel));
+  document.querySelectorAll("#profile-tabs button").forEach((item) => item.classList.remove("active"));
+  try {
+    const result = await api.users.collections(payload.session.token, { pageSize: 20 });
+    const collections = result.collections ?? [];
+    panel.innerHTML = collections.length === 0
+      ? `<div class="mini-card"><p class="card-excerpt">还没有收藏内容。</p></div>`
+      : collections.map(profileCollectionMiniCardHtml).join("");
+  } catch (error) {
+    panel.innerHTML = `<div class="mini-card"><p class="card-excerpt">${escapeHtml(authErrorMessage(error))}</p></div>`;
+  }
+}
+
+function profileCollectionMiniCardHtml(item) {
+  const target = item.target ?? {};
+  const href = item.targetType === "community_post"
+    ? `/community-posts/${encodeURIComponent(item.targetId)}`
+    : item.targetType === "request"
+      ? `/posts/${encodeURIComponent(item.targetId)}`
+      : `/users/${encodeURIComponent(item.targetId)}`;
+  return `
+    <a class="mini-card" href="${href}" style="display:block;text-decoration:none;color:inherit;">
+      <div class="card-top-row">
+        <span class="card-title">${escapeHtml(target.title || displayName(target) || "收藏内容")}</span>
+        <span class="badge badge--accent">${escapeHtml(collectionTypeText(item.targetType))}</span>
+      </div>
+      <p class="card-excerpt">${escapeHtml(target.contentSummary || target.descriptionSummary || target.bio || "点击查看详情。")}</p>
+      <div class="card-meta"><span>${escapeHtml(reviewTime(item.createdAt))}收藏</span></div>
+    </a>
+  `;
+}
+
+function collectionTypeText(type) {
+  if (type === "community_post") {
+    return "帖子";
+  }
+  if (type === "request") {
+    return "任务";
+  }
+  return "服务者";
+}
+
 function applySettingsSummary(payload) {
   const { user, credit } = payload;
   setElementText(".account-preview .acct-name", displayName(user));
@@ -7170,6 +9162,225 @@ function settingsFromToggles(toggles, fields) {
   return output;
 }
 
+function installSettingsActions(payload, settings) {
+  if (document.body.dataset.settingsActionsBound === "true") {
+    return;
+  }
+  document.body.dataset.settingsActionsBound = "true";
+  const { session } = payload;
+  findSettingsRowByLabel("编辑个人资料")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    document.getElementById("profile-edit-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, true);
+  findSettingsRowByLabel("账号与安全")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    showAccountSecurityPanel(session);
+  }, true);
+  findSettingsRowByLabel("钱包与支付")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    navigateTo("/wallet");
+  }, true);
+  installPostVisibilityControl(session.token, settings);
+  installDarkModeControl();
+  findSettingsRowByLabel("语言")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    showGlobalMessage("当前内测版本仅提供简体中文。", "success");
+  }, true);
+  findSettingsRowByLabel("缓存管理")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    clearLocalRuntimeCache();
+  }, true);
+  findSettingsRowByLabel("帮助与反馈")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    navigateTo("/help");
+  }, true);
+  document.getElementById("about-app")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    showGlobalMessage("邻帮 1.2.0 内测版，当前功能已接入生产接口。", "success");
+  }, true);
+  document.getElementById("clear-cache")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    clearLocalRuntimeCache();
+  }, true);
+  const logoutButton = document.getElementById("logout-btn");
+  const logoutModal = document.getElementById("logout-modal");
+  logoutButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    logoutModal?.classList.add("open");
+  }, true);
+  document.getElementById("cancel-logout")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    logoutModal?.classList.remove("open");
+  }, true);
+  logoutModal?.addEventListener("click", (event) => {
+    if (event.target === logoutModal) {
+      logoutModal.classList.remove("open");
+    }
+  }, true);
+}
+
+async function showAccountSecurityPanel(session) {
+  let panel = document.getElementById("account-security-panel");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "account-security-panel";
+    panel.className = "profile-edit-card";
+    findSettingsRowByLabel("账号与安全")?.closest(".settings-card")?.insertAdjacentElement("afterend", panel);
+  }
+  panel.innerHTML = `
+    <form id="password-change-form">
+      <div class="runtime-field-grid">
+        <label class="runtime-field"><span>当前密码</span><input id="current-password" type="password" autocomplete="current-password"></label>
+        <label class="runtime-field"><span>新密码</span><input id="new-password" type="password" autocomplete="new-password"></label>
+      </div>
+      <button class="btn btn--primary btn--full" id="password-save" type="submit">修改密码并退出其他设备</button>
+    </form>
+    <div class="settings-sessions" id="settings-sessions">${adminPanelLoadingHtml("正在加载登录设备。")}</div>
+    <button class="btn btn--outline btn--full" id="revoke-other-sessions" type="button">退出其他设备</button>
+  `;
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  document.getElementById("password-change-form")?.addEventListener("submit", interceptSubmit(async () => {
+    const button = document.getElementById("password-save");
+    const restore = setLoading(button, "保存中...");
+    try {
+      await api.auth.changePassword(session.token, {
+        currentPassword: document.getElementById("current-password")?.value ?? "",
+        newPassword: document.getElementById("new-password")?.value ?? ""
+      });
+      showInlineMessage(button, "密码已更新，其他设备已退出。", "success");
+      await renderSettingsSessions(session);
+    } catch (error) {
+      showInlineMessage(button, authErrorMessage(error), "error");
+    } finally {
+      restore();
+    }
+  }), true);
+  document.getElementById("revoke-other-sessions")?.addEventListener("click", interceptSubmit(async () => {
+    const button = document.getElementById("revoke-other-sessions");
+    const restore = setLoading(button, "处理中...");
+    try {
+      const result = await api.auth.revokeOtherSessions(session.token);
+      showInlineMessage(button, `已退出 ${formatInteger(result.revoked)} 个其他设备。`, "success");
+      await renderSettingsSessions(session);
+    } catch (error) {
+      showInlineMessage(button, authErrorMessage(error), "error");
+    } finally {
+      restore();
+    }
+  }), true);
+  await renderSettingsSessions(session);
+}
+
+async function renderSettingsSessions(session) {
+  const container = document.getElementById("settings-sessions");
+  if (!container) {
+    return;
+  }
+  try {
+    const payload = await api.auth.sessions(session.token);
+    const sessions = payload.sessions ?? [];
+    container.innerHTML = `
+      <div class="settings-group-title">登录设备</div>
+      ${sessions.map(settingsSessionRowHtml).join("")}
+    `;
+    container.querySelectorAll("[data-revoke-session]").forEach((button) => {
+      button.addEventListener("click", interceptSubmit(async () => {
+        await api.auth.revokeSession(session.token, button.dataset.revokeSession);
+        await renderSettingsSessions(session);
+      }), true);
+    });
+  } catch (error) {
+    container.innerHTML = adminPanelLoadingHtml(authErrorMessage(error), "error");
+  }
+}
+
+function settingsSessionRowHtml(item) {
+  return `
+    <div class="settings-row" style="padding-inline:0;">
+      <div class="row-text">
+        <div class="row-label">${escapeHtml(item.current ? "当前设备" : "已登录设备")}</div>
+        <div class="row-desc">${escapeHtml(item.userAgent || "未知浏览器")} · ${escapeHtml(item.ipAddress || "未知 IP")} · ${escapeHtml(formatDateTime(item.createdAt))}</div>
+      </div>
+      <button class="btn btn--outline btn--sm" type="button" data-revoke-session="${escapeHtml(item.sessionId)}"${item.current ? " disabled" : ""}>退出</button>
+    </div>
+  `;
+}
+
+function installPostVisibilityControl(token, settings) {
+  const row = findSettingsRowByLabel("帖子可见范围");
+  if (!row) {
+    return;
+  }
+  row.addEventListener("click", async (event) => {
+    event.preventDefault();
+    const current = settings?.postVisibility || window.localStorage.getItem("neighbor-post-visibility") || "nearby";
+    const next = window.prompt("帖子可见范围：community=本小区，nearby=周边社区，private=仅自己", current);
+    if (!next) {
+      return;
+    }
+    const normalized = ["community", "nearby", "private"].includes(next) ? next : "nearby";
+    try {
+      await api.settings.updateMe(token, { preferences: { postVisibility: normalized } });
+      window.localStorage.setItem("neighbor-post-visibility", normalized);
+      const desc = row.querySelector(".row-desc");
+      if (desc) {
+        desc.textContent = `当前：${postVisibilityText(normalized)}`;
+      }
+      showGlobalMessage("帖子可见范围已保存。", "success");
+    } catch (error) {
+      showGlobalMessage(authErrorMessage(error), "error");
+    }
+  }, true);
+}
+
+function installDarkModeControl() {
+  const row = findSettingsRowByLabel("深色模式");
+  if (!row) {
+    return;
+  }
+  const saved = window.localStorage.getItem("neighbor-theme") || "system";
+  applyThemeMode(saved);
+  row.addEventListener("click", (event) => {
+    event.preventDefault();
+    const next = window.localStorage.getItem("neighbor-theme") === "dark" ? "light" : "dark";
+    window.localStorage.setItem("neighbor-theme", next);
+    applyThemeMode(next);
+    showGlobalMessage(next === "dark" ? "深色模式已开启。" : "深色模式已关闭。", "success");
+  }, true);
+}
+
+function applyThemeMode(mode) {
+  document.documentElement.dataset.theme = mode;
+  const desc = findSettingsRowByLabel("深色模式")?.querySelector(".row-desc");
+  if (desc) {
+    desc.textContent = mode === "dark" ? "已开启" : mode === "light" ? "已关闭" : "跟随系统设置";
+  }
+}
+
+function postVisibilityText(value) {
+  if (value === "community") {
+    return "本小区";
+  }
+  if (value === "private") {
+    return "仅自己";
+  }
+  return "本小区及周边社区";
+}
+
+function clearLocalRuntimeCache() {
+  const keep = new Set(["neighbor:user-session", "neighbor:admin-session"]);
+  for (const key of Object.keys(window.localStorage)) {
+    if (!keep.has(key) && !key.includes("session")) {
+      window.localStorage.removeItem(key);
+    }
+  }
+  window.sessionStorage.clear();
+  if ("caches" in window) {
+    caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))).catch(() => {});
+  }
+  showGlobalMessage("本地缓存已清除，登录状态已保留。", "success");
+}
+
 function applyPublicProfile(payload) {
   const { user, credit } = payload;
   setElementText(".public-avatar", firstCharacter(displayName(user)));
@@ -7194,6 +9405,101 @@ function applyPublicProfile(payload) {
   renderServiceCards(document.querySelector(".service-list"), user);
   renderPublicReviews(document.querySelector(".timeline"), credit.reviews);
   renderSkillCloud(document.querySelector(".skill-cloud"), user.skillTags);
+}
+
+function installPublicProfileActions(payload, userSession) {
+  const { user, viewer } = payload;
+  const targetUserId = user?.userId;
+  const followButton = document.getElementById("follow-btn");
+  if (followButton) {
+    renderFollowButton(followButton, viewer?.isFollowing);
+    followButton.addEventListener("click", interceptSubmit(async () => {
+      if (!userSession?.token) {
+        navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+        return;
+      }
+      if (viewer?.isSelf) {
+        showInlineMessage(followButton, "不能收藏自己。", "error");
+        return;
+      }
+      const isFollowing = followButton.dataset.following === "true";
+      const restore = setLoading(followButton, "处理中...");
+      try {
+        if (isFollowing) {
+          await api.users.unfollow(userSession.token, targetUserId);
+        } else {
+          await api.users.follow(userSession.token, targetUserId);
+        }
+        renderFollowButton(followButton, !isFollowing);
+        showInlineMessage(followButton, isFollowing ? "已取消收藏服务者。" : "已收藏服务者。", "success");
+      } catch (error) {
+        showInlineMessage(followButton, authErrorMessage(error), "error");
+      } finally {
+        restore();
+      }
+    }), true);
+  }
+
+  document.getElementById("contact-open")?.addEventListener("click", interceptSubmit(async () => {
+    if (!userSession?.token) {
+      navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    await openContactSheet(userSession, targetUserId);
+  }), true);
+  document.getElementById("contact-close")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    document.getElementById("contact-sheet")?.classList.remove("open");
+  }, true);
+  document.getElementById("contact-sheet")?.addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) {
+      event.currentTarget.classList.remove("open");
+    }
+  }, true);
+  document.querySelectorAll(`a[href="messages.html"], a[href="/messages"]`).forEach((link) => {
+    link.setAttribute("href", `/messages?userId=${encodeURIComponent(targetUserId)}`);
+  });
+  document.querySelectorAll("[onclick*='openAIModal'], .ai-fab").forEach((item) => {
+    item.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      navigateTo(`/ai/assistant?scene=profile-summary&userId=${encodeURIComponent(targetUserId)}`);
+    }, true);
+  });
+}
+
+function renderFollowButton(button, isFollowing) {
+  button.dataset.following = isFollowing ? "true" : "false";
+  const icon = button.querySelector("svg")?.outerHTML ?? "";
+  button.innerHTML = `${icon}<span>${isFollowing ? "已收藏" : "收藏服务者"}</span>`;
+}
+
+async function openContactSheet(userSession, userId) {
+  const sheet = document.getElementById("contact-sheet");
+  if (!sheet) {
+    return;
+  }
+  const paragraph = sheet.querySelector(".contact-card p");
+  if (paragraph) {
+    paragraph.textContent = "正在读取联系方式可见范围。";
+  }
+  sheet.classList.add("open");
+  try {
+    const payload = await api.users.contact(userId, userSession.token);
+    const contact = payload.contact ?? {};
+    if (paragraph) {
+      paragraph.textContent = contact.phone
+        ? `对方公开联系方式：${contact.phone}`
+        : contact.maskedPhone
+          ? `手机号 ${contact.maskedPhone} 当前不可完整展示，可先通过平台私信沟通。`
+          : "对方暂未公开联系方式，可先通过平台私信沟通。";
+    }
+    sheet.querySelector(".contact-actions a")?.setAttribute("href", `/messages?userId=${encodeURIComponent(userId)}`);
+  } catch (error) {
+    if (paragraph) {
+      paragraph.textContent = authErrorMessage(error);
+    }
+  }
 }
 
 function applyCreditDetail(payload) {
@@ -7344,6 +9650,16 @@ function setElementText(selector, value) {
   if (element) {
     element.textContent = value;
   }
+}
+
+function findSettingsRowByLabel(label) {
+  return Array.from(document.querySelectorAll(".settings-row"))
+    .find((row) => row.querySelector(".row-label")?.textContent.trim() === label) ?? null;
+}
+
+function findSettingsItemByTitle(title) {
+  return Array.from(document.querySelectorAll(".settings-item"))
+    .find((item) => item.querySelector(".s-title")?.textContent.trim() === title) ?? null;
 }
 
 function setInputValue(id, value) {
@@ -7639,6 +9955,23 @@ function publishErrorMessage(error, context = "") {
   return error?.message || "发布失败，请稍后重试。";
 }
 
+function uploadErrorMessage(error) {
+  const code = error?.payload?.error?.code;
+  if (code === "INVALID_FILE_TYPE") {
+    return "文件类型不支持，请选择图片文件。";
+  }
+  if (code === "FILE_TOO_LARGE") {
+    return "文件过大，请压缩后再上传。";
+  }
+  if (code === "FILE_REQUIRED") {
+    return "请选择要上传的文件。";
+  }
+  if (error?.status === 0 || error instanceof TypeError) {
+    return "无法连接上传服务，请确认后端服务已启动。";
+  }
+  return error?.message || "上传失败，请稍后重试。";
+}
+
 function firstCharacter(value) {
   return String(value || "邻").trim().slice(0, 1).toUpperCase();
 }
@@ -7741,13 +10074,16 @@ function juryVoteClass(vote) {
   return map.get(vote) ?? "mediate";
 }
 
-function attachmentTypeFromName(name) {
+function attachmentTypeFromName(name, mimeType = "") {
   const lower = String(name).toLowerCase();
-  if (lower.endsWith(".png")) {
+  if (mimeType === "image/png" || lower.endsWith(".png")) {
     return "image/png";
   }
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+  if (mimeType === "image/jpeg" || lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
     return "image/jpeg";
+  }
+  if (mimeType === "application/pdf" || lower.endsWith(".pdf")) {
+    return "application/pdf";
   }
   return "file";
 }

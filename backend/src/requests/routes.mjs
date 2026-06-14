@@ -107,7 +107,13 @@ export async function handleRequestRoutes({ request, response, url, authService 
       return true;
     }
 
-    sendJson(response, 200, await requestListPayload(authService.store, url.searchParams));
+    let viewerId = null;
+    if ((url.searchParams.get("publisherId") ?? "").toLowerCase() === "me") {
+      const context = await authService.authenticateRequest(request);
+      authService.requireRole(context, ["user"]);
+      viewerId = context.user.userId;
+    }
+    sendJson(response, 200, await requestListPayload(authService.store, url.searchParams, { viewerId }));
     return true;
   }
 
@@ -931,8 +937,8 @@ function riskScoreFromHits(hits) {
   return 42;
 }
 
-async function requestListPayload(store, searchParams) {
-  const query = normalizeRequestQuery(searchParams);
+async function requestListPayload(store, searchParams, options = {}) {
+  const query = normalizeRequestQuery(searchParams, options);
   const categories = await safeStoreCall(store, "listCategories", []);
   const categoryMap = new Map(categories.map((category) => [category.categoryId, category]));
   const requests = await safeStoreCall(store, "listServiceRequests", []);
@@ -1162,6 +1168,7 @@ async function messageListPayload(store, userId, searchParams) {
     conversations,
     pagination: paginationDto(query.page, query.pageSize, total),
     filters: {
+      keyword: query.keyword,
       page: query.page,
       pageSize: query.pageSize
     },
@@ -1339,6 +1346,9 @@ async function enrichRequest(store, request, categoryMap) {
 }
 
 function matchesRequestQuery(item, query) {
+  if (query.publisherId !== null && Number(item.publisherId) !== Number(query.publisherId)) {
+    return false;
+  }
   if (query.status !== "all" && item.status !== query.status) {
     return false;
   }
@@ -1877,7 +1887,7 @@ function timelineDto(item) {
   };
 }
 
-function normalizeRequestQuery(searchParams) {
+function normalizeRequestQuery(searchParams, options = {}) {
   const status = optionalLower(searchParams.get("status")) ?? "open";
   if (!STATUS_FILTERS.has(status)) {
     throw new HttpError(400, "INVALID_REQUEST_STATUS", "Unsupported request status filter.");
@@ -1890,9 +1900,13 @@ function normalizeRequestQuery(searchParams) {
 
   const categoryRaw = optionalText(searchParams.get("category") ?? searchParams.get("categoryCode"), 50);
   const categoryIdRaw = optionalText(searchParams.get("categoryId"), 20) ?? (/^\d+$/.test(categoryRaw ?? "") ? categoryRaw : null);
+  const publisherRaw = optionalText(searchParams.get("publisherId") ?? searchParams.get("authorId"), 20);
 
   return {
     keyword: optionalLower(searchParams.get("keyword") ?? searchParams.get("q"), 100),
+    publisherId: publisherRaw === "me"
+      ? (options.viewerId === null || options.viewerId === undefined ? null : Number(options.viewerId))
+      : publisherRaw ? parsePositiveInt(publisherRaw, "INVALID_PUBLISHER_ID") : null,
     categoryText: categoryRaw && !/^\d+$/.test(categoryRaw) ? categoryRaw.toLowerCase() : null,
     categoryId: categoryIdRaw ? parsePositiveInt(categoryIdRaw, "INVALID_CATEGORY_ID") : null,
     tags: normalizeTags(searchParams),
@@ -1983,6 +1997,7 @@ function normalizeNotificationQuery(searchParams) {
 
 function normalizeMessageQuery(searchParams) {
   return {
+    keyword: optionalLower(searchParams.get("keyword") ?? searchParams.get("q"), 100),
     page: parsePositiveInt(searchParams.get("page") ?? "1", "INVALID_PAGE", 1, 1000),
     pageSize: parsePositiveInt(searchParams.get("pageSize") ?? searchParams.get("limit") ?? "20", "INVALID_PAGE_SIZE", 1, 50)
   };
@@ -2008,6 +2023,7 @@ function normalizeDisputeQuery(searchParams) {
 function filterDto(query) {
   return {
     keyword: query.keyword,
+    publisherId: query.publisherId,
     categoryId: query.categoryId,
     category: query.categoryText,
     tags: query.tags,
@@ -2043,6 +2059,7 @@ function structuredFilterDto(query) {
     },
     criteria: {
       keyword: query.keyword,
+      publisherId: query.publisherId,
       categoryId: query.categoryId,
       category: query.categoryText,
       tags: query.tags,

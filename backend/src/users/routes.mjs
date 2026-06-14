@@ -39,11 +39,19 @@ export async function handleUserRoutes({ request, response, url, authService }) 
   const publicMatch = url.pathname.match(PUBLIC_USER_RE);
   if (publicMatch) {
     allowOnly(request, response, ["GET"]);
+    const viewer = await optionalContext(request, authService);
     const user = await findPublicUser(authService.store, publicMatch[1]);
     const credit = await creditPayload(authService.store, user.userId);
+    const viewerId = viewer?.user?.userId ?? null;
     sendJson(response, 200, {
       user: publicProfileDto(user, credit),
-      credit
+      credit,
+      viewer: {
+        isSelf: viewerId !== null && Number(viewerId) === Number(user.userId),
+        isFollowing: viewerId !== null && typeof authService.store.isFollowing === "function"
+          ? await authService.store.isFollowing(viewerId, user.userId)
+          : false
+      }
     });
     return true;
   }
@@ -100,6 +108,17 @@ async function findPublicUser(store, rawUserId) {
     throw new HttpError(404, "USER_NOT_FOUND", "Public user profile was not found.");
   }
   return user;
+}
+
+async function optionalContext(request, authService) {
+  try {
+    return await authService.authenticateRequest(request);
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 401) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 async function creditPayload(store, userId) {

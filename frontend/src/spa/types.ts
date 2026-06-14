@@ -1,4 +1,4 @@
-export type RouteSurface = "launcher" | "userAuth" | "user" | "adminAuth" | "admin";
+export type RouteSurface = "launcher" | "public" | "userAuth" | "user" | "adminAuth" | "admin";
 
 export type RouteLayout = "entry" | "auth" | "userShell" | "adminAuth" | "adminShell";
 

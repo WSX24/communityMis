@@ -8,8 +8,9 @@ export function createOpenAiAdapter(config, options = {}) {
 
   return {
     async complete(input) {
+      const runtime = input.config ?? {};
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), config.openai.timeoutMs);
+      const timeout = setTimeout(() => controller.abort(), Number(runtime.timeoutMs ?? config.openai.timeoutMs));
       try {
         const response = await fetchImpl(resolveChatUrl(config.openai.baseUrl), {
           method: "POST",
@@ -18,7 +19,7 @@ export function createOpenAiAdapter(config, options = {}) {
             "content-type": "application/json"
           },
           body: JSON.stringify({
-            model: config.openai.model,
+            model: runtime.model ?? config.openai.model,
             messages: [
               {
                 role: "system",
@@ -29,7 +30,8 @@ export function createOpenAiAdapter(config, options = {}) {
                 content: String(input.prompt ?? "")
               }
             ],
-            temperature: 0.3
+            temperature: Number(runtime.temperature ?? 0.3),
+            max_tokens: Number(runtime.maxTokens ?? 1024)
           }),
           signal: controller.signal
         });
@@ -51,7 +53,7 @@ export function createOpenAiAdapter(config, options = {}) {
           bullets: [],
           guidance: null,
           fallback: false,
-          model: config.openai.model
+          model: runtime.model ?? config.openai.model
         };
       } catch (error) {
         if (error.name === "AbortError") {

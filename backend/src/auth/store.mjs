@@ -36,6 +36,11 @@ export function createMemoryAuthStore(options = {}) {
   const requestComments = new Map();
   const requestCommentLikes = new Map();
   const userFollows = new Map();
+  const communityPosts = new Map();
+  const communityPostLikes = new Map();
+  const communityPostComments = new Map();
+  const communityPostCommentLikes = new Map();
+  const userCollections = new Map();
   const backups = new Map();
   let aiConfig = normalizeAiConfig(options.seedAiConfig ?? options.aiConfig);
   let systemSettings = normalizeSystemSettings(options.seedSystemSettings ?? options.systemSettings);
@@ -61,6 +66,8 @@ export function createMemoryAuthStore(options = {}) {
   let nextAiFeedbackId = options.nextAiFeedbackId ?? 88000;
   let nextVerificationId = options.nextVerificationId ?? 89000;
   let nextRequestCommentId = options.nextRequestCommentId ?? 90000;
+  let nextCommunityPostId = options.nextCommunityPostId ?? 91000;
+  let nextCommunityPostCommentId = options.nextCommunityPostCommentId ?? 92000;
 
   for (const seedUser of options.seedUsers ?? defaultSeedUsers()) {
     insertSeedUser(seedUser);
@@ -122,6 +129,9 @@ export function createMemoryAuthStore(options = {}) {
   }
   for (const seedFeedback of options.seedAiFeedback ?? []) {
     insertSeedAiFeedback(seedFeedback);
+  }
+  for (const seedPost of options.seedCommunityPosts ?? defaultSeedCommunityPosts()) {
+    insertSeedCommunityPost(seedPost);
   }
 
   return {
@@ -209,8 +219,28 @@ export function createMemoryAuthStore(options = {}) {
     consumeVerificationToken,
     createFileAsset,
     findFileAssetById,
+    listCommunityPosts,
+    findCommunityPostById,
+    createCommunityPost,
+    likeCommunityPost,
+    unlikeCommunityPost,
+    collectCommunityPost,
+    uncollectCommunityPost,
+    listCommunityPostComments,
+    createCommunityPostComment,
+    likeCommunityPostComment,
+    unlikeCommunityPostComment,
+    listCollectionsForUserId,
+    createCollection,
+    deleteCollection,
     createMessage,
+    listMessageThread,
+    markMessageThreadRead,
     markMessageRead,
+    listSessionsForUserId,
+    revokeOtherSessions,
+    updateUserPasswordHash,
+    cleanupArchivedMessages,
     listRequestComments,
     createRequestComment,
     likeRequestComment,
@@ -633,6 +663,12 @@ export function createMemoryAuthStore(options = {}) {
     const backup = backups.get(String(backupId));
     if (!backup || backup.deletedAt) {
       throw storeError("BACKUP_NOT_FOUND", "Backup was not found.");
+    }
+    if (backup.snapshot?.systemSettings) {
+      systemSettings = normalizeSystemSettings(backup.snapshot.systemSettings);
+    }
+    if (backup.snapshot?.aiConfig) {
+      aiConfig = normalizeAiConfig(backup.snapshot.aiConfig);
     }
     backup.status = "restored";
     backup.restoredAt = input.restoredAt ?? new Date().toISOString();
@@ -1066,7 +1102,9 @@ export function createMemoryAuthStore(options = {}) {
     const id = Number(userId);
     const page = positiveInteger(query.page, 1);
     const pageSize = Math.min(50, positiveInteger(query.pageSize, 20));
+    const keyword = normalizeOptionalString(query.keyword ?? query.q)?.toLowerCase() ?? null;
     const conversations = Array.from(conversationMapForUser(id).values())
+      .filter((item) => !keyword || conversationHaystack(item).includes(keyword))
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
     const offset = (page - 1) * pageSize;
     return {
@@ -1096,12 +1134,50 @@ export function createMemoryAuthStore(options = {}) {
       businessType: input.businessType ?? (input.orderId ? "order" : "direct"),
       businessId: input.businessId ?? input.orderId ?? null,
       content: input.content,
+      attachments: normalizeMessageAttachments(input.attachments),
       isRead: false,
       createdAt: now
     });
     nextMessageId = Math.max(nextMessageId, message.messageId + 1);
     messages.set(message.messageId, message);
     return clone(enrichMessage(message));
+  }
+
+  function listMessageThread(input = {}) {
+    const viewerId = Number(input.viewerId);
+    const userId = Number(input.userId);
+    const orderId = input.orderId === undefined || input.orderId === null || input.orderId === "" ? null : Number(input.orderId);
+    if (!users.has(viewerId) || !users.has(userId)) {
+      throw storeError("MESSAGE_PARTICIPANT_NOT_FOUND", "Message participant was not found.");
+    }
+    const page = positiveInteger(input.page, 1);
+    const pageSize = Math.min(100, positiveInteger(input.pageSize, 50));
+    const filtered = Array.from(messages.values())
+      .filter((message) => messageMatchesThread(message, viewerId, userId, orderId))
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() || left.messageId - right.messageId);
+    const offset = (page - 1) * pageSize;
+    return {
+      participant: publicReviewer(users.get(userId)),
+      orderId,
+      messages: filtered.slice(offset, offset + pageSize).map(enrichMessage).map(clone),
+      total: filtered.length
+    };
+  }
+
+  function markMessageThreadRead(input = {}) {
+    const viewerId = Number(input.viewerId);
+    const userId = Number(input.userId);
+    const orderId = input.orderId === undefined || input.orderId === null || input.orderId === "" ? null : Number(input.orderId);
+    const now = new Date().toISOString();
+    let updated = 0;
+    for (const message of messages.values()) {
+      if (messageMatchesThread(message, viewerId, userId, orderId) && message.receiverId === viewerId && !message.isRead) {
+        message.isRead = true;
+        message.readAt = now;
+        updated += 1;
+      }
+    }
+    return { updated };
   }
 
   function markMessageRead(userId, messageId) {
@@ -1114,6 +1190,77 @@ export function createMemoryAuthStore(options = {}) {
       message.readAt = new Date().toISOString();
     }
     return clone(enrichMessage(message));
+  }
+
+  function listSessionsForUserId(userId) {
+    const id = Number(userId);
+    return Array.from(sessions.values())
+      .filter((session) => session.userId === id)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .map(clone);
+  }
+
+  function revokeOtherSessions(input = {}) {
+    const userId = Number(input.userId);
+    const keepSessionId = String(input.keepSessionId ?? "");
+    const now = new Date().toISOString();
+    let revoked = 0;
+    for (const session of sessions.values()) {
+      if (session.userId === userId && session.sessionId !== keepSessionId && !session.revokedAt) {
+        session.revokedAt = now;
+        revoked += 1;
+      }
+    }
+    return { revoked };
+  }
+
+  function updateUserPasswordHash(userId, passwordHash) {
+    const user = users.get(Number(userId));
+    if (!user) {
+      return null;
+    }
+    user.passwordHash = String(passwordHash);
+    user.updatedAt = new Date().toISOString();
+    return clone(user);
+  }
+
+  function cleanupArchivedMessages(input = {}) {
+    const days = Math.max(1, Number(input.days ?? input.retentionDays ?? 90));
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const mode = String(input.mode ?? "preview");
+    const preview = {
+      cutoffAt: cutoff.toISOString(),
+      messageCount: 0,
+      notificationCount: 0
+    };
+    for (const message of messages.values()) {
+      if (new Date(message.createdAt).getTime() <= cutoff.getTime()) {
+        preview.messageCount += 1;
+      }
+    }
+    for (const notification of notifications.values()) {
+      if (new Date(notification.createdAt).getTime() <= cutoff.getTime()) {
+        preview.notificationCount += 1;
+      }
+    }
+    if (mode !== "execute") {
+      return preview;
+    }
+    const now = new Date().toISOString();
+    for (const message of messages.values()) {
+      if (new Date(message.createdAt).getTime() <= cutoff.getTime()) {
+        message.archivedAt = now;
+      }
+    }
+    for (const notification of notifications.values()) {
+      if (new Date(notification.createdAt).getTime() <= cutoff.getTime()) {
+        notification.archivedAt = now;
+      }
+    }
+    return {
+      ...preview,
+      archivedAt: now
+    };
   }
 
   function createVerificationCode(input) {
@@ -1211,6 +1358,165 @@ export function createMemoryAuthStore(options = {}) {
   function findFileAssetById(fileId) {
     const asset = fileAssets.get(String(fileId));
     return asset ? clone(asset) : null;
+  }
+
+  function listCommunityPosts(query = {}) {
+    const viewerId = query.viewerId === undefined || query.viewerId === null ? null : Number(query.viewerId);
+    const authorId = normalizeCollectionTargetId(query.authorId ?? query.publisherId);
+    const keyword = normalizeOptionalString(query.keyword ?? query.q)?.toLowerCase() ?? null;
+    const page = positiveInteger(query.page, 1);
+    const pageSize = Math.min(50, positiveInteger(query.pageSize, 20));
+    const filtered = Array.from(communityPosts.values())
+      .filter((post) => post.status === "published")
+      .filter((post) => authorId === null || post.authorId === authorId)
+      .filter((post) => !keyword || communityPostHaystack(post).includes(keyword))
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() || right.postId - left.postId);
+    const offset = (page - 1) * pageSize;
+    return {
+      posts: filtered.slice(offset, offset + pageSize).map((post) => enrichCommunityPost(post, viewerId)).map(clone),
+      total: filtered.length
+    };
+  }
+
+  function findCommunityPostById(postId, viewerId = null) {
+    const post = communityPosts.get(Number(postId));
+    if (!post || post.status !== "published") {
+      return null;
+    }
+    return clone(enrichCommunityPost(post, viewerId));
+  }
+
+  function createCommunityPost(input) {
+    const authorId = Number(input.authorId);
+    const author = users.get(authorId);
+    if (!author || author.status !== ACTIVE_STATUS || author.role !== "user") {
+      throw storeError("POST_AUTHOR_NOT_FOUND", "Post author was not found.");
+    }
+    const categoryId = input.categoryId === undefined || input.categoryId === null || input.categoryId === "" ? null : Number(input.categoryId);
+    if (categoryId !== null && !categories.has(categoryId)) {
+      throw storeError("CATEGORY_DISABLED", "Selected category is not available for publishing.");
+    }
+    const imageIds = normalizeFileIdList(input.imageFileIds ?? input.images ?? input.fileIds);
+    for (const fileId of imageIds) {
+      const asset = fileAssets.get(fileId);
+      if (!asset || Number(asset.ownerId) !== authorId) {
+        throw storeError("FILE_NOT_FOUND", "Post image file was not found.");
+      }
+    }
+    const now = input.createdAt ?? new Date().toISOString();
+    const post = normalizeCommunityPost({
+      postId: input.postId ?? nextCommunityPostId,
+      authorId,
+      categoryId,
+      title: input.title,
+      content: input.content,
+      tags: input.tags,
+      imageFileIds: imageIds,
+      visibility: input.visibility,
+      status: "published",
+      createdAt: now,
+      updatedAt: now
+    });
+    communityPosts.set(post.postId, post);
+    nextCommunityPostId = Math.max(nextCommunityPostId, post.postId + 1);
+    return clone(enrichCommunityPost(post, authorId));
+  }
+
+  function likeCommunityPost(input) {
+    return setCommunityPostLike(input, true);
+  }
+
+  function unlikeCommunityPost(input) {
+    return setCommunityPostLike(input, false);
+  }
+
+  function collectCommunityPost(input) {
+    return setCollection({
+      userId: input.userId,
+      targetType: "community_post",
+      targetId: input.postId ?? input.targetId
+    }, true);
+  }
+
+  function uncollectCommunityPost(input) {
+    return setCollection({
+      userId: input.userId,
+      targetType: "community_post",
+      targetId: input.postId ?? input.targetId
+    }, false);
+  }
+
+  function listCommunityPostComments(postId, viewerId = null) {
+    const id = Number(postId);
+    return Array.from(communityPostComments.values())
+      .filter((comment) => comment.postId === id)
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() || left.commentId - right.commentId)
+      .map((comment) => enrichCommunityPostComment(comment, viewerId))
+      .map(clone);
+  }
+
+  function createCommunityPostComment(input) {
+    const postId = Number(input.postId);
+    const userId = Number(input.userId);
+    const post = communityPosts.get(postId);
+    if (!post || post.status !== "published") {
+      throw storeError("POST_NOT_FOUND", "Community post was not found.");
+    }
+    const user = users.get(userId);
+    if (!user || user.status !== ACTIVE_STATUS) {
+      throw storeError("COMMENT_FORBIDDEN", "Comment user is invalid.");
+    }
+    const parentId = input.parentId === undefined || input.parentId === null ? null : Number(input.parentId);
+    if (parentId !== null && !communityPostComments.has(parentId)) {
+      throw storeError("COMMENT_PARENT_NOT_FOUND", "Parent comment was not found.");
+    }
+    const now = input.createdAt ?? new Date().toISOString();
+    const comment = normalizeCommunityPostComment({
+      commentId: input.commentId ?? nextCommunityPostCommentId,
+      postId,
+      userId,
+      parentId,
+      content: input.content,
+      likeCount: 0,
+      createdAt: now,
+      updatedAt: now
+    });
+    communityPostComments.set(comment.commentId, comment);
+    nextCommunityPostCommentId = Math.max(nextCommunityPostCommentId, comment.commentId + 1);
+    refreshCommunityPostCounts(postId);
+    return clone(enrichCommunityPostComment(comment, userId));
+  }
+
+  function likeCommunityPostComment(input) {
+    return setCommunityPostCommentLike(input, true);
+  }
+
+  function unlikeCommunityPostComment(input) {
+    return setCommunityPostCommentLike(input, false);
+  }
+
+  function listCollectionsForUserId(userId, query = {}) {
+    const id = Number(userId);
+    const targetType = normalizeCollectionType(query.targetType ?? query.type ?? "all");
+    const page = positiveInteger(query.page, 1);
+    const pageSize = Math.min(50, positiveInteger(query.pageSize, 20));
+    const filtered = Array.from(userCollections.values())
+      .filter((item) => item.userId === id)
+      .filter((item) => targetType === "all" || item.targetType === targetType)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+    const offset = (page - 1) * pageSize;
+    return {
+      collections: filtered.slice(offset, offset + pageSize).map(enrichCollection).map(clone),
+      total: filtered.length
+    };
+  }
+
+  function createCollection(input) {
+    return setCollection(input, true);
+  }
+
+  function deleteCollection(input) {
+    return setCollection(input, false);
   }
 
   function listRequestComments(requestId, viewerId = null) {
@@ -2405,6 +2711,15 @@ export function createMemoryAuthStore(options = {}) {
     nextMessageId = Math.max(nextMessageId, message.messageId + 1);
   }
 
+  function insertSeedCommunityPost(seedPost) {
+    const post = normalizeCommunityPost({
+      ...seedPost,
+      postId: seedPost.postId ?? nextCommunityPostId
+    });
+    communityPosts.set(post.postId, post);
+    nextCommunityPostId = Math.max(nextCommunityPostId, post.postId + 1);
+  }
+
   function insertSeedNotification(seedNotification) {
     const notification = normalizeNotification({
       ...seedNotification,
@@ -2676,6 +2991,9 @@ export function createMemoryAuthStore(options = {}) {
   function conversationMapForUser(userId) {
     const map = new Map();
     for (const message of messages.values()) {
+      if (message.archivedAt) {
+        continue;
+      }
       if (message.senderId !== userId && message.receiverId !== userId) {
         continue;
       }
@@ -2691,15 +3009,18 @@ export function createMemoryAuthStore(options = {}) {
           title: otherUser?.displayName ?? otherUser?.username ?? "邻帮用户",
           participant: publicReviewer(otherUser),
           orderId: message.orderId,
+          userId: otherUserId,
           preview: message.content,
+          attachments: message.attachments ?? [],
           unreadCount: isIncomingUnread ? 1 : 0,
           updatedAt: message.createdAt,
-          href: message.orderId ? `/orders/${encodeURIComponent(message.orderId)}` : null
+          href: message.orderId ? `/orders/${encodeURIComponent(message.orderId)}` : `/messages?userId=${encodeURIComponent(otherUserId)}`
         });
         continue;
       }
       if (new Date(message.createdAt).getTime() >= new Date(existing.updatedAt).getTime()) {
         existing.preview = message.content;
+        existing.attachments = message.attachments ?? [];
         existing.updatedAt = message.createdAt;
       }
       if (isIncomingUnread) {
@@ -2731,9 +3052,172 @@ export function createMemoryAuthStore(options = {}) {
   function enrichMessage(message) {
     return {
       ...message,
+      attachments: message.attachments ?? [],
       sender: publicReviewer(users.get(message.senderId)),
       receiver: publicReviewer(users.get(message.receiverId))
     };
+  }
+
+  function messageMatchesThread(message, viewerId, userId, orderId) {
+    if (message.archivedAt) {
+      return false;
+    }
+    const participantsMatch = (
+      (message.senderId === viewerId && message.receiverId === userId)
+      || (message.senderId === userId && message.receiverId === viewerId)
+    );
+    return participantsMatch && (orderId === null || Number(message.orderId) === orderId);
+  }
+
+  function conversationHaystack(item) {
+    return [
+      item.title,
+      item.preview,
+      item.participant?.username,
+      item.participant?.displayName,
+      item.orderId
+    ].filter(Boolean).join(" ").toLowerCase();
+  }
+
+  function enrichCommunityPost(post, viewerId = null) {
+    const author = users.get(post.authorId);
+    const likedKey = viewerId === null || viewerId === undefined ? null : `${post.postId}:${Number(viewerId)}`;
+    const collectedKey = viewerId === null || viewerId === undefined ? null : collectionKey(Number(viewerId), "community_post", post.postId);
+    return {
+      ...post,
+      category: post.categoryId === null ? null : clone(categories.get(post.categoryId) ?? null),
+      author: publicReviewer(author),
+      likedByViewer: likedKey ? communityPostLikes.has(likedKey) : false,
+      collectedByViewer: collectedKey ? userCollections.has(collectedKey) : false
+    };
+  }
+
+  function enrichCommunityPostComment(comment, viewerId = null) {
+    const likedKey = viewerId === null || viewerId === undefined ? null : `${comment.commentId}:${Number(viewerId)}`;
+    return {
+      ...comment,
+      user: publicReviewer(users.get(comment.userId)),
+      likedByViewer: likedKey ? communityPostCommentLikes.has(likedKey) : false
+    };
+  }
+
+  function setCommunityPostLike(input, liked) {
+    const postId = Number(input.postId);
+    const userId = Number(input.userId);
+    const post = communityPosts.get(postId);
+    if (!post || post.status !== "published") {
+      throw storeError("POST_NOT_FOUND", "Community post was not found.");
+    }
+    const key = `${postId}:${userId}`;
+    const exists = communityPostLikes.has(key);
+    if (liked && !exists) {
+      communityPostLikes.set(key, { postId, userId, createdAt: new Date().toISOString() });
+    }
+    if (!liked && exists) {
+      communityPostLikes.delete(key);
+    }
+    refreshCommunityPostCounts(postId);
+    return clone(enrichCommunityPost(post, userId));
+  }
+
+  function setCommunityPostCommentLike(input, liked) {
+    const commentId = Number(input.commentId);
+    const userId = Number(input.userId);
+    const comment = communityPostComments.get(commentId);
+    if (!comment) {
+      throw storeError("COMMENT_NOT_FOUND", "Community post comment was not found.");
+    }
+    const key = `${commentId}:${userId}`;
+    const exists = communityPostCommentLikes.has(key);
+    if (liked && !exists) {
+      communityPostCommentLikes.set(key, { commentId, userId, createdAt: new Date().toISOString() });
+    }
+    if (!liked && exists) {
+      communityPostCommentLikes.delete(key);
+    }
+    comment.likeCount = Array.from(communityPostCommentLikes.values()).filter((item) => item.commentId === commentId).length;
+    return clone(enrichCommunityPostComment(comment, userId));
+  }
+
+  function setCollection(input, collected) {
+    const userId = Number(input.userId);
+    const targetType = normalizeCollectionType(input.targetType ?? input.type);
+    const targetId = Number(input.targetId);
+    if (!users.has(userId) || !collectionTargetExists(targetType, targetId)) {
+      throw storeError("COLLECTION_TARGET_NOT_FOUND", "Collection target was not found.");
+    }
+    const key = collectionKey(userId, targetType, targetId);
+    if (collected) {
+      userCollections.set(key, {
+        userId,
+        targetType,
+        targetId,
+        createdAt: new Date().toISOString()
+      });
+    } else {
+      userCollections.delete(key);
+    }
+    if (targetType === "community_post") {
+      refreshCommunityPostCounts(targetId);
+    }
+    return clone({
+      collected: Boolean(collected),
+      userId,
+      targetType,
+      targetId
+    });
+  }
+
+  function enrichCollection(item) {
+    let target = null;
+    if (item.targetType === "community_post") {
+      target = findCommunityPostById(item.targetId, item.userId);
+    } else if (item.targetType === "request") {
+      const request = serviceRequests.get(item.targetId);
+      target = request ? clone(withCategory(request)) : null;
+    } else if (item.targetType === "user") {
+      target = publicReviewer(users.get(item.targetId));
+    }
+    return {
+      ...item,
+      target
+    };
+  }
+
+  function collectionTargetExists(targetType, targetId) {
+    if (targetType === "community_post") {
+      return Boolean(communityPosts.get(targetId)?.status === "published");
+    }
+    if (targetType === "request") {
+      return serviceRequests.has(targetId);
+    }
+    if (targetType === "user") {
+      return users.has(targetId);
+    }
+    return false;
+  }
+
+  function refreshCommunityPostCounts(postId) {
+    const post = communityPosts.get(Number(postId));
+    if (!post) {
+      return;
+    }
+    post.likeCount = Array.from(communityPostLikes.values()).filter((item) => item.postId === post.postId).length;
+    post.commentCount = Array.from(communityPostComments.values()).filter((item) => item.postId === post.postId).length;
+    post.collectCount = Array.from(userCollections.values()).filter((item) => item.targetType === "community_post" && item.targetId === post.postId).length;
+    post.updatedAt = new Date().toISOString();
+  }
+
+  function communityPostHaystack(post) {
+    return [
+      post.title,
+      post.content,
+      ...(post.tags ?? [])
+    ].filter(Boolean).join(" ").toLowerCase();
+  }
+
+  function collectionKey(userId, targetType, targetId) {
+    return `${Number(userId)}:${targetType}:${Number(targetId)}`;
   }
 
   function setRequestCommentLike(input, liked) {
@@ -3341,6 +3825,31 @@ export function defaultSeedMessages() {
   ];
 }
 
+export function defaultSeedCommunityPosts() {
+  return [
+    {
+      postId: 91001,
+      authorId: 10001,
+      categoryId: 1,
+      title: "周末有没有一起整理楼下旧书角的邻居？",
+      content: "物业同意把一楼角落整理成共享旧书角，我准备周六上午带几个收纳箱过去，欢迎顺手带几本闲置书。",
+      tags: ["社区共建", "旧书交换"],
+      visibility: "community",
+      createdAt: "2026-06-02T08:30:00.000Z"
+    },
+    {
+      postId: 91002,
+      authorId: 10002,
+      categoryId: 2,
+      title: "分享一个快递柜高峰时段避坑小贴士",
+      content: "晚上 7 点到 8 点快递柜排队最久，最近几天中午取件基本不用等。急件可以在备注里写清楚放架位。",
+      tags: ["生活经验", "快递"],
+      visibility: "community",
+      createdAt: "2026-06-03T11:15:00.000Z"
+    }
+  ];
+}
+
 export function defaultSeedTransactionLogs() {
   return [
     {
@@ -3552,9 +4061,46 @@ function normalizeSkillTags(value) {
 
 function normalizeTextList(value) {
   if (!Array.isArray(value)) {
+    if (typeof value === "string") {
+      try {
+        return normalizeTextList(JSON.parse(value));
+      } catch {
+        return value.split(/[，,]/).map((item) => String(item).trim()).filter(Boolean).slice(0, 20);
+      }
+    }
     return [];
   }
   return value.map((item) => String(item).trim()).filter(Boolean).slice(0, 20);
+}
+
+function normalizeFileIdList(value) {
+  const raw = Array.isArray(value) ? value : [];
+  return raw
+    .map((item) => {
+      if (item && typeof item === "object") {
+        return normalizeOptionalString(item.fileId ?? item.file_id ?? item.id);
+      }
+      return normalizeOptionalString(item);
+    })
+    .filter(Boolean)
+    .slice(0, 9);
+}
+
+function normalizeCollectionType(value) {
+  const text = String(value ?? "").trim().toLowerCase().replace(/-/g, "_");
+  const mapped = text === "post" ? "community_post" : text === "service_request" ? "request" : text;
+  if (["all", "community_post", "request", "user"].includes(mapped)) {
+    return mapped;
+  }
+  throw storeError("INVALID_COLLECTION_TARGET", "Unsupported collection target type.");
+}
+
+function normalizeCollectionTargetId(value) {
+  if (value === undefined || value === null || value === "" || value === "all" || value === "me") {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
 }
 
 function normalizeCategory(input) {
@@ -3750,10 +4296,72 @@ function normalizeMessage(input) {
     businessType: normalizeOptionalString(input.businessType ?? input.business_type),
     businessId: businessId === undefined || businessId === null ? null : Number(businessId),
     content: String(input.content ?? "").trim(),
+    attachments: normalizeMessageAttachments(input.attachments),
     isRead: Boolean(input.isRead ?? input.is_read ?? false),
     readAt: input.readAt ?? input.read_at ?? null,
-    createdAt: input.createdAt ?? input.created_at ?? new Date().toISOString()
+    createdAt: input.createdAt ?? input.created_at ?? new Date().toISOString(),
+    archivedAt: input.archivedAt ?? input.archived_at ?? null
   };
+}
+
+function normalizeMessageAttachments(value) {
+  const list = Array.isArray(value) ? value : [];
+  return list.map((item) => {
+    if (!item || typeof item !== "object") {
+      return null;
+    }
+    const fileId = normalizeOptionalString(item.fileId ?? item.file_id);
+    if (!fileId) {
+      return null;
+    }
+    return {
+      fileId,
+      url: `/api/files/${encodeURIComponent(fileId)}`,
+      purpose: normalizeOptionalString(item.purpose),
+      originalName: normalizeOptionalString(item.originalName ?? item.original_name),
+      mimeType: normalizeOptionalString(item.mimeType ?? item.mime_type),
+      sizeBytes: Number(item.sizeBytes ?? item.size_bytes ?? 0)
+    };
+  }).filter(Boolean).slice(0, 8);
+}
+
+function normalizeCommunityPost(input) {
+  const now = new Date().toISOString();
+  return {
+    postId: Number(input.postId ?? input.post_id),
+    authorId: Number(input.authorId ?? input.author_id),
+    categoryId: input.categoryId === undefined || input.categoryId === null || input.categoryId === "" ? null : Number(input.categoryId ?? input.category_id),
+    title: String(input.title ?? "").trim(),
+    content: String(input.content ?? "").trim(),
+    tags: normalizeTextList(input.tags ?? input.tags_json).slice(0, 20),
+    imageFileIds: normalizeFileIdList(input.imageFileIds ?? input.image_file_ids ?? input.images),
+    visibility: normalizePostVisibility(input.visibility),
+    status: ["published", "hidden", "deleted"].includes(String(input.status)) ? String(input.status) : "published",
+    likeCount: Number(input.likeCount ?? input.like_count ?? 0),
+    commentCount: Number(input.commentCount ?? input.comment_count ?? 0),
+    collectCount: Number(input.collectCount ?? input.collect_count ?? 0),
+    createdAt: input.createdAt ?? input.created_at ?? now,
+    updatedAt: input.updatedAt ?? input.updated_at ?? input.createdAt ?? input.created_at ?? now
+  };
+}
+
+function normalizeCommunityPostComment(input) {
+  const now = new Date().toISOString();
+  return {
+    commentId: Number(input.commentId ?? input.comment_id),
+    postId: Number(input.postId ?? input.post_id),
+    userId: Number(input.userId ?? input.user_id),
+    parentId: input.parentId === undefined || input.parentId === null ? null : Number(input.parentId ?? input.parent_id),
+    content: String(input.content ?? "").trim(),
+    likeCount: Number(input.likeCount ?? input.like_count ?? 0),
+    createdAt: input.createdAt ?? input.created_at ?? now,
+    updatedAt: input.updatedAt ?? input.updated_at ?? input.createdAt ?? input.created_at ?? now
+  };
+}
+
+function normalizePostVisibility(value) {
+  const text = String(value ?? "").trim();
+  return ["community", "nearby", "private"].includes(text) ? text : "community";
 }
 
 function normalizeFileAsset(input) {
@@ -4131,12 +4739,33 @@ function normalizeAiConfig(input = {}) {
   const base = {
     enabled: true,
     rateLimitPerHour: 60,
+    rateLimitPerMinute: 20,
+    rateLimitPerDay: 200,
+    concurrencyLimit: 30,
     contextMessages: 12,
     contextTokenLimit: 4000,
     logRetentionDays: 180,
     safetyThreshold: 80,
     blockHighRisk: true,
     model: "local-rule-assistant",
+    timeoutMs: 15000,
+    maxTokens: 1024,
+    temperature: 0.3,
+    sceneEnabled: {
+      help: true,
+      request_filter: true,
+      request_draft: true,
+      order_summary: true,
+      dispute_summary: true,
+      rules: true,
+      chat: true,
+      admin: true
+    },
+    sensitiveFilterEnabled: true,
+    detectionMode: "balanced",
+    requireConfirm: true,
+    alertThreshold: 90,
+    conversationRetentionDays: 180,
     updatedAt: "2026-06-01T09:00:00.000Z"
   };
   return mergeAiConfig(base, input);
@@ -4158,14 +4787,44 @@ function mergeAiConfig(current, patch = {}) {
   return {
     enabled: booleanPatchValue(["enabled", "aiEnabled"], current.enabled),
     rateLimitPerHour: numberPatch(["rateLimitPerHour", "frequencyLimit", "rate_limit_per_hour"], 1, 1000, Number(current.rateLimitPerHour ?? 60)),
+    rateLimitPerMinute: numberPatch(["rateLimitPerMinute", "ratePerMin", "rate_limit_per_minute"], 1, 200, Number(current.rateLimitPerMinute ?? 20)),
+    rateLimitPerDay: numberPatch(["rateLimitPerDay", "ratePerDay", "rate_limit_per_day"], 1, 2000, Number(current.rateLimitPerDay ?? 200)),
+    concurrencyLimit: numberPatch(["concurrencyLimit", "concurrency", "concurrency_limit"], 1, 200, Number(current.concurrencyLimit ?? 30)),
     contextMessages: numberPatch(["contextMessages", "contextLength", "context_messages"], 1, 100, Number(current.contextMessages ?? 12)),
     contextTokenLimit: numberPatch(["contextTokenLimit", "contextTokens", "context_token_limit"], 500, 64000, Number(current.contextTokenLimit ?? 4000)),
     logRetentionDays: numberPatch(["logRetentionDays", "retentionDays", "log_retention_days"], 1, 3650, Number(current.logRetentionDays ?? 180)),
     safetyThreshold: numberPatch(["safetyThreshold", "securityThreshold", "safety_threshold"], 1, 100, Number(current.safetyThreshold ?? 80)),
     blockHighRisk: booleanPatchValue(["blockHighRisk", "aiHighRiskBlock"], current.blockHighRisk),
     model: normalizeOptionalString(patch.model) ?? current.model ?? "local-rule-assistant",
+    timeoutMs: numberPatch(["timeoutMs", "timeout", "timeout_ms"], 3000, 60000, Number(current.timeoutMs ?? 15000)),
+    maxTokens: numberPatch(["maxTokens", "max_tokens"], 128, 8192, Number(current.maxTokens ?? 1024)),
+    temperature: numberPatch(["temperature"], 0, 1, Number(current.temperature ?? 0.3)),
+    sceneEnabled: mergeAiSceneConfig(current.sceneEnabled, patch.sceneEnabled),
+    sensitiveFilterEnabled: booleanPatchValue(["sensitiveFilterEnabled", "sensitiveFilter", "sensitive_filter_enabled"], current.sensitiveFilterEnabled ?? true),
+    detectionMode: normalizeOptionalString(patch.detectionMode ?? patch.detection_mode) ?? current.detectionMode ?? "balanced",
+    requireConfirm: booleanPatchValue(["requireConfirm", "require_confirm"], current.requireConfirm ?? true),
+    alertThreshold: numberPatch(["alertThreshold", "alert_threshold"], 1, 100, Number(current.alertThreshold ?? 90)),
+    conversationRetentionDays: numberPatch(["conversationRetentionDays", "conversationRetention", "conversation_retention_days"], 1, 3650, Number(current.conversationRetentionDays ?? current.logRetentionDays ?? 180)),
     updatedAt: patch.updatedAt ?? new Date().toISOString()
   };
+}
+
+function mergeAiSceneConfig(current = {}, patch = undefined) {
+  const defaults = {
+    help: true,
+    request_filter: true,
+    request_draft: true,
+    order_summary: true,
+    dispute_summary: true,
+    rules: true,
+    chat: true,
+    admin: true
+  };
+  const base = { ...defaults, ...(current && typeof current === "object" && !Array.isArray(current) ? current : {}) };
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    return base;
+  }
+  return Object.fromEntries(Object.entries({ ...base, ...patch }).map(([key, value]) => [key, Boolean(value)]));
 }
 
 function mergeSystemSettings(current, patch = {}) {

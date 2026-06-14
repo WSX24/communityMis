@@ -244,7 +244,7 @@ function normalizeVisibility(value, purpose) {
   if (text === "private") {
     return "private";
   }
-  return ["avatar", "request-image", "post-image"].includes(String(purpose ?? "").trim().toLowerCase())
+  return ["avatar", "request-image", "post-image", "community-post-image", "message-image"].includes(String(purpose ?? "").trim().toLowerCase())
     ? "public"
     : "private";
 }

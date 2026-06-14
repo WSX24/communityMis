@@ -230,7 +230,8 @@ async function chatPayload(store, context, body, conversation, aiAdapter) {
 
   let result = ruleAnswer(prompt);
   if (aiAdapter && typeof aiAdapter.complete === "function") {
-    result = await aiAdapter.complete({ prompt, scene, user: context.user, fallback: result });
+    const config = typeof store.getAiConfig === "function" ? await store.getAiConfig() : null;
+    result = await aiAdapter.complete({ prompt, scene, user: context.user, fallback: result, config });
   }
   const message = await createAiMessageSafe(store, {
     conversationId: conversation.conversationId,
@@ -401,11 +402,24 @@ async function disputeSummaryPayload(store, context, rawDisputeId, conversation)
 async function withAiCallLog(store, options) {
   ensureAiStore(store, ["createAiConversation", "createAiCallLog"]);
   const config = typeof store.getAiConfig === "function" ? await store.getAiConfig() : null;
+  ensureAiSceneEnabled(config, options.scene);
   await enforceRateLimit(store, {
-    scope: "ai:user",
+    scope: "ai:user:minute",
+    identity: rateLimitIdentity(options.userId),
+    limit: Number(config?.rateLimitPerMinute ?? 20),
+    windowSeconds: 60
+  });
+  await enforceRateLimit(store, {
+    scope: "ai:user:hour",
     identity: rateLimitIdentity(options.userId),
     limit: Number(config?.rateLimitPerHour ?? 60),
     windowSeconds: 60 * 60
+  });
+  await enforceRateLimit(store, {
+    scope: "ai:user:day",
+    identity: rateLimitIdentity(options.userId),
+    limit: Number(config?.rateLimitPerDay ?? 200),
+    windowSeconds: 60 * 60 * 24
   });
   const started = Date.now();
   const conversation = await ensureConversation(store, {
@@ -438,6 +452,16 @@ async function withAiCallLog(store, options) {
       errorMessage: error?.message ?? "AI service failed."
     });
     throw error;
+  }
+}
+
+function ensureAiSceneEnabled(config, scene) {
+  const sceneEnabled = config?.sceneEnabled;
+  if (!sceneEnabled || typeof sceneEnabled !== "object" || Array.isArray(sceneEnabled)) {
+    return;
+  }
+  if (sceneEnabled[scene] === false) {
+    throw new HttpError(503, "AI_SCENE_DISABLED", "This AI scene is disabled by administrator configuration.");
   }
 }
 

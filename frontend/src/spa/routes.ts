@@ -22,7 +22,7 @@ export const appRoutes: AppRoute[] = [
   { id: "dispute-create", title: "发起纠纷", path: "/disputes/new", entryPath: "/disputes/new", surface: "user", layout: "userShell" },
   { id: "dispute-detail", title: "纠纷详情", path: "/disputes/:id", entryPath: "/disputes/demo", surface: "user", layout: "userShell" },
   { id: "jury-voting", title: "陪审投票", path: "/jury/voting", entryPath: "/jury/voting", surface: "user", layout: "userShell" },
-  { id: "help", title: "帮助与规则", path: "/help", entryPath: "/help", surface: "user", layout: "userShell" },
+  { id: "help", title: "帮助与规则", path: "/help", entryPath: "/help", surface: "public", layout: "userShell" },
   { id: "ai-assistant", title: "AI 助手", path: "/ai/assistant", entryPath: "/ai/assistant", surface: "user", layout: "userShell" },
   { id: "ai-results", title: "AI 筛选结果", path: "/ai/results", entryPath: "/ai/results", surface: "user", layout: "userShell" },
   { id: "admin-login", title: "管理员登录", path: "/admin/login", entryPath: "/admin/login", surface: "adminAuth", layout: "adminAuth" },

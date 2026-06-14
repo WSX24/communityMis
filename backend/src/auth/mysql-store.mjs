@@ -113,8 +113,28 @@ export function createMysqlAuthStore(options = {}) {
     consumeVerificationToken,
     createFileAsset,
     findFileAssetById,
+    listCommunityPosts,
+    findCommunityPostById,
+    createCommunityPost,
+    likeCommunityPost,
+    unlikeCommunityPost,
+    collectCommunityPost,
+    uncollectCommunityPost,
+    listCommunityPostComments,
+    createCommunityPostComment,
+    likeCommunityPostComment,
+    unlikeCommunityPostComment,
+    listCollectionsForUserId,
+    createCollection,
+    deleteCollection,
     createMessage,
+    listMessageThread,
+    markMessageThreadRead,
     markMessageRead,
+    listSessionsForUserId,
+    revokeOtherSessions,
+    updateUserPasswordHash,
+    cleanupArchivedMessages,
     listRequestComments,
     createRequestComment,
     likeRequestComment,
@@ -741,6 +761,20 @@ ON DUPLICATE KEY UPDATE
     const backup = backups.find((item) => item.backupId === String(backupId));
     if (!backup) {
       throw storeError("BACKUP_NOT_FOUND", "Backup was not found.");
+    }
+    if (backup.snapshot?.systemSettings) {
+      await updateSystemSettings({
+        ...backup.snapshot.systemSettings,
+        actorId: input.actorId ?? null,
+        updatedAt: input.restoredAt ?? new Date().toISOString()
+      });
+    }
+    if (backup.snapshot?.aiConfig) {
+      await updateAiConfig({
+        ...backup.snapshot.aiConfig,
+        actorId: input.actorId ?? null,
+        updatedAt: input.restoredAt ?? new Date().toISOString()
+      });
     }
     backup.status = "restored";
     backup.restoredAt = input.restoredAt ?? new Date().toISOString();
@@ -1626,6 +1660,7 @@ SELECT JSON_OBJECT('updated', ROW_COUNT(), 'unreadTotal', 0);
     const id = Number(userId);
     const page = positiveInteger(query.page, 1);
     const pageSize = Math.min(50, positiveInteger(query.pageSize, 20));
+    const keyword = normalizeOptionalString(query.keyword ?? query.q)?.toLowerCase() ?? null;
     const offset = (page - 1) * pageSize;
     const sql = `
 SELECT JSON_OBJECT(
@@ -1647,12 +1682,13 @@ SELECT JSON_OBJECT(
   'total', (SELECT COUNT(*) FROM (
     SELECT CONCAT(COALESCE(m.\`order_id\`, 0), ':', IF(m.\`sender_id\` = ${id}, m.\`receiver_id\`, m.\`sender_id\`)) AS \`conversation_id\`
     FROM \`message\` m
-    WHERE m.\`sender_id\` = ${id} OR m.\`receiver_id\` = ${id}
+    WHERE (m.\`sender_id\` = ${id} OR m.\`receiver_id\` = ${id}) AND m.\`archived_at\` IS NULL
     GROUP BY \`conversation_id\`
   ) c) + IF(EXISTS(SELECT 1 FROM \`notification\` n WHERE n.\`user_id\` = ${id}), 1, 0),
   'unreadTotal', (
     SELECT COUNT(*) FROM \`message\` m
     WHERE m.\`receiver_id\` = ${id} AND m.\`is_read\` = 0
+      AND m.\`archived_at\` IS NULL
   ) + (
     SELECT COUNT(*) FROM \`notification\` n
     WHERE n.\`user_id\` = ${id} AND n.\`read_at\` IS NULL
@@ -1673,6 +1709,7 @@ FROM (
         SELECT m2.\`content\`
         FROM \`message\` m2
         WHERE (m2.\`sender_id\` = ${id} OR m2.\`receiver_id\` = ${id})
+          AND m2.\`archived_at\` IS NULL
           AND CONCAT(COALESCE(m2.\`order_id\`, 0), ':', IF(m2.\`sender_id\` = ${id}, m2.\`receiver_id\`, m2.\`sender_id\`)) =
             CONCAT(COALESCE(m.\`order_id\`, 0), ':', IF(m.\`sender_id\` = ${id}, m.\`receiver_id\`, m.\`sender_id\`))
         ORDER BY m2.\`created_at\` DESC, m2.\`message_id\` DESC
@@ -1680,10 +1717,10 @@ FROM (
       ) AS \`preview\`,
       SUM(IF(m.\`receiver_id\` = ${id} AND m.\`is_read\` = 0, 1, 0)) AS \`unread_count\`,
       DATE_FORMAT(MAX(m.\`created_at\`), '%Y-%m-%dT%H:%i:%s.000Z') AS \`updated_at\`,
-      IF(m.\`order_id\` IS NULL, NULL, CONCAT('/orders/', m.\`order_id\`)) AS \`href\`
+      IF(m.\`order_id\` IS NULL, CONCAT('/messages?userId=', other_user.\`user_id\`), CONCAT('/orders/', m.\`order_id\`)) AS \`href\`
     FROM \`message\` m
     LEFT JOIN \`user\` other_user ON other_user.\`user_id\` = IF(m.\`sender_id\` = ${id}, m.\`receiver_id\`, m.\`sender_id\`)
-    WHERE m.\`sender_id\` = ${id} OR m.\`receiver_id\` = ${id}
+    WHERE (m.\`sender_id\` = ${id} OR m.\`receiver_id\` = ${id}) AND m.\`archived_at\` IS NULL
     GROUP BY \`conversation_id\`, \`type\`, \`title\`, \`other_user_id\`, \`other_username\`, \`other_display_name\`, m.\`order_id\`
     UNION ALL
     SELECT
@@ -1709,9 +1746,12 @@ FROM (
 ) q;
 `;
     const result = await mysqlJson(sql, { optional: true });
+    const conversations = Array.isArray(result?.items)
+      ? result.items.map(normalizeConversation).filter((item) => !keyword || conversationHaystack(item).includes(keyword))
+      : [];
     return {
-      conversations: Array.isArray(result?.items) ? result.items.map(normalizeConversation) : [],
-      total: Number(result?.total ?? 0),
+      conversations,
+      total: keyword ? conversations.length : Number(result?.total ?? 0),
       unreadTotal: Number(result?.unreadTotal ?? 0)
     };
   }
@@ -3828,12 +3868,24 @@ WHERE \`config_key\` LIKE 'ai.%';
     const rows = [
       ["ai.enabled", next.enabled, "是否启用 AI 助手入口"],
       ["ai.rate_limit_per_hour", next.rateLimitPerHour, "单用户每小时 AI 调用上限"],
+      ["ai.rate_limit_per_minute", next.rateLimitPerMinute, "单用户每分钟 AI 调用上限"],
+      ["ai.rate_limit_per_day", next.rateLimitPerDay, "单用户每日 AI 调用上限"],
+      ["ai.concurrency_limit", next.concurrencyLimit, "AI 并发上限"],
       ["ai.context_messages", next.contextMessages, "会话上下文消息条数"],
       ["ai.context_token_limit", next.contextTokenLimit, "会话上下文 token 上限"],
       ["ai.log_retention_days", next.logRetentionDays, "AI 会话和调用日志保留天数"],
       ["ai.safety_threshold", next.safetyThreshold, "安全拦截阈值"],
       ["ai.block_high_risk", next.blockHighRisk, "是否拦截高风险请求"],
-      ["ai.model.default", next.model, "本地开发默认 AI 模型占位"]
+      ["ai.model.default", next.model, "本地开发默认 AI 模型占位"],
+      ["ai.timeout_ms", next.timeoutMs, "AI 供应商请求超时时间"],
+      ["ai.max_tokens", next.maxTokens, "AI 回复最大 token 数"],
+      ["ai.temperature", next.temperature, "AI 回复温度参数"],
+      ["ai.scene_enabled", next.sceneEnabled, "AI 场景启停配置"],
+      ["ai.sensitive_filter_enabled", next.sensitiveFilterEnabled, "是否启用敏感过滤"],
+      ["ai.detection_mode", next.detectionMode, "AI 风险检测模式"],
+      ["ai.require_confirm", next.requireConfirm, "AI 高风险动作是否要求人工确认"],
+      ["ai.alert_threshold", next.alertThreshold, "AI 告警阈值"],
+      ["ai.conversation_retention_days", next.conversationRetentionDays, "AI 会话保留天数"]
     ];
     const values = rows.map(([key, value, description]) => `(${sqlString(key)}, CAST(${sqlString(JSON.stringify(value))} AS JSON), 'global', ${sqlString(description)}, ${actorId === null ? "NULL" : actorId})`).join(",\n");
     await mysqlJson(`
@@ -4010,6 +4062,274 @@ LIMIT 1
     return row ? normalizeFileAsset(row) : null;
   }
 
+  async function listCommunityPosts(query = {}) {
+    const viewerId = optionalPositiveNumber(query.viewerId);
+    const authorId = optionalPositiveNumber(query.authorId ?? query.publisherId);
+    const keyword = normalizeOptionalString(query.keyword ?? query.q);
+    const page = positiveInteger(query.page, 1);
+    const pageSize = Math.min(50, positiveInteger(query.pageSize, 20));
+    const offset = (page - 1) * pageSize;
+    const clauses = ["p.`status` = 'published'"];
+    const params = [];
+    if (authorId !== null) {
+      clauses.push("p.`author_id` = ?");
+      params.push(authorId);
+    }
+    if (keyword) {
+      clauses.push("(LOWER(p.`title`) LIKE ? OR LOWER(p.`content`) LIKE ? OR LOWER(CAST(p.`tags_json` AS CHAR)) LIKE ?)");
+      const like = `%${keyword.toLowerCase()}%`;
+      params.push(like, like, like);
+    }
+    const where = `WHERE ${clauses.join(" AND ")}`;
+    const totalRow = await pooledOne(`SELECT COUNT(*) AS total FROM \`community_post\` p ${where}`, params);
+    const rows = await pooledRows(`
+SELECT
+  p.\`post_id\` AS postId,
+  p.\`author_id\` AS authorId,
+  p.\`category_id\` AS categoryId,
+  p.\`title\`,
+  p.\`content\`,
+  p.\`tags_json\` AS tagsJson,
+  p.\`visibility\`,
+  p.\`status\`,
+  p.\`like_count\` AS likeCount,
+  p.\`comment_count\` AS commentCount,
+  p.\`collect_count\` AS collectCount,
+  DATE_FORMAT(p.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt,
+  DATE_FORMAT(p.\`updated_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS updatedAt,
+  ${userJsonObjectSql("u", "up")} AS authorJson,
+  IF(c.\`category_id\` IS NULL, NULL, ${categoryJsonObjectSql("c")}) AS categoryJson,
+  ${viewerId === null ? "0" : "EXISTS(SELECT 1 FROM `community_post_like` l WHERE l.`post_id` = p.`post_id` AND l.`user_id` = ?)"} AS likedByViewer,
+  ${viewerId === null ? "0" : "EXISTS(SELECT 1 FROM `user_collection` uc WHERE uc.`target_type` = 'community_post' AND uc.`target_id` = p.`post_id` AND uc.`user_id` = ?)"} AS collectedByViewer,
+  COALESCE((
+    SELECT JSON_ARRAYAGG(pi.\`file_id\`)
+    FROM (
+      SELECT \`file_id\`
+      FROM \`community_post_image\`
+      WHERE \`post_id\` = p.\`post_id\`
+      ORDER BY \`sort_order\`, \`created_at\`
+    ) pi
+  ), JSON_ARRAY()) AS imageFileIdsJson
+FROM \`community_post\` p
+JOIN \`user\` u ON u.\`user_id\` = p.\`author_id\`
+LEFT JOIN \`user_profile\` up ON up.\`user_id\` = u.\`user_id\`
+LEFT JOIN \`category\` c ON c.\`category_id\` = p.\`category_id\`
+${where}
+ORDER BY p.\`created_at\` DESC, p.\`post_id\` DESC
+LIMIT ? OFFSET ?
+`, [
+      ...(viewerId === null ? [] : [viewerId, viewerId]),
+      ...params,
+      pageSize,
+      offset
+    ]);
+    return {
+      posts: rows.map(normalizeCommunityPost),
+      total: Number(totalRow?.total ?? rows.length)
+    };
+  }
+
+  async function findCommunityPostById(postId, viewerId = null) {
+    const result = await listCommunityPosts({ viewerId, page: 1, pageSize: 1, postId });
+    let post = result.posts.find((item) => Number(item.postId) === Number(postId));
+    if (post) {
+      return post;
+    }
+    const row = await pooledOne(`
+SELECT
+  p.\`post_id\` AS postId,
+  p.\`author_id\` AS authorId,
+  p.\`category_id\` AS categoryId,
+  p.\`title\`,
+  p.\`content\`,
+  p.\`tags_json\` AS tagsJson,
+  p.\`visibility\`,
+  p.\`status\`,
+  p.\`like_count\` AS likeCount,
+  p.\`comment_count\` AS commentCount,
+  p.\`collect_count\` AS collectCount,
+  DATE_FORMAT(p.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt,
+  DATE_FORMAT(p.\`updated_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS updatedAt,
+  ${userJsonObjectSql("u", "up")} AS authorJson,
+  IF(c.\`category_id\` IS NULL, NULL, ${categoryJsonObjectSql("c")}) AS categoryJson,
+  ${viewerId === null ? "0" : "EXISTS(SELECT 1 FROM `community_post_like` l WHERE l.`post_id` = p.`post_id` AND l.`user_id` = ?)"} AS likedByViewer,
+  ${viewerId === null ? "0" : "EXISTS(SELECT 1 FROM `user_collection` uc WHERE uc.`target_type` = 'community_post' AND uc.`target_id` = p.`post_id` AND uc.`user_id` = ?)"} AS collectedByViewer,
+  COALESCE((SELECT JSON_ARRAYAGG(pi.\`file_id\`) FROM (SELECT \`file_id\` FROM \`community_post_image\` WHERE \`post_id\` = p.\`post_id\` ORDER BY \`sort_order\`, \`created_at\`) pi), JSON_ARRAY()) AS imageFileIdsJson
+FROM \`community_post\` p
+JOIN \`user\` u ON u.\`user_id\` = p.\`author_id\`
+LEFT JOIN \`user_profile\` up ON up.\`user_id\` = u.\`user_id\`
+LEFT JOIN \`category\` c ON c.\`category_id\` = p.\`category_id\`
+WHERE p.\`post_id\` = ?
+  AND p.\`status\` = 'published'
+LIMIT 1
+`, viewerId === null ? [Number(postId)] : [Number(viewerId), Number(viewerId), Number(postId)]);
+    post = row ? normalizeCommunityPost(row) : null;
+    return post;
+  }
+
+  async function createCommunityPost(input) {
+    const authorId = Number(input.authorId);
+    const imageFileIds = normalizeFileIdList(input.imageFileIds ?? input.images ?? input.fileIds);
+    if (imageFileIds.length > 0) {
+      const placeholders = imageFileIds.map(() => "?").join(", ");
+      const rows = await pooledRows(`SELECT \`file_id\` AS fileId FROM \`file_asset\` WHERE \`owner_id\` = ? AND \`file_id\` IN (${placeholders})`, [authorId, ...imageFileIds]);
+      if (rows.length !== imageFileIds.length) {
+        throw storeError("FILE_NOT_FOUND", "Post image file was not found.");
+      }
+    }
+    const pool = await mysqlPool();
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [result] = await connection.execute(`
+INSERT INTO \`community_post\` (
+  \`author_id\`,
+  \`category_id\`,
+  \`title\`,
+  \`content\`,
+  \`tags_json\`,
+  \`visibility\`,
+  \`status\`
+)
+SELECT ?, ?, ?, ?, CAST(? AS JSON), ?, 'published'
+WHERE EXISTS (SELECT 1 FROM \`user\` WHERE \`user_id\` = ? AND \`status\` = 1 AND \`role\` = 'user')
+`, [
+        authorId,
+        input.categoryId === undefined || input.categoryId === null || input.categoryId === "" ? null : Number(input.categoryId),
+        String(input.title ?? "").trim(),
+        String(input.content ?? "").trim(),
+        JSON.stringify(normalizeTextList(input.tags)),
+        normalizePostVisibility(input.visibility),
+        authorId
+      ]);
+      if (Number(result.affectedRows ?? 0) !== 1) {
+        throw storeError("POST_AUTHOR_NOT_FOUND", "Post author was not found.");
+      }
+      const postId = Number(result.insertId);
+      for (const [index, fileId] of imageFileIds.entries()) {
+        await connection.execute("INSERT INTO `community_post_image` (`post_id`, `file_id`, `sort_order`) VALUES (?, ?, ?)", [postId, fileId, index]);
+        await connection.execute("UPDATE `file_asset` SET `business_type` = 'community_post', `business_id` = ?, `visibility` = 'public' WHERE `file_id` = ? AND `owner_id` = ?", [postId, fileId, authorId]);
+      }
+      await connection.commit();
+      return findCommunityPostById(postId, authorId);
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async function likeCommunityPost(input) {
+    return setCommunityPostLike(input, true);
+  }
+
+  async function unlikeCommunityPost(input) {
+    return setCommunityPostLike(input, false);
+  }
+
+  async function collectCommunityPost(input) {
+    return setCollection({ userId: input.userId, targetType: "community_post", targetId: input.postId ?? input.targetId }, true);
+  }
+
+  async function uncollectCommunityPost(input) {
+    return setCollection({ userId: input.userId, targetType: "community_post", targetId: input.postId ?? input.targetId }, false);
+  }
+
+  async function listCommunityPostComments(postId, viewerId = null) {
+    const rows = await pooledRows(`
+SELECT
+  c.\`comment_id\` AS commentId,
+  c.\`post_id\` AS postId,
+  c.\`user_id\` AS userId,
+  c.\`parent_id\` AS parentId,
+  c.\`content\`,
+  c.\`like_count\` AS likeCount,
+  DATE_FORMAT(c.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt,
+  DATE_FORMAT(c.\`updated_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS updatedAt,
+  ${userJsonObjectSql("u", "up")} AS userJson,
+  ${viewerId === null ? "0" : "EXISTS(SELECT 1 FROM `community_post_comment_like` l WHERE l.`comment_id` = c.`comment_id` AND l.`user_id` = ?)"} AS likedByViewer
+FROM \`community_post_comment\` c
+JOIN \`user\` u ON u.\`user_id\` = c.\`user_id\`
+LEFT JOIN \`user_profile\` up ON up.\`user_id\` = u.\`user_id\`
+WHERE c.\`post_id\` = ?
+ORDER BY c.\`created_at\` ASC, c.\`comment_id\` ASC
+`, viewerId === null ? [Number(postId)] : [Number(viewerId), Number(postId)]);
+    return rows.map(normalizeCommunityPostComment);
+  }
+
+  async function createCommunityPostComment(input) {
+    const result = await pooledExecute(`
+INSERT INTO \`community_post_comment\` (
+  \`post_id\`,
+  \`user_id\`,
+  \`parent_id\`,
+  \`content\`
+)
+SELECT ?, ?, ?, ?
+WHERE EXISTS (SELECT 1 FROM \`community_post\` WHERE \`post_id\` = ? AND \`status\` = 'published')
+  AND EXISTS (SELECT 1 FROM \`user\` WHERE \`user_id\` = ? AND \`status\` = 1)
+`, [
+      Number(input.postId),
+      Number(input.userId),
+      input.parentId ?? null,
+      normalizeOptionalString(input.content) ?? "",
+      Number(input.postId),
+      Number(input.userId)
+    ]);
+    if (Number(result.affectedRows ?? 0) !== 1) {
+      throw storeError("POST_NOT_FOUND", "Community post was not found.");
+    }
+    await refreshCommunityPostCounts(input.postId);
+    return (await listCommunityPostComments(input.postId, input.userId)).find((comment) => comment.commentId === Number(result.insertId));
+  }
+
+  async function likeCommunityPostComment(input) {
+    return setCommunityPostCommentLike(input, true);
+  }
+
+  async function unlikeCommunityPostComment(input) {
+    return setCommunityPostCommentLike(input, false);
+  }
+
+  async function listCollectionsForUserId(userId, query = {}) {
+    const targetType = normalizeCollectionType(query.targetType ?? query.type ?? "all");
+    const page = positiveInteger(query.page, 1);
+    const pageSize = Math.min(50, positiveInteger(query.pageSize, 20));
+    const offset = (page - 1) * pageSize;
+    const clauses = ["uc.`user_id` = ?"];
+    const params = [Number(userId)];
+    if (targetType !== "all") {
+      clauses.push("uc.`target_type` = ?");
+      params.push(targetType);
+    }
+    const where = `WHERE ${clauses.join(" AND ")}`;
+    const rows = await pooledRows(`
+SELECT
+  uc.\`user_id\` AS userId,
+  uc.\`target_type\` AS targetType,
+  uc.\`target_id\` AS targetId,
+  DATE_FORMAT(uc.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
+FROM \`user_collection\` uc
+${where}
+ORDER BY uc.\`created_at\` DESC
+LIMIT ? OFFSET ?
+`, [...params, pageSize, offset]);
+    const totalRow = await pooledOne(`SELECT COUNT(*) AS total FROM \`user_collection\` uc ${where}`, params);
+    return {
+      collections: await Promise.all(rows.map((row) => enrichCollection(row))),
+      total: Number(totalRow?.total ?? rows.length)
+    };
+  }
+
+  async function createCollection(input) {
+    return setCollection(input, true);
+  }
+
+  async function deleteCollection(input) {
+    return setCollection(input, false);
+  }
+
   async function createMessage(input) {
     const senderId = Number(input.senderId);
     const receiverId = Number(input.receiverId);
@@ -4017,10 +4337,23 @@ LIMIT 1
       throw storeError("MESSAGE_SELF_NOT_ALLOWED", "Cannot send a message to yourself.");
     }
     const content = normalizeOptionalString(input.content);
-    if (!content) {
-      throw storeError("INVALID_MESSAGE", "Message content is required.");
+    const attachments = normalizeMessageAttachments(input.attachments);
+    if (!content && attachments.length === 0) {
+      throw storeError("INVALID_MESSAGE", "Message content or attachment is required.");
     }
-    const result = await pooledExecute(`
+    if (attachments.length > 0) {
+      const fileIds = attachments.map((item) => item.fileId);
+      const placeholders = fileIds.map(() => "?").join(", ");
+      const rows = await pooledRows(`SELECT \`file_id\` AS fileId FROM \`file_asset\` WHERE \`owner_id\` = ? AND \`file_id\` IN (${placeholders})`, [senderId, ...fileIds]);
+      if (rows.length !== fileIds.length) {
+        throw storeError("FILE_NOT_FOUND", "Message attachment file was not found.");
+      }
+    }
+    const pool = await mysqlPool();
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [result] = await connection.execute(`
 INSERT INTO \`message\` (
   \`sender_id\`,
   \`receiver_id\`,
@@ -4033,19 +4366,93 @@ SELECT ?, ?, ?, ?, ?, ?
 WHERE EXISTS (SELECT 1 FROM \`user\` WHERE \`user_id\` = ? AND \`status\` = 1)
   AND EXISTS (SELECT 1 FROM \`user\` WHERE \`user_id\` = ? AND \`status\` = 1)
 `, [
-      senderId,
-      receiverId,
-      input.orderId ?? null,
-      input.businessType ?? (input.orderId ? "order" : "direct"),
-      input.businessId ?? input.orderId ?? null,
-      content,
-      senderId,
-      receiverId
-    ]);
-    if (Number(result.affectedRows ?? 0) !== 1) {
-      throw storeError("MESSAGE_PARTICIPANT_NOT_FOUND", "Message participant was not found.");
+        senderId,
+        receiverId,
+        input.orderId ?? null,
+        input.businessType ?? (input.orderId ? "order" : "direct"),
+        input.businessId ?? input.orderId ?? null,
+        content ?? "",
+        senderId,
+        receiverId
+      ]);
+      if (Number(result.affectedRows ?? 0) !== 1) {
+        throw storeError("MESSAGE_PARTICIPANT_NOT_FOUND", "Message participant was not found.");
+      }
+      const messageId = Number(result.insertId);
+      for (const [index, attachment] of attachments.entries()) {
+        await connection.execute("INSERT INTO `message_attachment` (`message_id`, `file_id`, `sort_order`) VALUES (?, ?, ?)", [messageId, attachment.fileId, index]);
+        await connection.execute("UPDATE `file_asset` SET `business_type` = 'message', `business_id` = ?, `visibility` = 'public' WHERE `file_id` = ? AND `owner_id` = ?", [messageId, attachment.fileId, senderId]);
+      }
+      await connection.commit();
+      return findMessageById(messageId);
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
     }
-    return findMessageById(result.insertId);
+  }
+
+  async function listMessageThread(input = {}) {
+    const viewerId = Number(input.viewerId);
+    const userId = Number(input.userId);
+    const orderId = input.orderId === undefined || input.orderId === null || input.orderId === "" ? null : Number(input.orderId);
+    const page = positiveInteger(input.page, 1);
+    const pageSize = Math.min(100, positiveInteger(input.pageSize, 50));
+    const offset = (page - 1) * pageSize;
+    const orderClause = orderId === null ? "m.`order_id` IS NULL" : "m.`order_id` = ?";
+    const params = orderId === null ? [viewerId, userId, userId, viewerId] : [viewerId, userId, userId, viewerId, orderId];
+    const rows = await pooledRows(`
+SELECT
+  m.\`message_id\` AS messageId,
+  m.\`sender_id\` AS senderId,
+  m.\`receiver_id\` AS receiverId,
+  m.\`order_id\` AS orderId,
+  m.\`business_type\` AS businessType,
+  m.\`business_id\` AS businessId,
+  m.\`content\`,
+  m.\`is_read\` AS isRead,
+  IF(m.\`read_at\` IS NULL, NULL, DATE_FORMAT(m.\`read_at\`, '%Y-%m-%dT%H:%i:%s.000Z')) AS readAt,
+  DATE_FORMAT(m.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt
+FROM \`message\` m
+WHERE ((m.\`sender_id\` = ? AND m.\`receiver_id\` = ?) OR (m.\`sender_id\` = ? AND m.\`receiver_id\` = ?))
+  AND ${orderClause}
+  AND m.\`archived_at\` IS NULL
+ORDER BY m.\`created_at\` ASC, m.\`message_id\` ASC
+LIMIT ? OFFSET ?
+`, [...params, pageSize, offset]);
+    const totalRow = await pooledOne(`
+SELECT COUNT(*) AS total
+FROM \`message\` m
+WHERE ((m.\`sender_id\` = ? AND m.\`receiver_id\` = ?) OR (m.\`sender_id\` = ? AND m.\`receiver_id\` = ?))
+  AND ${orderClause}
+  AND m.\`archived_at\` IS NULL
+`, params);
+    const participant = await findUserById(userId);
+    return {
+      participant: normalizePublicUser(participant),
+      orderId,
+      messages: await hydrateMessageAttachments(rows.map(normalizeMessage)),
+      total: Number(totalRow?.total ?? rows.length)
+    };
+  }
+
+  async function markMessageThreadRead(input = {}) {
+    const viewerId = Number(input.viewerId);
+    const userId = Number(input.userId);
+    const orderId = input.orderId === undefined || input.orderId === null || input.orderId === "" ? null : Number(input.orderId);
+    const params = orderId === null ? [viewerId, userId] : [viewerId, userId, orderId];
+    const result = await pooledExecute(`
+UPDATE \`message\`
+SET \`is_read\` = 1,
+    \`read_at\` = COALESCE(\`read_at\`, CURRENT_TIMESTAMP)
+WHERE \`receiver_id\` = ?
+  AND \`sender_id\` = ?
+  AND ${orderId === null ? "\`order_id\` IS NULL" : "\`order_id\` = ?"}
+  AND \`is_read\` = 0
+  AND \`archived_at\` IS NULL
+`, params);
+    return { updated: Number(result.affectedRows ?? 0) };
   }
 
   async function markMessageRead(userId, messageId) {
@@ -4078,7 +4485,11 @@ WHERE m.\`message_id\` = ?
   ${viewerId === null ? "" : "AND (m.`sender_id` = ? OR m.`receiver_id` = ?)"}
 LIMIT 1
 `, viewerId === null ? [Number(messageId)] : [Number(messageId), Number(viewerId), Number(viewerId)]);
-    return row ? normalizeMessage(row) : null;
+    if (!row) {
+      return null;
+    }
+    const [message] = await hydrateMessageAttachments([normalizeMessage(row)]);
+    return message;
   }
 
   async function listRequestComments(requestId, viewerId = null) {
@@ -4208,6 +4619,148 @@ LIMIT 1
     return findUserById(userId);
   }
 
+  async function setCommunityPostLike(input, liked) {
+    const postId = Number(input.postId);
+    const userId = Number(input.userId);
+    if (liked) {
+      await pooledExecute("INSERT IGNORE INTO `community_post_like` (`post_id`, `user_id`) VALUES (?, ?)", [postId, userId]);
+    } else {
+      await pooledExecute("DELETE FROM `community_post_like` WHERE `post_id` = ? AND `user_id` = ?", [postId, userId]);
+    }
+    await refreshCommunityPostCounts(postId);
+    const post = await findCommunityPostById(postId, userId);
+    if (!post) {
+      throw storeError("POST_NOT_FOUND", "Community post was not found.");
+    }
+    return post;
+  }
+
+  async function setCommunityPostCommentLike(input, liked) {
+    const commentId = Number(input.commentId);
+    const userId = Number(input.userId);
+    if (liked) {
+      await pooledExecute("INSERT IGNORE INTO `community_post_comment_like` (`comment_id`, `user_id`) VALUES (?, ?)", [commentId, userId]);
+    } else {
+      await pooledExecute("DELETE FROM `community_post_comment_like` WHERE `comment_id` = ? AND `user_id` = ?", [commentId, userId]);
+    }
+    await pooledExecute(`
+UPDATE \`community_post_comment\`
+SET \`like_count\` = (
+  SELECT COUNT(*)
+  FROM \`community_post_comment_like\` l
+  WHERE l.\`comment_id\` = ?
+)
+WHERE \`comment_id\` = ?
+`, [commentId, commentId]);
+    const row = await pooledOne(`
+SELECT \`post_id\` AS postId
+FROM \`community_post_comment\`
+WHERE \`comment_id\` = ?
+LIMIT 1
+`, [commentId]);
+    if (!row) {
+      throw storeError("COMMENT_NOT_FOUND", "Community post comment was not found.");
+    }
+    return (await listCommunityPostComments(row.postId, userId)).find((comment) => comment.commentId === commentId);
+  }
+
+  async function setCollection(input, collected) {
+    const userId = Number(input.userId);
+    const targetType = normalizeCollectionType(input.targetType ?? input.type);
+    const targetId = Number(input.targetId);
+    if (collected) {
+      await assertCollectionTarget(targetType, targetId);
+      await pooledExecute("INSERT IGNORE INTO `user_collection` (`user_id`, `target_type`, `target_id`) VALUES (?, ?, ?)", [userId, targetType, targetId]);
+    } else {
+      await pooledExecute("DELETE FROM `user_collection` WHERE `user_id` = ? AND `target_type` = ? AND `target_id` = ?", [userId, targetType, targetId]);
+    }
+    if (targetType === "community_post") {
+      await refreshCommunityPostCounts(targetId);
+    }
+    return {
+      collected: Boolean(collected),
+      userId,
+      targetType,
+      targetId
+    };
+  }
+
+  async function assertCollectionTarget(targetType, targetId) {
+    let row = null;
+    if (targetType === "community_post") {
+      row = await pooledOne("SELECT 1 AS ok FROM `community_post` WHERE `post_id` = ? AND `status` = 'published' LIMIT 1", [targetId]);
+    } else if (targetType === "request") {
+      row = await pooledOne("SELECT 1 AS ok FROM `service_request` WHERE `request_id` = ? LIMIT 1", [targetId]);
+    } else if (targetType === "user") {
+      row = await pooledOne("SELECT 1 AS ok FROM `user` WHERE `user_id` = ? AND `status` = 1 LIMIT 1", [targetId]);
+    }
+    if (!row) {
+      throw storeError("COLLECTION_TARGET_NOT_FOUND", "Collection target was not found.");
+    }
+  }
+
+  async function enrichCollection(input) {
+    const item = {
+      userId: Number(input.userId ?? input.user_id),
+      targetType: String(input.targetType ?? input.target_type),
+      targetId: Number(input.targetId ?? input.target_id),
+      createdAt: input.createdAt ?? input.created_at ?? null
+    };
+    let target = null;
+    if (item.targetType === "community_post") {
+      target = await findCommunityPostById(item.targetId, item.userId);
+    } else if (item.targetType === "request") {
+      target = await findServiceRequestById(item.targetId);
+    } else if (item.targetType === "user") {
+      target = normalizePublicUser(await findUserById(item.targetId));
+    }
+    return { ...item, target };
+  }
+
+  async function refreshCommunityPostCounts(postId) {
+    await pooledExecute(`
+UPDATE \`community_post\`
+SET
+  \`like_count\` = (SELECT COUNT(*) FROM \`community_post_like\` l WHERE l.\`post_id\` = ?),
+  \`comment_count\` = (SELECT COUNT(*) FROM \`community_post_comment\` c WHERE c.\`post_id\` = ?),
+  \`collect_count\` = (SELECT COUNT(*) FROM \`user_collection\` uc WHERE uc.\`target_type\` = 'community_post' AND uc.\`target_id\` = ?)
+WHERE \`post_id\` = ?
+`, [postId, postId, postId, postId]);
+  }
+
+  async function hydrateMessageAttachments(messages) {
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return [];
+    }
+    const ids = messages.map((message) => Number(message.messageId)).filter((id) => Number.isFinite(id));
+    if (ids.length === 0) {
+      return messages;
+    }
+    const rows = await pooledRows(`
+SELECT
+  ma.\`message_id\` AS messageId,
+  fa.\`file_id\` AS fileId,
+  fa.\`purpose\`,
+  fa.\`original_name\` AS originalName,
+  fa.\`mime_type\` AS mimeType,
+  fa.\`size_bytes\` AS sizeBytes
+FROM \`message_attachment\` ma
+JOIN \`file_asset\` fa ON fa.\`file_id\` = ma.\`file_id\`
+WHERE ma.\`message_id\` IN (${ids.map(() => "?").join(", ")})
+ORDER BY ma.\`message_id\`, ma.\`sort_order\`, ma.\`created_at\`
+`, ids);
+    const byMessage = new Map();
+    for (const row of rows) {
+      const list = byMessage.get(Number(row.messageId)) ?? [];
+      list.push(normalizeMessageAttachment(row));
+      byMessage.set(Number(row.messageId), list);
+    }
+    return messages.map((message) => ({
+      ...message,
+      attachments: byMessage.get(Number(message.messageId)) ?? []
+    }));
+  }
+
   function revokeSessionsForUser(userId) {
     const now = new Date().toISOString();
     for (const session of sessions.values()) {
@@ -4298,6 +4851,79 @@ WHERE \`session_id\` = ?
     }
     session.revokedAt = now;
     return true;
+  }
+
+  async function listSessionsForUserId(userId) {
+    const rows = await pooledRows(`
+SELECT
+  \`session_id\` AS sessionId,
+  \`user_id\` AS userId,
+  \`role\`,
+  \`csrf_token\` AS csrfToken,
+  DATE_FORMAT(\`expires_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS expiresAt,
+  DATE_FORMAT(\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS createdAt,
+  IF(\`revoked_at\` IS NULL, NULL, DATE_FORMAT(\`revoked_at\`, '%Y-%m-%dT%H:%i:%s.000Z')) AS revokedAt,
+  \`ip_address\` AS ipAddress,
+  \`user_agent\` AS userAgent
+FROM \`auth_session\`
+WHERE \`user_id\` = ?
+ORDER BY \`created_at\` DESC
+LIMIT 100
+`, [Number(userId)]);
+    return rows.map(normalizeSession);
+  }
+
+  async function revokeOtherSessions(input = {}) {
+    const now = new Date().toISOString();
+    const result = await pooledExecute(`
+UPDATE \`auth_session\`
+SET \`revoked_at\` = COALESCE(\`revoked_at\`, ?)
+WHERE \`user_id\` = ?
+  AND \`session_id\` <> ?
+  AND \`revoked_at\` IS NULL
+`, [toMysqlDateTime(now), Number(input.userId), String(input.keepSessionId ?? "")]);
+    for (const session of sessions.values()) {
+      if (Number(session.userId) === Number(input.userId) && session.sessionId !== input.keepSessionId && !session.revokedAt) {
+        session.revokedAt = now;
+      }
+    }
+    return { revoked: Number(result.affectedRows ?? 0) };
+  }
+
+  async function updateUserPasswordHash(userId, passwordHash) {
+    const result = await pooledExecute(`
+UPDATE \`user\`
+SET \`password_hash\` = ?
+WHERE \`user_id\` = ?
+LIMIT 1
+`, [String(passwordHash), Number(userId)]);
+    if (Number(result.affectedRows ?? 0) !== 1) {
+      return null;
+    }
+    return findUserById(userId);
+  }
+
+  async function cleanupArchivedMessages(input = {}) {
+    const days = Math.max(1, Number(input.days ?? input.retentionDays ?? 90));
+    const mode = String(input.mode ?? "preview");
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const cutoffSql = toMysqlDateTime(cutoff);
+    const messageRow = await pooledOne("SELECT COUNT(*) AS count FROM `message` WHERE `created_at` <= ? AND `archived_at` IS NULL", [cutoffSql]);
+    const notificationRow = await pooledOne("SELECT COUNT(*) AS count FROM `notification` WHERE `created_at` <= ? AND `archived_at` IS NULL", [cutoffSql]);
+    const preview = {
+      cutoffAt: cutoff.toISOString(),
+      messageCount: Number(messageRow?.count ?? 0),
+      notificationCount: Number(notificationRow?.count ?? 0)
+    };
+    if (mode !== "execute") {
+      return preview;
+    }
+    await pooledExecute("UPDATE `message` SET `archived_at` = CURRENT_TIMESTAMP WHERE `created_at` <= ? AND `archived_at` IS NULL", [cutoffSql]);
+    await pooledExecute("UPDATE `notification` SET `archived_at` = CURRENT_TIMESTAMP WHERE `created_at` <= ? AND `archived_at` IS NULL", [cutoffSql]);
+    return {
+      ...preview,
+      archivedAt: new Date().toISOString()
+    };
   }
 
   async function close() {
@@ -4949,9 +5575,11 @@ function normalizeMessage(input) {
     businessType: normalizeOptionalString(input.businessType ?? input.business_type),
     businessId: businessId === undefined || businessId === null ? null : Number(businessId),
     content: String(input.content ?? ""),
+    attachments: normalizeMessageAttachments(input.attachments),
     isRead: Boolean(input.isRead ?? input.is_read),
     readAt: input.readAt ?? input.read_at ?? null,
-    createdAt: input.createdAt ?? input.created_at ?? null
+    createdAt: input.createdAt ?? input.created_at ?? null,
+    archivedAt: input.archivedAt ?? input.archived_at ?? null
   };
 }
 
@@ -5286,11 +5914,81 @@ function normalizeConversation(input) {
     title: String(input.title ?? "邻帮用户"),
     participant: input.participant ?? null,
     orderId: input.orderId === undefined || input.orderId === null ? null : Number(input.orderId),
+    userId: input.userId === undefined || input.userId === null ? input.participant?.userId ?? null : Number(input.userId),
     preview: normalizeOptionalString(input.preview) ?? "",
+    attachments: normalizeMessageAttachments(input.attachments),
     unreadCount: Number(input.unreadCount ?? 0),
     updatedAt: input.updatedAt ?? null,
     href: normalizeOptionalString(input.href)
   };
+}
+
+function normalizeCommunityPost(input) {
+  return {
+    postId: Number(input.postId ?? input.post_id),
+    authorId: Number(input.authorId ?? input.author_id),
+    categoryId: input.categoryId === undefined || input.categoryId === null ? null : Number(input.categoryId ?? input.category_id),
+    title: String(input.title ?? ""),
+    content: String(input.content ?? ""),
+    tags: parseJsonArray(input.tagsJson ?? input.tags_json ?? input.tags).map(String),
+    imageFileIds: parseJsonArray(input.imageFileIdsJson ?? input.image_file_ids ?? input.imageFileIds).map(String),
+    visibility: normalizePostVisibility(input.visibility),
+    status: String(input.status ?? "published"),
+    likeCount: Number(input.likeCount ?? input.like_count ?? 0),
+    commentCount: Number(input.commentCount ?? input.comment_count ?? 0),
+    collectCount: Number(input.collectCount ?? input.collect_count ?? 0),
+    likedByViewer: Boolean(input.likedByViewer),
+    collectedByViewer: Boolean(input.collectedByViewer),
+    author: input.authorJson ? normalizePublicUser(withProfileExtras(normalizeUser(input.authorJson))) : null,
+    category: input.categoryJson ? normalizeCategory(input.categoryJson) : null,
+    createdAt: input.createdAt ?? input.created_at ?? null,
+    updatedAt: input.updatedAt ?? input.updated_at ?? input.createdAt ?? input.created_at ?? null
+  };
+}
+
+function normalizeCommunityPostComment(input) {
+  return {
+    commentId: Number(input.commentId ?? input.comment_id),
+    postId: Number(input.postId ?? input.post_id),
+    userId: Number(input.userId ?? input.user_id),
+    parentId: input.parentId === undefined || input.parentId === null ? null : Number(input.parentId ?? input.parent_id),
+    content: String(input.content ?? ""),
+    likeCount: Number(input.likeCount ?? input.like_count ?? 0),
+    likedByViewer: Boolean(input.likedByViewer),
+    user: input.userJson ? normalizePublicUser(withProfileExtras(normalizeUser(input.userJson))) : null,
+    createdAt: input.createdAt ?? input.created_at ?? null,
+    updatedAt: input.updatedAt ?? input.updated_at ?? input.createdAt ?? input.created_at ?? null
+  };
+}
+
+function normalizeMessageAttachment(input) {
+  const fileId = normalizeOptionalString(input.fileId ?? input.file_id);
+  if (!fileId) {
+    return null;
+  }
+  return {
+    fileId,
+    purpose: normalizeOptionalString(input.purpose),
+    originalName: normalizeOptionalString(input.originalName ?? input.original_name),
+    mimeType: normalizeOptionalString(input.mimeType ?? input.mime_type),
+    sizeBytes: Number(input.sizeBytes ?? input.size_bytes ?? 0),
+    url: `/api/files/${encodeURIComponent(fileId)}`
+  };
+}
+
+function normalizeMessageAttachments(value) {
+  const list = Array.isArray(value) ? value : [];
+  return list.map(normalizeMessageAttachment).filter(Boolean).slice(0, 8);
+}
+
+function conversationHaystack(item) {
+  return [
+    item.title,
+    item.preview,
+    item.participant?.username,
+    item.participant?.displayName,
+    item.orderId
+  ].filter(Boolean).join(" ").toLowerCase();
 }
 
 function parseSkillTags(value) {
@@ -5306,6 +6004,58 @@ function parseSkillTags(value) {
   } catch {
     return [];
   }
+}
+
+function parseJsonArray(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (value === undefined || value === null || value === "") {
+    return [];
+  }
+  if (Buffer.isBuffer(value)) {
+    return parseJsonArray(value.toString("utf8"));
+  }
+  if (typeof value === "object") {
+    return Array.isArray(value) ? value : [];
+  }
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return String(value).split(/[，,]/).map((item) => item.trim()).filter(Boolean);
+  }
+}
+
+function normalizeTextList(value) {
+  return parseJsonArray(value).map((item) => String(item ?? "").trim()).filter(Boolean).slice(0, 20);
+}
+
+function normalizeFileIdList(value) {
+  const raw = Array.isArray(value) ? value : [];
+  return raw
+    .map((item) => {
+      if (item && typeof item === "object") {
+        return normalizeOptionalString(item.fileId ?? item.file_id ?? item.id);
+      }
+      return normalizeOptionalString(item);
+    })
+    .filter(Boolean)
+    .slice(0, 9);
+}
+
+function normalizePostVisibility(value) {
+  const text = String(value ?? "").trim();
+  return ["community", "nearby", "private"].includes(text) ? text : "community";
+}
+
+function normalizeCollectionType(value) {
+  const text = String(value ?? "").trim().toLowerCase().replace(/-/g, "_");
+  const mapped = text === "post" ? "community_post" : text === "service_request" ? "request" : text;
+  if (["all", "community_post", "request", "user"].includes(mapped)) {
+    return mapped;
+  }
+  throw storeError("INVALID_COLLECTION_TARGET", "Unsupported collection target type.");
 }
 
 function isJurySkillTags(tags) {
@@ -6018,6 +6768,12 @@ function aiConfigFromRows(rows) {
       output.enabled = Boolean(value);
     } else if (key === "ai.rate_limit_per_hour") {
       output.rateLimitPerHour = Number(value);
+    } else if (key === "ai.rate_limit_per_minute") {
+      output.rateLimitPerMinute = Number(value);
+    } else if (key === "ai.rate_limit_per_day") {
+      output.rateLimitPerDay = Number(value);
+    } else if (key === "ai.concurrency_limit") {
+      output.concurrencyLimit = Number(value);
     } else if (key === "ai.context_messages") {
       output.contextMessages = Number(value);
     } else if (key === "ai.context_token_limit") {
@@ -6030,6 +6786,24 @@ function aiConfigFromRows(rows) {
       output.blockHighRisk = Boolean(value);
     } else if (key === "ai.model.default") {
       output.model = String(value ?? "");
+    } else if (key === "ai.timeout_ms") {
+      output.timeoutMs = Number(value);
+    } else if (key === "ai.max_tokens") {
+      output.maxTokens = Number(value);
+    } else if (key === "ai.temperature") {
+      output.temperature = Number(value);
+    } else if (key === "ai.scene_enabled") {
+      output.sceneEnabled = value;
+    } else if (key === "ai.sensitive_filter_enabled") {
+      output.sensitiveFilterEnabled = Boolean(value);
+    } else if (key === "ai.detection_mode") {
+      output.detectionMode = String(value ?? "");
+    } else if (key === "ai.require_confirm") {
+      output.requireConfirm = Boolean(value);
+    } else if (key === "ai.alert_threshold") {
+      output.alertThreshold = Number(value);
+    } else if (key === "ai.conversation_retention_days") {
+      output.conversationRetentionDays = Number(value);
     }
     if (row.updatedAt) {
       output.updatedAt = row.updatedAt;
@@ -6042,12 +6816,33 @@ function normalizeAiConfig(input = {}) {
   const base = {
     enabled: true,
     rateLimitPerHour: 60,
+    rateLimitPerMinute: 20,
+    rateLimitPerDay: 200,
+    concurrencyLimit: 30,
     contextMessages: 12,
     contextTokenLimit: 4000,
     logRetentionDays: 180,
     safetyThreshold: 80,
     blockHighRisk: true,
     model: "local-rule-assistant",
+    timeoutMs: 15000,
+    maxTokens: 1024,
+    temperature: 0.3,
+    sceneEnabled: {
+      help: true,
+      request_filter: true,
+      request_draft: true,
+      order_summary: true,
+      dispute_summary: true,
+      rules: true,
+      chat: true,
+      admin: true
+    },
+    sensitiveFilterEnabled: true,
+    detectionMode: "balanced",
+    requireConfirm: true,
+    alertThreshold: 90,
+    conversationRetentionDays: 180,
     updatedAt: "2026-06-01T09:00:00.000Z"
   };
   return mergeAiConfig(base, input);
@@ -6069,14 +6864,44 @@ function mergeAiConfig(current, patch = {}) {
   return {
     enabled: booleanPatchValue(["enabled", "aiEnabled"], current.enabled),
     rateLimitPerHour: numberPatch(["rateLimitPerHour", "frequencyLimit", "rate_limit_per_hour"], 1, 1000, Number(current.rateLimitPerHour ?? 60)),
+    rateLimitPerMinute: numberPatch(["rateLimitPerMinute", "ratePerMin", "rate_limit_per_minute"], 1, 200, Number(current.rateLimitPerMinute ?? 20)),
+    rateLimitPerDay: numberPatch(["rateLimitPerDay", "ratePerDay", "rate_limit_per_day"], 1, 2000, Number(current.rateLimitPerDay ?? 200)),
+    concurrencyLimit: numberPatch(["concurrencyLimit", "concurrency", "concurrency_limit"], 1, 200, Number(current.concurrencyLimit ?? 30)),
     contextMessages: numberPatch(["contextMessages", "contextLength", "context_messages"], 1, 100, Number(current.contextMessages ?? 12)),
     contextTokenLimit: numberPatch(["contextTokenLimit", "contextTokens", "context_token_limit"], 500, 64000, Number(current.contextTokenLimit ?? 4000)),
     logRetentionDays: numberPatch(["logRetentionDays", "retentionDays", "log_retention_days"], 1, 3650, Number(current.logRetentionDays ?? 180)),
     safetyThreshold: numberPatch(["safetyThreshold", "securityThreshold", "safety_threshold"], 1, 100, Number(current.safetyThreshold ?? 80)),
     blockHighRisk: booleanPatchValue(["blockHighRisk", "aiHighRiskBlock"], current.blockHighRisk),
     model: normalizeOptionalString(patch.model) ?? current.model ?? "local-rule-assistant",
+    timeoutMs: numberPatch(["timeoutMs", "timeout", "timeout_ms"], 3000, 60000, Number(current.timeoutMs ?? 15000)),
+    maxTokens: numberPatch(["maxTokens", "max_tokens"], 128, 8192, Number(current.maxTokens ?? 1024)),
+    temperature: numberPatch(["temperature"], 0, 1, Number(current.temperature ?? 0.3)),
+    sceneEnabled: mergeAiSceneConfig(current.sceneEnabled, patch.sceneEnabled),
+    sensitiveFilterEnabled: booleanPatchValue(["sensitiveFilterEnabled", "sensitiveFilter", "sensitive_filter_enabled"], current.sensitiveFilterEnabled ?? true),
+    detectionMode: normalizeOptionalString(patch.detectionMode ?? patch.detection_mode) ?? current.detectionMode ?? "balanced",
+    requireConfirm: booleanPatchValue(["requireConfirm", "require_confirm"], current.requireConfirm ?? true),
+    alertThreshold: numberPatch(["alertThreshold", "alert_threshold"], 1, 100, Number(current.alertThreshold ?? 90)),
+    conversationRetentionDays: numberPatch(["conversationRetentionDays", "conversationRetention", "conversation_retention_days"], 1, 3650, Number(current.conversationRetentionDays ?? current.logRetentionDays ?? 180)),
     updatedAt: patch.updatedAt ?? new Date().toISOString()
   };
+}
+
+function mergeAiSceneConfig(current = {}, patch = undefined) {
+  const defaults = {
+    help: true,
+    request_filter: true,
+    request_draft: true,
+    order_summary: true,
+    dispute_summary: true,
+    rules: true,
+    chat: true,
+    admin: true
+  };
+  const base = { ...defaults, ...(current && typeof current === "object" && !Array.isArray(current) ? current : {}) };
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    return base;
+  }
+  return Object.fromEntries(Object.entries({ ...base, ...patch }).map(([key, value]) => [key, Boolean(value)]));
 }
 
 function riskScoreFromHits(hits) {

@@ -70,8 +70,50 @@ export function createApiClient(options = {}) {
         body: payload
       })
     },
+    feed: {
+      list: (token = null, params = {}) => request(withQuery("/api/feed", params), { token })
+    },
+    communityPosts: {
+      list: (token = null, params = {}) => request(withQuery("/api/community-posts", params), { token }),
+      detail: (token = null, postId) => request(`/api/community-posts/${encodeURIComponent(postId)}`, { token }),
+      create: (token, payload) => request("/api/community-posts", {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      like: (token, postId) => request(`/api/community-posts/${encodeURIComponent(postId)}/like`, {
+        method: "POST",
+        token
+      }),
+      unlike: (token, postId) => request(`/api/community-posts/${encodeURIComponent(postId)}/like`, {
+        method: "DELETE",
+        token
+      }),
+      collect: (token, postId) => request(`/api/community-posts/${encodeURIComponent(postId)}/collect`, {
+        method: "POST",
+        token
+      }),
+      uncollect: (token, postId) => request(`/api/community-posts/${encodeURIComponent(postId)}/collect`, {
+        method: "DELETE",
+        token
+      }),
+      comments: (token = null, postId) => request(`/api/community-posts/${encodeURIComponent(postId)}/comments`, { token }),
+      comment: (token, postId, payload) => request(`/api/community-posts/${encodeURIComponent(postId)}/comments`, {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      likeComment: (token, commentId) => request(`/api/community-post-comments/${encodeURIComponent(commentId)}/like`, {
+        method: "POST",
+        token
+      }),
+      unlikeComment: (token, commentId) => request(`/api/community-post-comments/${encodeURIComponent(commentId)}/like`, {
+        method: "DELETE",
+        token
+      })
+    },
     requests: {
-      list: (params = {}) => request(withQuery("/api/requests", params)),
+      list: (params = {}, token = null) => request(withQuery("/api/requests", params), { token }),
       detail: (requestId) => request(`/api/requests/${encodeURIComponent(requestId)}`),
       create: (token, payload) => request("/api/requests", {
         method: "POST",
@@ -123,6 +165,12 @@ export function createApiClient(options = {}) {
     },
     messages: {
       list: (token, params = {}) => request(withQuery("/api/messages", params), { token }),
+      thread: (token, params = {}) => request(withQuery("/api/messages/thread", params), { token }),
+      readThread: (token, payload) => request("/api/messages/thread/read", {
+        method: "POST",
+        token,
+        body: payload
+      }),
       send: (token, payload) => request("/api/messages", {
         method: "POST",
         token,
@@ -198,7 +246,21 @@ export function createApiClient(options = {}) {
         method: "POST",
         token
       }),
-      me: (token) => request("/api/auth/me", { token })
+      me: (token) => request("/api/auth/me", { token }),
+      changePassword: (token, payload) => request("/api/auth/me/password", {
+        method: "PUT",
+        token,
+        body: payload
+      }),
+      sessions: (token) => request("/api/auth/sessions", { token }),
+      revokeSession: (token, sessionId) => request(`/api/auth/sessions/${encodeURIComponent(sessionId)}`, {
+        method: "DELETE",
+        token
+      }),
+      revokeOtherSessions: (token) => request("/api/auth/sessions/others", {
+        method: "DELETE",
+        token
+      })
     },
     users: {
       me: (token) => request("/api/users/me", { token }),
@@ -223,6 +285,18 @@ export function createApiClient(options = {}) {
         method: "POST",
         token,
         body: { fileId }
+      }),
+      collections: (token, params = {}) => request(withQuery("/api/users/me/collections", params), { token })
+    },
+    collections: {
+      create: (token, payload) => request("/api/collections", {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      delete: (token, targetType, targetId) => request(`/api/collections/${encodeURIComponent(targetType)}/${encodeURIComponent(targetId)}`, {
+        method: "DELETE",
+        token
       })
     },
     verification: {
@@ -240,7 +314,7 @@ export function createApiClient(options = {}) {
       url: (fileId) => resolveUrl(baseUrl, `/api/files/${encodeURIComponent(fileId)}`).toString()
     },
     requestComments: {
-      list: (requestId) => request(`/api/requests/${encodeURIComponent(requestId)}/comments`),
+      list: (requestId, token = null) => request(`/api/requests/${encodeURIComponent(requestId)}/comments`, { token }),
       create: (token, requestId, payload) => request(`/api/requests/${encodeURIComponent(requestId)}/comments`, {
         method: "POST",
         token,
@@ -306,6 +380,11 @@ export function createApiClient(options = {}) {
         token,
         body: payload
       }),
+      importSensitiveWords: (token, payload) => request("/api/admin/sensitive-words/import", {
+        method: "POST",
+        token,
+        body: payload
+      }),
       updateSensitiveWord: (token, wordId, payload) => request(`/api/admin/sensitive-words/${encodeURIComponent(wordId)}`, {
         method: "PUT",
         token,
@@ -313,6 +392,11 @@ export function createApiClient(options = {}) {
       }),
       riskContent: (token, params = {}) => request(withQuery("/api/admin/risk-content", params), { token }),
       resolveRiskContent: (token, riskId, payload) => request(`/api/admin/risk-content/${encodeURIComponent(riskId)}/resolve`, {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      batchReviewRiskContent: (token, payload) => request("/api/admin/risk-content/batch-review", {
         method: "POST",
         token,
         body: payload
@@ -334,7 +418,23 @@ export function createApiClient(options = {}) {
         token,
         body: payload
       }),
+      batchResolveAiFeedback: (token, payload) => request("/api/admin/ai/feedback/batch-resolve", {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      aiFeedbackReport: (token, params = {}) => request(withQuery("/api/admin/ai/feedback/report", params), { token }),
       aiErrors: (token, params = {}) => request(withQuery("/api/admin/ai/errors", params), { token }),
+      retryAiErrors: (token, payload) => request("/api/admin/ai/errors/retry", {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      createAiIncident: (token, payload) => request("/api/admin/ai/errors/incidents", {
+        method: "POST",
+        token,
+        body: payload
+      }),
       aiConfig: (token) => request("/api/admin/ai/config", { token }),
       updateAiConfig: (token, payload) => request("/api/admin/ai/config", {
         method: "PUT",
@@ -345,6 +445,27 @@ export function createApiClient(options = {}) {
       system: (token) => request("/api/admin/system", { token }),
       updateSystem: (token, payload) => request("/api/admin/system", {
         method: "PUT",
+        token,
+        body: payload
+      }),
+      backups: (token) => request("/api/admin/backups", { token }),
+      createBackup: (token, payload) => request("/api/admin/backups", {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      restoreBackup: (token, backupId, payload) => request(`/api/admin/backups/${encodeURIComponent(backupId)}/restore`, {
+        method: "POST",
+        token,
+        body: payload
+      }),
+      deleteBackup: (token, backupId, payload) => request(`/api/admin/backups/${encodeURIComponent(backupId)}`, {
+        method: "DELETE",
+        token,
+        body: payload
+      }),
+      messageCleanup: (token, payload) => request("/api/admin/maintenance/message-cleanup", {
+        method: "POST",
         token,
         body: payload
       })

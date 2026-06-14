@@ -184,6 +184,111 @@ describe("CORS and rate limits", () => {
   });
 });
 
+describe("admin configuration snapshots", () => {
+  test("restores system and AI configuration from memory store snapshots", async () => {
+    const store = createMemoryAuthStore({
+      systemSettings: { freezeDays: 5, autoArchiveDays: 20, newUserCoin: 3 },
+      aiConfig: { enabled: true, rateLimitPerHour: 40, blockHighRisk: true }
+    });
+    const backup = await store.createBackup({ backupId: "unit-config-snapshot" });
+
+    await store.updateSystemSettings({ freezeDays: 12, autoArchiveDays: 90, newUserCoin: 11 });
+    await store.updateAiConfig({ enabled: false, rateLimitPerHour: 5, blockHighRisk: false });
+
+    const restored = await store.restoreBackup(backup.backupId, { actorId: 1 });
+
+    expect(restored.status).toBe("restored");
+    expect(store.getSystemSettings()).toMatchObject({
+      freezeDays: 5,
+      autoArchiveDays: 20,
+      newUserCoin: 3
+    });
+    expect(store.getAiConfig()).toMatchObject({
+      enabled: true,
+      rateLimitPerHour: 40,
+      blockHighRisk: true
+    });
+  });
+
+  test("admin visible action endpoints close loops and write audit records", async () => {
+    const store = createMemoryAuthStore();
+    const server = createBackendServer({
+      authStore: store,
+      sessionSecret: "unit-admin-actions-secret"
+    });
+    const baseUrl = await listen(server);
+    const jar = new Map();
+
+    const login = await cookieRequest(baseUrl, jar, "/api/admin/auth/login", {
+      method: "POST",
+      body: { username: "admin_main", password: "admin123456" }
+    });
+    expect(login.status).toBe(200);
+
+    const imported = await cookieRequest(baseUrl, jar, "/api/admin/sensitive-words/import", {
+      method: "POST",
+      body: { text: `unit-risk-${Date.now()},review,单元测试`, level: "review", category: "单元测试" }
+    });
+    expect(imported.status).toBe(200);
+    expect(imported.body.summary.createdCount).toBe(1);
+
+    const risk = await store.listRiskContents({ page: 1, pageSize: 1 });
+    const reviewed = await cookieRequest(baseUrl, jar, "/api/admin/risk-content/batch-review", {
+      method: "POST",
+      body: { riskIds: [risk.riskContents[0].riskId], note: "unit batch review" }
+    });
+    expect(reviewed.status).toBe(200);
+    expect(reviewed.body.summary.updatedCount).toBe(1);
+
+    const conversation = store.createAiConversation({ userId: 1001, scene: "chat", status: "active" });
+    const message = store.createAiMessage({
+      conversationId: conversation.conversationId,
+      senderType: "ai",
+      content: "unit feedback response"
+    });
+    const feedbackItem = store.createAiFeedback({
+      messageId: message.messageId,
+      userId: 1001,
+      rating: "useless",
+      comment: "unit feedback"
+    });
+    const resolved = await cookieRequest(baseUrl, jar, "/api/admin/ai/feedback/batch-resolve", {
+      method: "POST",
+      body: { feedbackIds: [feedbackItem.feedbackId], resolution: "unit batch resolve" }
+    });
+    expect(resolved.status).toBe(200);
+    expect(resolved.body.summary.resolvedCount).toBe(1);
+
+    const report = await cookieRequest(baseUrl, jar, "/api/admin/ai/feedback/report", { method: "GET" });
+    expect(report.status).toBe(200);
+    expect(report.body.report.title).toBe("AI 用户反馈周报");
+
+    const retry = await cookieRequest(baseUrl, jar, "/api/admin/ai/errors/retry", {
+      method: "POST",
+      body: { filters: { type: "all", pageSize: 20 } }
+    });
+    expect(retry.status).toBe(200);
+    expect(retry.body.summary).toHaveProperty("retryCount");
+
+    const incident = await cookieRequest(baseUrl, jar, "/api/admin/ai/errors/incidents", {
+      method: "POST",
+      body: { title: "unit incident", callIds: [] }
+    });
+    expect(incident.status).toBe(201);
+    expect(incident.body.incident.status).toBe("open");
+
+    const audits = await store.listAuditLogs({ page: 1, pageSize: 20 });
+    expect(audits.auditLogs.map((item) => item.action)).toEqual(expect.arrayContaining([
+      "admin.sensitive_word.import",
+      "admin.risk_content.batch_review",
+      "admin.ai_feedback.batch_resolve",
+      "admin.ai_feedback.report",
+      "admin.ai_error.retry",
+      "admin.ai_error.incident_create"
+    ]));
+  });
+});
+
 describe("cookie and CSRF browser authentication", () => {
   test("requires X-CSRF-Token for cookie-authenticated mutations", async () => {
     const server = createBackendServer({
