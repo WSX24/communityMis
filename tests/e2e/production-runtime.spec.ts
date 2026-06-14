@@ -63,6 +63,34 @@ test("browser runtime protects routes and supports user/admin login", async ({ p
   await expect(page.locator("html")).not.toHaveAttribute("data-runtime-error", "true");
 });
 
+test("published task stays authenticated and appears in feed", async ({ page }) => {
+  const title = `浏览器发布验证 ${Date.now()}`;
+
+  await page.goto(`${frontendBaseUrl}/login`);
+  await page.locator("#login-username").fill("user_a");
+  await page.locator("#login-password").fill("user123456");
+  await page.locator("#login-submit").click();
+  await expect(page).toHaveURL(/\/feed$/);
+
+  await page.goto(`${frontendBaseUrl}/post`);
+  await expect(page).toHaveURL(/\/post$/);
+  await page.locator(".publish-tabs button[data-tab='task']").click();
+  await page.locator("#task-title").fill(title);
+  await page.locator("#task-description").fill("这是一次浏览器端发布任务验证，用于确认 Cookie 登录态不会被误判为未登录。");
+  await page.locator("#task-hours").fill("1");
+  await page.locator("#task-coins").fill("5");
+  await page.locator("#task-location").fill("测试社区");
+  await page.locator("#task-tags .tag-chip").first().click();
+  await page.locator("#submit-btn").click();
+
+  await expect(page.locator("#publish-success-panel")).toContainText("需求已发布");
+  await expect(page).toHaveURL(/\/post$/);
+
+  await page.goto(`${frontendBaseUrl}/feed`);
+  await expect(page.locator(".feed-content")).toContainText(title);
+  await expect(page).not.toHaveURL(/\/login/);
+});
+
 test("core business API flow works with cookie and CSRF browser model", async () => {
   const userA = createCookieAwareApi(apiBaseUrl);
   const userB = createCookieAwareApi(apiBaseUrl);

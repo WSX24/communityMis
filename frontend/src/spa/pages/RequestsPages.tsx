@@ -1,5 +1,5 @@
 import React from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import type { ApiClient } from "../api";
 import { FileUpload, Field, PageHeader, StateView, asArray, friendlyError, text, useAsync } from "./shared";
 
@@ -25,6 +25,7 @@ export function TasksPage({ api }: { api: ApiClient }) {
 }
 
 export function PostPage({ api }: { api: ApiClient }) {
+  const navigate = useNavigate();
   const [error, setError] = React.useState("");
   const [draft, setDraft] = React.useState("");
   const [files, setFiles] = React.useState<string[]>([]);
@@ -39,10 +40,11 @@ export function PostPage({ api }: { api: ApiClient }) {
             title: form.get("title"),
             description: form.get("description"),
             categoryId: form.get("categoryId") || null,
-            rewardAmount: Number(form.get("rewardAmount") || 0),
+            estimatedHours: Number(form.get("estimatedHours") || 0),
+            coinAmount: Number(form.get("coinAmount") || 0),
             attachmentFileIds: files
           });
-          window.location.href = `/posts/${text((payload.request as Record<string, unknown>)?.requestId ?? payload.requestId)}`;
+          navigate(`/posts/${text((payload.request as Record<string, unknown>)?.requestId ?? payload.requestId)}`, { replace: true });
         } catch (reason) {
           setError(friendlyError(reason));
         }
@@ -50,7 +52,8 @@ export function PostPage({ api }: { api: ApiClient }) {
         <Field label="标题"><input name="title" required /></Field>
         <Field label="描述"><textarea name="description" rows={6} required defaultValue={draft} /></Field>
         <Field label="类别 ID"><input name="categoryId" inputMode="numeric" /></Field>
-        <Field label="报酬"><input name="rewardAmount" type="number" min="0" step="0.01" required /></Field>
+        <Field label="预计耗时"><input name="estimatedHours" type="number" min="0.5" step="0.5" required /></Field>
+        <Field label="时间币报酬"><input name="coinAmount" type="number" min="1" step="0.01" required /></Field>
         <div className="action-row">
           <button className="btn btn--secondary" type="button" onClick={async () => {
             const result = await api.ai.requestDraft({ prompt: "帮我写一个社区互助需求草稿" });

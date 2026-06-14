@@ -12,8 +12,8 @@ export function FeedPage({ api }: { api: ApiClient }) {
           {requests.map((item) => (
             <a className="card interactive" key={text(item.requestId)} href={`/posts/${text(item.requestId)}`}>
               <div className="card-title">{text(item.title)}</div>
-              <p>{text(item.description || item.content)}</p>
-              <div className="meta-row"><span>{text((item.category as Record<string, unknown>)?.name ?? item.categoryName)}</span><span>{text(item.rewardAmount ?? item.reward)} 时间币</span></div>
+              <p>{text(item.descriptionSummary || item.description || item.content)}</p>
+              <div className="meta-row"><span>{text((item.category as Record<string, unknown>)?.name ?? item.categoryName)}</span><span>{text(item.coinAmount ?? item.rewardAmount ?? item.reward)} 时间币</span></div>
             </a>
           ))}
         </div>

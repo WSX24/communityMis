@@ -1007,7 +1007,7 @@ function installPublishAiDraftHandler(userSession) {
 }
 
 async function generateDraftForPublish(button, userSession) {
-  if (!userSession?.token) {
+  if (!hasUserSession(userSession)) {
     navigateTo(`/login?redirect=${encodeURIComponent("/post")}`);
     return;
   }
@@ -1021,7 +1021,7 @@ async function generateDraftForPublish(button, userSession) {
   ].filter(Boolean).join("。") || "帮我完善一条邻里互助需求";
   const restore = setLoading(button, "生成中...");
   try {
-    const result = await api.ai.requestDraft(userSession.token, {
+    const result = await api.ai.requestDraft(sessionToken(userSession), {
       prompt,
       title: document.getElementById("task-title")?.value.trim() ?? "",
       description: document.getElementById("task-description")?.value.trim() ?? "",
@@ -1045,7 +1045,7 @@ async function generateCommunityPostDraft(button, userSession) {
   }
   const restore = setLoading(button, "生成中...");
   try {
-    const result = await api.ai.requestDraft(userSession.token, {
+    const result = await api.ai.requestDraft(sessionToken(userSession), {
       prompt: `把这段社区帖子润色得更清楚自然：${content}`,
       title: "社区帖子",
       description: content,
@@ -1193,7 +1193,7 @@ async function submitRequestPublish(userSession) {
     return;
   }
 
-  if (!userSession?.token) {
+  if (!hasUserSession(userSession)) {
     auth.clearSession("user");
     navigateTo(`/login?redirect=${encodeURIComponent("/post")}`);
     return;
@@ -1211,13 +1211,13 @@ async function submitRequestPublish(userSession) {
     const check = await api.content.check({
       scene: "request_publish",
       fields: [payload.title, payload.description, payload.location, ...payload.tags]
-    }, userSession.token);
+    }, sessionToken(userSession));
     if (check.allowed === false || check.ok === false) {
       showInlineMessage(button, check.reason || "内容未通过发布前检查。", "error");
       return;
     }
 
-    const result = await api.requests.create(userSession.token, payload);
+    const result = await api.requests.create(sessionToken(userSession), payload);
     renderPublishSuccessPanel(result.request);
     showPostToast(`任务（${formatAmount(result.request.coinAmount)} ⏂ 时间币）发布成功！`);
     showInlineMessage(button, "需求已发布，可以查看详情或进入任务大厅。", "success");
@@ -1246,7 +1246,7 @@ async function submitCommunityPostPublish(userSession) {
   if (!button) {
     return;
   }
-  if (!userSession?.token) {
+  if (!hasUserSession(userSession)) {
     auth.clearSession("user");
     navigateTo(`/login?redirect=${encodeURIComponent("/post")}`);
     return;
@@ -1264,12 +1264,12 @@ async function submitCommunityPostPublish(userSession) {
     const check = await api.content.check({
       scene: "community_post_publish",
       fields: [payload.title, payload.content, payload.category, ...payload.tags]
-    }, userSession.token);
+    }, sessionToken(userSession));
     if (check.allowed === false || check.ok === false) {
       showInlineMessage(button, check.reason || "内容未通过发布前检查。", "error");
       return;
     }
-    const result = await api.communityPosts.create(userSession.token, payload);
+    const result = await api.communityPosts.create(sessionToken(userSession), payload);
     renderCommunityPostSuccessPanel(result.post);
     showPostToast("帖子发布成功！");
     showInlineMessage(button, "帖子已发布，首页信息流和个人中心会展示它。", "success");
@@ -10366,6 +10366,14 @@ function maskPhone(phone) {
 
 function navigateTo(path) {
   window.location.href = path;
+}
+
+function hasUserSession(session) {
+  return Boolean(session?.user);
+}
+
+function sessionToken(session) {
+  return session?.token ?? null;
 }
 
 function normalizePath(pathname) {
