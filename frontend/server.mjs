@@ -100,6 +100,22 @@ export function handleRequest(request, response, runtime = createServerRuntime()
   sendHtml(response, 404, notFoundHtml(runtime), isHead, runtime);
 }
 
+let cachedAssetManifest = null;
+
+function loadAssetManifest(distRoot) {
+  if (cachedAssetManifest) return cachedAssetManifest;
+  try {
+    const manifestPath = path.join(distRoot, "manifest.json");
+    if (fs.existsSync(manifestPath)) {
+      cachedAssetManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+      return cachedAssetManifest;
+    }
+  } catch {
+    // manifest unavailable — dev mode will use logical (unhashed) paths
+  }
+  return null;
+}
+
 function createServerRuntime(options = {}) {
   const env = options.env ?? process.env;
   const mode = options.mode ?? env.NODE_ENV ?? "development";
@@ -109,10 +125,13 @@ function createServerRuntime(options = {}) {
     ? distRoot
     : path.join(FRONTEND_ROOT, "public");
 
+  const manifest = loadAssetManifest(distRoot);
+
   return {
     config,
     distRoot,
     fallbackRoot,
+    manifest,
     mode,
     isProduction: mode === "production"
   };
@@ -169,12 +188,19 @@ function routeHtml(route, runtime) {
       return fs.readFileSync(htmlPath, "utf8");
     }
   }
-  return renderPrototypeHtml(route, {
+  const opts = {
     runtimeConfig: runtime.config,
     shellLogicalPath: "/assets/app/main.mjs",
     stripInlineEvents: true,
     stripInlineScripts: true
-  });
+  };
+  // In development mode, use the asset manifest to rewrite logical CSS/JS paths
+  // (e.g. /css/tokens.css → /css/tokens.9237d5c336cf.css) so that files are
+  // served correctly from the hashed build output in frontend/dist/.
+  if (!runtime.isProduction && runtime.manifest?.prototypeAssets) {
+    opts.assets = runtime.manifest.prototypeAssets;
+  }
+  return renderPrototypeHtml(route, opts);
 }
 
 function notFoundHtml(runtime) {
@@ -184,7 +210,11 @@ function notFoundHtml(runtime) {
       return fs.readFileSync(htmlPath, "utf8");
     }
   }
-  return buildRouteIndexHtml({ runtimeConfig: runtime.config });
+  const opts = { runtimeConfig: runtime.config };
+  if (!runtime.isProduction && runtime.manifest?.prototypeAssets) {
+    opts.assets = runtime.manifest.prototypeAssets;
+  }
+  return buildRouteIndexHtml(opts);
 }
 
 function serveFile(response, filePath, isHead, runtime, cacheControl) {
