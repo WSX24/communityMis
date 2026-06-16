@@ -53,6 +53,32 @@ describe("production configuration", () => {
     expect(config.corsOrigins).toEqual(["https://mis.example.com"]);
     expect(config.registrationVerification).toBe("email");
   });
+
+  test("normalizes configured CORS URLs to origins", () => {
+    const config = loadBackendConfig({
+      env: {
+        NODE_ENV: "production",
+        AUTH_STORE: "mysql",
+        AUTH_SESSION_SECRET: "test-secret-with-enough-entropy",
+        CORS_ORIGIN: "https://mis.example.com/app/, https://admin.example.com/",
+        AUTH_COOKIE_SECURE: "true",
+        DB_HOST: "127.0.0.1",
+        DB_USER: "community_mis",
+        DB_NAME: "community_mis",
+        UPLOAD_ROOT: "/tmp/community-mis",
+        SMTP_HOST: "smtp.example.com",
+        SMTP_PORT: "587",
+        SMTP_USER: "mailer",
+        SMTP_PASS: "pass",
+        SMTP_FROM: "noreply@example.com",
+        OPENAI_BASE_URL: "https://api.example.com/v1",
+        OPENAI_API_KEY: "key",
+        OPENAI_MODEL: "model"
+      }
+    });
+
+    expect(config.corsOrigins).toEqual(["https://mis.example.com", "https://admin.example.com"]);
+  });
 });
 
 describe("email verification registration", () => {
@@ -159,6 +185,30 @@ describe("SMTP provider hardening", () => {
 });
 
 describe("CORS and rate limits", () => {
+  test("adds local frontend origin in development even when CORS is inherited", () => {
+    const config = loadBackendConfig({
+      env: {
+        NODE_ENV: "development",
+        CORS_ORIGIN: "https://mis.example.com",
+        FRONTEND_PORT: "5174",
+        FRONTEND_PUBLIC_HOST: "localhost:5174"
+      }
+    });
+
+    expect(config.corsOrigins).toEqual(expect.arrayContaining([
+      "https://mis.example.com",
+      "http://127.0.0.1:5174",
+      "http://localhost:5174"
+    ]));
+
+    const response = fakeResponse();
+    applyCorsHeaders({
+      headers: { origin: "http://127.0.0.1:5174" }
+    }, response, config);
+
+    expect(response.getHeader("access-control-allow-origin")).toBe("http://127.0.0.1:5174");
+  });
+
   test("rejects unexpected request origins", () => {
     const response = fakeResponse();
     expect(() => applyCorsHeaders({

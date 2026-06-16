@@ -1,8 +1,8 @@
 import path from "node:path";
 
-const DEFAULT_DEV_ORIGINS = [
-  "http://127.0.0.1:5173",
-  "http://localhost:5173"
+const DEFAULT_DEV_HOSTS = [
+  "127.0.0.1",
+  "localhost"
 ];
 
 export function loadBackendConfig(options = {}) {
@@ -10,7 +10,12 @@ export function loadBackendConfig(options = {}) {
   const nodeEnv = env.NODE_ENV ?? "development";
   const isProduction = nodeEnv === "production";
   const authStore = env.AUTH_STORE ?? (isProduction ? "mysql" : "memory");
-  const corsOrigins = parseList(env.CORS_ORIGIN ?? env.CORS_ORIGINS);
+  const configuredCorsOrigins = normalizeCorsOrigins(env.CORS_ORIGIN ?? env.CORS_ORIGINS);
+  const devCorsOrigins = isProduction ? [] : defaultDevCorsOrigins(env);
+  const corsOrigins = uniqueList([
+    ...configuredCorsOrigins,
+    ...(configuredCorsOrigins.length > 0 && isProduction ? [] : devCorsOrigins)
+  ]);
   const config = {
     nodeEnv,
     isProduction,
@@ -20,7 +25,7 @@ export function loadBackendConfig(options = {}) {
     authStore,
     sessionSecret: env.AUTH_SESSION_SECRET ?? null,
     sessionTtlMs: numberValue(env.AUTH_SESSION_TTL_MS, 24 * 60 * 60 * 1000),
-    corsOrigins: corsOrigins.length > 0 ? corsOrigins : (isProduction ? [] : DEFAULT_DEV_ORIGINS),
+    corsOrigins,
     cookie: {
       domain: emptyToNull(env.AUTH_COOKIE_DOMAIN),
       secure: booleanValue(env.AUTH_COOKIE_SECURE, isProduction),
@@ -118,6 +123,78 @@ function parseList(value) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function normalizeCorsOrigins(value) {
+  return uniqueList(parseList(value).map(normalizeOrigin).filter(Boolean));
+}
+
+function normalizeOrigin(value) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return null;
+  }
+  try {
+    const url = new URL(text);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return url.origin;
+    }
+  } catch {
+    // Keep the original value so existing deployments fail closed instead of
+    // silently broadening access when CORS_ORIGIN is malformed.
+  }
+  return text;
+}
+
+function defaultDevCorsOrigins(env) {
+  const frontendPort = numberValue(env.FRONTEND_PORT, 5173);
+  const hosts = [
+    env.FRONTEND_PUBLIC_HOST,
+    env.FRONTEND_BIND_HOST,
+    env.BIND_HOST,
+    ...DEFAULT_DEV_HOSTS
+  ].map(normalizeHostForOrigin).filter(Boolean);
+
+  return uniqueList(hosts.map((host) => `http://${host}:${frontendPort}`));
+}
+
+function normalizeHostForOrigin(value) {
+  const text = String(value ?? "").trim();
+  if (!text || ["0.0.0.0", "::", "[::]"].includes(text)) {
+    return null;
+  }
+  try {
+    if (/^https?:\/\//i.test(text)) {
+      return formatHostForOrigin(new URL(text).hostname);
+    }
+  } catch {
+    return null;
+  }
+  return formatHostForOrigin(stripPortFromHost(text));
+}
+
+function formatHostForOrigin(host) {
+  if (!host) {
+    return null;
+  }
+  return host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+}
+
+function stripPortFromHost(host) {
+  if (!host) {
+    return host;
+  }
+  if (host.startsWith("[")) {
+    return host.replace(/^\[(.*)](?::\d+)?$/, "$1");
+  }
+  if ((host.match(/:/g) ?? []).length > 1) {
+    return host;
+  }
+  return host.replace(/:\d+$/, "");
+}
+
+function uniqueList(values) {
+  return Array.from(new Set(values));
 }
 
 function numberValue(value, fallback) {
