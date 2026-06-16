@@ -7,11 +7,36 @@ import {
   createRuntimeConfig,
   DIST_ROOT,
   PRODUCTION_UI_ROOT,
+  UI_SOURCE_ROOT,
   renderPrototypeHtml
 } from "../frontend/src/prototypeRenderer.mjs";
 import { routePath, routes } from "../frontend/src/routes.mjs";
 
 const projectRoot = process.cwd();
+
+// 同步 UISource → public/ui（设计源文件 → 构建读的目录）
+const uiSourceScreens = path.join(UI_SOURCE_ROOT, "screens");
+if (fs.existsSync(uiSourceScreens)) {
+  const uiTargetScreens = path.join(PRODUCTION_UI_ROOT, "screens");
+  fs.mkdirSync(uiTargetScreens, { recursive: true });
+  for (const file of fs.readdirSync(uiSourceScreens)) {
+    if (file.endsWith(".html")) {
+      fs.copyFileSync(path.join(uiSourceScreens, file), path.join(uiTargetScreens, file));
+    }
+  }
+  // 同步 CSS 和 JS
+  for (const sub of ["css", "js"]) {
+    const srcDir = path.join(UI_SOURCE_ROOT, sub);
+    const tgtDir = path.join(PRODUCTION_UI_ROOT, sub);
+    if (fs.existsSync(srcDir)) {
+      fs.mkdirSync(tgtDir, { recursive: true });
+      for (const file of fs.readdirSync(srcDir)) {
+        fs.copyFileSync(path.join(srcDir, file), path.join(tgtDir, file));
+      }
+    }
+  }
+  console.log(`Synced UISource → ${path.relative(projectRoot, PRODUCTION_UI_ROOT)}`);
+}
 const distRoot = DIST_ROOT;
 
 const viteBin = path.join(projectRoot, "node_modules", "vite", "bin", "vite.js");
