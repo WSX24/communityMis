@@ -6,6 +6,7 @@ import {
   buildRouteIndexHtml,
   createRuntimeConfig,
   DIST_ROOT,
+  PRODUCTION_UI_ROOT,
   PROJECT_ROOT,
   renderPrototypeHtml
 } from "./src/prototypeRenderer.mjs";
@@ -100,19 +101,45 @@ export function handleRequest(request, response, runtime = createServerRuntime()
   sendHtml(response, 404, notFoundHtml(runtime), isHead, runtime);
 }
 
+let cachedAssetManifest = null;
+
+function loadAssetManifest(distRoot) {
+  if (cachedAssetManifest) return cachedAssetManifest;
+  try {
+    const manifestPath = path.join(distRoot, "manifest.json");
+    if (fs.existsSync(manifestPath)) {
+      cachedAssetManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+      return cachedAssetManifest;
+    }
+  } catch {
+    // manifest unavailable — dev mode will use logical (unhashed) paths
+  }
+  return null;
+}
+
 function createServerRuntime(options = {}) {
   const env = options.env ?? process.env;
   const mode = options.mode ?? env.NODE_ENV ?? "development";
   const config = options.runtimeConfig ?? createRuntimeConfig({ env, mode });
   const distRoot = options.distRoot ?? DIST_ROOT;
-  const fallbackRoot = fs.existsSync(path.join(distRoot, "index.html"))
-    ? distRoot
-    : path.join(FRONTEND_ROOT, "public");
+  const manifest = loadAssetManifest(distRoot);
+
+  // Always use frontend/public/ as fallbackRoot, not distRoot (which would
+  // be a no-op since resolveStaticFile already tries distRoot first).
+  // This ensures unhashed assets in public/ are always reachable.
+  const fallbackRoot = path.join(FRONTEND_ROOT, "public");
+
+  // In dev mode, also allow serving CSS/JS directly from public/ui/
+  // (the UI source directory) as a last resort when no manifest mapping
+  // or hashed build output is available.
+  const uiSourceRoot = mode !== "production" ? PRODUCTION_UI_ROOT : null;
 
   return {
     config,
     distRoot,
     fallbackRoot,
+    uiSourceRoot,
+    manifest,
     mode,
     isProduction: mode === "production"
   };
@@ -142,13 +169,32 @@ function frontendHealthPayload(runtime) {
 
 function resolveStaticFile(runtime, pathname) {
   const decoded = decodeURIComponent(pathname);
+  // 1. Try dist/ first (hashed production assets)
   const target = safeJoin(runtime.distRoot, decoded.slice(1));
   if (target && fs.existsSync(target) && fs.statSync(target).isFile()) {
     return target;
   }
+  // 2. Try public/ fallback (unhashed static files)
+  //    Note: public/ styles are at /styles/*, not /assets/styles/*,
+  //    so we also try stripping the /assets/ prefix for the file lookup.
   const fallback = safeJoin(runtime.fallbackRoot, decoded.slice(1));
   if (fallback && fs.existsSync(fallback) && fs.statSync(fallback).isFile()) {
     return fallback;
+  }
+  // 2b. For /assets/ prefixed URLs, also try public/ without the /assets/ prefix
+  //    (e.g. /assets/styles/shell.css → public/styles/shell.css)
+  if (decoded.startsWith("/assets/")) {
+    const alt = safeJoin(runtime.fallbackRoot, decoded.slice("/assets/".length));
+    if (alt && fs.existsSync(alt) && fs.statSync(alt).isFile()) {
+      return alt;
+    }
+  }
+  // 3. In dev mode, try public/ui/ (CSS/JS source files before hashing)
+  if (runtime.uiSourceRoot) {
+    const uiFallback = safeJoin(runtime.uiSourceRoot, decoded.slice(1));
+    if (uiFallback && fs.existsSync(uiFallback) && fs.statSync(uiFallback).isFile()) {
+      return uiFallback;
+    }
   }
   return null;
 }
@@ -169,12 +215,19 @@ function routeHtml(route, runtime) {
       return fs.readFileSync(htmlPath, "utf8");
     }
   }
-  return renderPrototypeHtml(route, {
+  const opts = {
     runtimeConfig: runtime.config,
     shellLogicalPath: "/assets/app/main.mjs",
     stripInlineEvents: true,
     stripInlineScripts: true
-  });
+  };
+  // In development mode, use the asset manifest to rewrite logical CSS/JS paths
+  // (e.g. /css/tokens.css → /css/tokens.9237d5c336cf.css) so that files are
+  // served correctly from the hashed build output in frontend/dist/.
+  if (!runtime.isProduction && runtime.manifest?.prototypeAssets) {
+    opts.assets = runtime.manifest.prototypeAssets;
+  }
+  return renderPrototypeHtml(route, opts);
 }
 
 function notFoundHtml(runtime) {
@@ -184,7 +237,11 @@ function notFoundHtml(runtime) {
       return fs.readFileSync(htmlPath, "utf8");
     }
   }
-  return buildRouteIndexHtml({ runtimeConfig: runtime.config });
+  const opts = { runtimeConfig: runtime.config };
+  if (!runtime.isProduction && runtime.manifest?.prototypeAssets) {
+    opts.assets = runtime.manifest.prototypeAssets;
+  }
+  return buildRouteIndexHtml(opts);
 }
 
 function serveFile(response, filePath, isHead, runtime, cacheControl) {
