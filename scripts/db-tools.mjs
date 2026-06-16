@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { loadEnvFile } from "./load-env.mjs";
 import { createMysqlPool } from "../backend/src/mysql/pool.mjs";
+
+loadEnvFile();
 
 export const projectRoot = process.cwd();
 
