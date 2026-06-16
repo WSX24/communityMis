@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { hashPassword } from "./password.mjs";
 
 export const ACTIVE_STATUS = 1;
@@ -137,6 +139,9 @@ export function createMemoryAuthStore(options = {}) {
   return {
     createUserWithWallet,
     findUserByUsername,
+    findUserByEmail,
+    findUserByPhone,
+    usernameExists,
     findUserById,
     findWalletByUserId,
     updateUserProfile,
@@ -299,12 +304,59 @@ export function createMemoryAuthStore(options = {}) {
     usernameIndex.set(normalized, user.userId);
     wallets.set(user.userId, wallet);
     settings.set(user.userId, normalizeSettings(input.settings));
+
+    if (input.identiconPng && Buffer.isBuffer(input.identiconPng)) {
+      try {
+        const fileId = crypto.randomUUID();
+        const d = new Date().toISOString().slice(0, 10);
+        const relativeDir = path.join(String(user.userId), d);
+        const uploadRoot = process.env.UPLOAD_ROOT || path.join(process.cwd(), "uploads");
+        const targetDir = path.join(uploadRoot, relativeDir);
+        fs.mkdirSync(targetDir, { recursive: true });
+        const storagePath = path.join(targetDir, fileId + ".png");
+        fs.writeFileSync(storagePath, input.identiconPng);
+        fileAssets.set(fileId, normalizeFileAsset({
+          fileId, ownerId: user.userId, purpose: "avatar",
+          businessType: "user", businessId: user.userId,
+          visibility: "public",
+          originalName: "identicon-" + user.username + ".png",
+          storagePath, mimeType: "image/png",
+          sizeBytes: input.identiconPng.length,
+          createdAt: new Date().toISOString()
+        }));
+        user.avatarFileId = fileId;
+      } catch {}
+    }
+
     return { user: clone(user), wallet: clone(wallet) };
   }
 
   function findUserByUsername(username) {
     const userId = usernameIndex.get(normalizeUsername(username));
     return userId === undefined ? null : findUserById(userId);
+  }
+
+  function findUserByEmail(email) {
+    if (!email || typeof email !== "string") return null;
+    const normalized = email.trim().toLowerCase();
+    for (const user of users.values()) {
+      if (user.email && user.email.toLowerCase() === normalized) return clone(user);
+    }
+    return null;
+  }
+
+  function findUserByPhone(phone) {
+    if (!phone || typeof phone !== "string") return null;
+    const normalized = phone.replace(/D/g, "");
+    if (!normalized) return null;
+    for (const user of users.values()) {
+      if (user.phone && user.phone.replace(/D/g, "") === normalized) return clone(user);
+    }
+    return null;
+  }
+
+  function usernameExists(username) {
+    return usernameIndex.has(normalizeUsername(username));
   }
 
   function findUserById(userId) {

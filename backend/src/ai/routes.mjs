@@ -231,7 +231,11 @@ async function chatPayload(store, context, body, conversation, aiAdapter) {
   let result = ruleAnswer(prompt);
   if (aiAdapter && typeof aiAdapter.complete === "function") {
     const config = typeof store.getAiConfig === "function" ? await store.getAiConfig() : null;
-    result = await aiAdapter.complete({ prompt, scene, user: context.user, fallback: result, config });
+    try {
+      result = await aiAdapter.complete({ prompt, scene, user: context.user, fallback: result, config });
+    } catch (error) {
+      result = aiProviderFallback(result, error);
+    }
   }
   const message = await createAiMessageSafe(store, {
     conversationId: conversation.conversationId,
@@ -251,6 +255,18 @@ async function chatPayload(store, context, body, conversation, aiAdapter) {
     guidance: result.guidance ?? null,
     fallback: Boolean(result.fallback),
     providerError: result.providerError ?? null
+  };
+}
+
+function aiProviderFallback(fallback, error) {
+  return {
+    ...fallback,
+    fallback: true,
+    providerError: {
+      code: error?.code ?? "AI_PROVIDER_UNAVAILABLE",
+      message: error?.message ?? "AI provider request failed.",
+      ...(error?.details === undefined ? {} : { details: error.details })
+    }
   };
 }
 

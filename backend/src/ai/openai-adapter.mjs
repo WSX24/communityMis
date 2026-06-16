@@ -2,7 +2,8 @@ import { HttpError } from "../http.mjs";
 
 export function createOpenAiAdapter(config, options = {}) {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
-  if (!config?.openai?.baseUrl || !config?.openai?.apiKey || !fetchImpl) {
+  const providerConfig = normalizeProviderConfig(config?.openai);
+  if (!providerConfig.baseUrl || !providerConfig.apiKey || !fetchImpl) {
     return null;
   }
 
@@ -10,17 +11,17 @@ export function createOpenAiAdapter(config, options = {}) {
     async complete(input) {
       const runtime = input.config ?? {};
       const fallback = normalizeFallback(input.fallback, input.scene);
-      const model = providerModel(runtime.model, config.openai.model);
+      const model = providerModel(runtime.model, providerConfig.model);
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), Number(runtime.timeoutMs ?? config.openai.timeoutMs));
+      const timeout = setTimeout(() => controller.abort(), Number(runtime.timeoutMs ?? providerConfig.timeoutMs));
       try {
-        const response = await fetchImpl(resolveChatUrl(config.openai.baseUrl), {
+        const response = await fetchImpl(resolveChatUrl(providerConfig.baseUrl), {
           method: "POST",
           headers: {
-            authorization: `Bearer ${config.openai.apiKey}`,
+            authorization: `Bearer ${providerConfig.apiKey}`,
             "content-type": "application/json"
           },
-          body: JSON.stringify({
+          body: JSON.stringify(compactObject({
             model,
             messages: [
               {
@@ -34,7 +35,7 @@ export function createOpenAiAdapter(config, options = {}) {
             ],
             temperature: Number(runtime.temperature ?? 0.3),
             max_tokens: Number(runtime.maxTokens ?? 1024)
-          }),
+          })),
           signal: controller.signal
         });
         const payload = await response.json().catch(() => ({}));
@@ -69,6 +70,15 @@ export function createOpenAiAdapter(config, options = {}) {
         clearTimeout(timeout);
       }
     }
+  };
+}
+
+function normalizeProviderConfig(openai = {}) {
+  return {
+    baseUrl: emptyToNull(openai.baseUrl),
+    apiKey: emptyToNull(openai.apiKey),
+    model: providerModel(null, openai.model),
+    timeoutMs: Number(openai.timeoutMs ?? 15000)
   };
 }
 
@@ -113,7 +123,16 @@ function providerModel(runtimeModel, configuredModel) {
   if (model && model !== "local-rule-assistant") {
     return model;
   }
-  return configuredModel;
+  return String(configuredModel ?? "").trim() || "gpt-4.1-mini";
+}
+
+function compactObject(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined && entry !== null && entry !== ""));
+}
+
+function emptyToNull(value) {
+  const text = String(value ?? "").trim();
+  return text ? text : null;
 }
 
 function resolveChatUrl(baseUrl) {

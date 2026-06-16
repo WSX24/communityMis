@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { ACTIVE_STATUS, INITIAL_TIME_COIN_BALANCE, normalizeUsername } from "./store.mjs";
 import { createMysqlPool } from "../mysql/pool.mjs";
 import { hashRateLimitIdentity } from "../rate-limit.mjs";
@@ -31,6 +33,9 @@ export function createMysqlAuthStore(options = {}) {
   return {
     createUserWithWallet,
     findUserByUsername,
+    findUserByEmail,
+    findUserByPhone,
+    usernameExists,
     findUserById,
     findWalletByUserId,
     updateUserProfile,
@@ -176,6 +181,29 @@ WHERE u.\`user_id\` = @created_user_id;
     if (user) {
       await upsertUserProfile(user.userId, normalizeProfileExtra(input, user));
       await upsertUserSettings(user.userId, normalizeSettings(input.settings));
+
+      if (input.identiconPng && Buffer.isBuffer(input.identiconPng)) {
+        try {
+          const fileId = crypto.randomUUID();
+          const d = new Date().toISOString().slice(0, 10);
+          const relativeDir = path.join(String(user.userId), d);
+          const uploadRoot = process.env.UPLOAD_ROOT || path.join(process.cwd(), "uploads");
+          const targetDir = path.join(uploadRoot, relativeDir);
+          await fs.mkdir(targetDir, { recursive: true });
+          const storagePath = path.join(targetDir, fileId + ".png");
+          await fs.writeFile(storagePath, input.identiconPng);
+          await createFileAsset({
+            fileId, ownerId: user.userId, purpose: "avatar",
+            businessType: "user", businessId: user.userId,
+            visibility: "public",
+            originalName: "identicon-" + username + ".png",
+            storagePath, mimeType: "image/png",
+            sizeBytes: input.identiconPng.length,
+            createdAt: new Date().toISOString()
+          });
+          await updateUserAvatar(user.userId, fileId);
+        } catch {}
+      }
     }
     return {
       user: await findUserById(user.userId),
@@ -196,6 +224,28 @@ WHERE LOWER(u.\`username\`) = ${sqlString(normalized)}
 LIMIT 1;
 `;
     return normalizeUser(await mysqlJson(sql, { optional: true }));
+  }
+
+  async function findUserByEmail(email) {
+    if (!email || typeof email !== "string") return null;
+    const normalized = email.trim().toLowerCase();
+    const sql = "SELECT " + userJsonObjectSql("u","up") + " FROM `user` u LEFT JOIN `user_profile` up ON up.`user_id` = u.`user_id` WHERE LOWER(up.`email`) = " + sqlString(normalized) + " LIMIT 1;";
+    return normalizeUser(await mysqlJson(sql, { optional: true }));
+  }
+
+  async function findUserByPhone(phone) {
+    if (!phone || typeof phone !== "string") return null;
+    const normalized = phone.replace(/D/g, "");
+    if (!normalized) return null;
+    const sql = "SELECT " + userJsonObjectSql("u","up") + " FROM user u LEFT JOIN user_profile up ON up.user_id = u.user_id WHERE u.`phone` = " + sqlString(normalized) + " LIMIT 1;";
+    return normalizeUser(await mysqlJson(sql, { optional: true }));
+  }
+
+  async function usernameExists(username) {
+    const normalized = normalizeUsername(username);
+    if (!normalized) return false;
+    const row = await pooledOne("SELECT 1 AS `exists` FROM `user` WHERE LOWER(`username`) = ? LIMIT 1", [normalized]);
+    return Boolean(row);
   }
 
   async function findUserById(userId) {

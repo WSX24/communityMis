@@ -359,8 +359,9 @@
 
 <script src="../js/ai-modal.js"></script>
 <script>
-  // 分类切换
-  document.querySelectorAll('.category-tabs .chip').forEach(chip => {
+  // 分类切换 — 仅处理视觉反馈，实际筛选逻辑由运行时 prototype-shell 控制
+  // 跳过没有 data-filter 属性的静态占位按钮，避免与动态渲染冲突
+  document.querySelectorAll('.category-tabs .chip[data-filter]').forEach(chip => {
     chip.addEventListener('click', () => {
       document.querySelectorAll('.category-tabs .chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');

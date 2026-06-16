@@ -17,7 +17,7 @@ describe("auth page components", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "登录" })).toBeTruthy();
-    expect(screen.getByLabelText("账号").getAttribute("autocomplete")).toBe("username");
+    expect(screen.getByLabelText("账号 / 邮箱 / 手机号").getAttribute("autocomplete")).toBe("username");
     expect(screen.getByLabelText("密码").getAttribute("type")).toBe("password");
     expect(screen.getByRole("link", { name: "注册新账号" }).getAttribute("href")).toBe("/register");
   });

@@ -16,6 +16,7 @@ const api = createApiClient({
 });
 const auth = createAuthController({ api });
 let feedCategoriesCache = null;
+let feedLoadSequence = 0;
 const TASK_PAGE_SIZE = 6;
 
 function requireApiBaseUrl(value) {
@@ -1576,10 +1577,10 @@ function installFeedControls(userSession) {
     }
   });
 
-  document.querySelectorAll(".feed-header .category-tabs .chip").forEach((button) => {
+  document.querySelectorAll(".feed-header .category-tabs .chip[data-filter]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
-      updateFeedQuery({ filter: button.dataset.filter || "all", page: 1 }, userSession);
+      updateFeedQuery({ filter: button.dataset.filter, page: 1 }, userSession);
     });
   });
 
@@ -1589,6 +1590,7 @@ function installFeedControls(userSession) {
 }
 
 async function loadFeed(state, userSession) {
+  const seq = ++feedLoadSequence;
   applyFeedControls(state);
   renderFeedState("loading", "正在加载邻里互助动态。");
   // Stage 22 legacy marker: api.requests.list(feedApiParams was replaced by /api/feed mixed community/request hydration.
@@ -1597,9 +1599,12 @@ async function loadFeed(state, userSession) {
       api.feed.list(userSession?.token ?? null, feedApiParams(state)),
       loadFeedCategories()
     ]);
+    // 避免竞态条件：只应用最新一次请求的结果
+    if (seq !== feedLoadSequence) return;
     renderFeedCategories(categoryPayload.categories ?? [], state, userSession);
     renderFeedList(feedPayload, state, userSession);
   } catch (error) {
+    if (seq !== feedLoadSequence) return;
     renderFeedState("error", taskErrorMessage(error), {
       actionText: "重试",
       onAction: () => loadFeed(readFeedQuery(), userSession)
@@ -1697,9 +1702,13 @@ function applyFeedControls(state) {
   }
   document.querySelectorAll(".feed-header .category-tabs .chip").forEach((button) => {
     const categoryCode = button.dataset.categoryCode;
+    const filterAttr = button.dataset.filter;
+    // 跳过没有 data-filter 也没有 data-category-code 的静态占位按钮，
+    // 避免将无属性按钮的兜底值 "all" 错误匹配到 state.filter
+    if (!categoryCode && filterAttr === undefined) return;
     const active = categoryCode
       ? categoryCode === state.category
-      : (button.dataset.filter || "all") === state.filter && !state.category;
+      : filterAttr === state.filter && !state.category;
     button.classList.toggle("active", active);
   });
 }

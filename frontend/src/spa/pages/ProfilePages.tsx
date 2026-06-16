@@ -13,7 +13,7 @@ export function ProfilePage({ api }: { api: ApiClient }) {
       <PageHeader title="个人中心" action={<button className="btn btn--secondary" onClick={() => auth.logout().then(() => window.location.href = "/login")}>退出登录</button>} />
       <StateView loading={state.loading} error={state.error} empty={!user}>
         <section className="panel profile-panel">
-          <div className="avatar xl">{text(user?.displayName ?? user?.username).slice(0, 1)}</div>
+          <div className="avatar xl">{text(user?.avatarUrl) ? <img src={text(user?.avatarUrl)} alt={text(user?.displayName ?? user?.username)} /> : text(user?.displayName ?? user?.username).slice(0, 1)}</div>
           <h2>{text(user?.displayName ?? user?.username)}</h2>
           <p>{text(user?.bio, "暂无简介")}</p>
           <FileUpload purpose="avatar" businessType="user" visibility="public" onUploaded={async (formData) => {
@@ -62,7 +62,7 @@ export function UserPublicPage({ api }: { api: ApiClient }) {
       <PageHeader title="服务者公开主页" />
       <StateView loading={state.loading} error={state.error} empty={!user}>
         <section className="panel profile-panel">
-          <div className="avatar xl">{text(user?.displayName ?? user?.username).slice(0, 1)}</div>
+          <div className="avatar xl">{text(user?.avatarUrl) ? <img src={text(user?.avatarUrl)} alt={text(user?.displayName ?? user?.username)} /> : text(user?.displayName ?? user?.username).slice(0, 1)}</div>
           <h2>{text(user?.displayName ?? user?.username)}</h2>
           <p>{text(user?.bio, "暂无简介")}</p>
           <div className="action-row">

@@ -33,7 +33,7 @@ export function LoginPage({ admin = false }: { api: ApiClient; admin?: boolean }
         }
       }}>
         <h1>{admin ? "管理员登录" : "登录"}</h1>
-        <Field label="账号"><input name="username" autoComplete="username" required /></Field>
+        <Field label="账号 / 邮箱 / 手机号"><input name="username" autoComplete="username" required /></Field>
         <Field label="密码"><input name="password" type="password" autoComplete="current-password" required /></Field>
         {error ? <p className="field-error" role="alert">{error}</p> : null}
         <button className="btn btn--primary" disabled={busy}>{busy ? "处理中..." : "登录"}</button>
@@ -76,7 +76,8 @@ export function RegisterPage({ api }: { api: ApiClient }) {
         }
       }}>
         <h1>注册</h1>
-        <Field label="账号"><input name="username" autoComplete="username" required /></Field>
+        <Field label="账号（选填）"><input name="username" autoComplete="username" /></Field>
+        <small className="field-note">留空将自动生成用户名，之后可通过邮箱或手机号登录。</small>
         <Field label="昵称"><input name="displayName" /></Field>
         <Field label="邮箱">
           <input

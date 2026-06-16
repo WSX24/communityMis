@@ -6,6 +6,7 @@ import { createMemoryAuthStore, ACTIVE_STATUS, INITIAL_TIME_COIN_BALANCE, normal
 import { createSignedSessionToken, verifySignedSessionToken } from "./tokens.mjs";
 import { verifyRegistrationCodes } from "../verification/routes.mjs";
 import { enforceRateLimit, rateLimitIdentity } from "../rate-limit.mjs";
+import { generateIdenticon } from "./identicon.mjs";
 
 const ADMIN_ROLES = new Set(["admin", "super_admin"]);
 const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -51,6 +52,14 @@ export function createAuthService(options = {}) {
       phone: body.phone,
       email: body.email
     });
+
+    // Build identicon PNG buffer deterministically from username
+    let identiconPng;
+    try {
+      identiconPng = generateIdenticon(body.username, 256);
+    } catch {
+      identiconPng = null;
+    }
     let created;
     try {
       created = await store.createUserWithWallet({
@@ -64,7 +73,8 @@ export function createAuthService(options = {}) {
         skillTags: body.skillTags,
         role: "user",
         status: ACTIVE_STATUS,
-        initialBalance: INITIAL_TIME_COIN_BALANCE
+        initialBalance: INITIAL_TIME_COIN_BALANCE,
+        identiconPng
       });
     } catch (error) {
       if (error.code === "DUPLICATE_USERNAME") {
@@ -142,7 +152,13 @@ export function createAuthService(options = {}) {
       limit: options.adminOnly ? 10 : 20,
       windowSeconds: 15 * 60
     });
-    const user = await store.findUserByUsername(body.username);
+    let user = await store.findUserByUsername(body.username);
+    if (!user && typeof store.findUserByEmail === "function") {
+      user = await store.findUserByEmail(body.username);
+    }
+    if (!user && typeof store.findUserByPhone === "function") {
+      user = await store.findUserByPhone(body.username);
+    }
     if (!user || !verifyPassword(body.password, user.passwordHash)) {
       throw new HttpError(401, "INVALID_CREDENTIALS", "Username or password is incorrect.");
     }
@@ -199,6 +215,7 @@ export function publicUser(user) {
     skillTags: user.skillTags,
     serviceCategories: user.serviceCategories ?? [],
     avatarFileId: user.avatarFileId ?? null,
+    avatarUrl: user.avatarFileId ? `/api/files/${encodeURIComponent(user.avatarFileId)}` : null,
     isJury: Boolean(user.isJury),
     role: user.role,
     status: user.status,
@@ -217,7 +234,13 @@ function publicWallet(wallet) {
 }
 
 function normalizeRegistrationInput(input) {
-  const username = normalizeUsername(input?.username);
+  const rawUsername = input?.username;
+  let username;
+  if (typeof rawUsername === "string" && rawUsername.trim()) {
+    username = normalizeUsername(rawUsername);
+  } else {
+    username = `user_${crypto.randomBytes(4).toString("hex")}`;
+  }
   const password = typeof input?.password === "string" ? input.password : "";
 
   if (!/^[a-zA-Z0-9_]{3,50}$/.test(username)) {
@@ -240,10 +263,16 @@ function normalizeRegistrationInput(input) {
 }
 
 function normalizeLoginInput(input) {
-  const username = normalizeUsername(input?.username);
+  const rawUsername = input?.username;
+  let username;
+  if (typeof rawUsername === "string" && rawUsername.trim()) {
+    username = normalizeUsername(rawUsername);
+  } else {
+    username = `user_${crypto.randomBytes(4).toString("hex")}`;
+  }
   const password = typeof input?.password === "string" ? input.password : "";
   if (!username || !password) {
-    throw new HttpError(400, "INVALID_LOGIN_BODY", "Username and password are required.");
+    throw new HttpError(400, "INVALID_LOGIN_BODY", "Username (or email/phone) and password are required.");
   }
   return { username, password };
 }

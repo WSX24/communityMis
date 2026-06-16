@@ -456,6 +456,40 @@ describe("AI assistant resilience", () => {
     });
   });
 
+  test("uses the provider model when runtime config keeps the local rule default", async () => {
+    const fetchImpl = vi.fn(async (_url, options) => {
+      const body = JSON.parse(options.body);
+      expect(body.model).toBe("deepseek-v4-pro");
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: "DeepSeek provider answer" } }]
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+    const adapter = createOpenAiAdapter({
+      openai: {
+        baseUrl: "https://api.deepseek.com",
+        apiKey: "unit-key",
+        model: "deepseek-v4-pro",
+        timeoutMs: 1000
+      }
+    }, { fetchImpl });
+
+    const result = await adapter.complete({
+      prompt: "如何发起纠纷？",
+      scene: "rules",
+      config: { model: "local-rule-assistant" },
+      fallback: { answer: "本地规则答案" }
+    });
+
+    expect(result).toMatchObject({
+      answer: "DeepSeek provider answer",
+      fallback: false,
+      model: "deepseek-v4-pro"
+    });
+  });
+
   test("accepts chat messages array payloads", async () => {
     const server = createBackendServer({
       authStore: createMemoryAuthStore(),
@@ -485,6 +519,43 @@ describe("AI assistant resilience", () => {
     expect(chat.status).toBe(200);
     expect(chat.body.type).toBe("rules");
     expect(chat.body.answer).toContain("纠纷");
+  });
+
+  test("returns a local answer from the chat endpoint when provider returns 502", async () => {
+    const server = createBackendServer({
+      authStore: createMemoryAuthStore(),
+      sessionSecret: "unit-ai-provider-fallback-secret",
+      config: testConfig(),
+      aiAdapter: {
+        async complete() {
+          const error = new Error("AI provider returned an error.");
+          error.code = "AI_PROVIDER_ERROR";
+          error.details = { status: 502, providerCode: "bad_gateway" };
+          throw error;
+        }
+      }
+    });
+    const baseUrl = await listen(server);
+    const jar = new Map();
+
+    const login = await cookieRequest(baseUrl, jar, "/api/auth/login", {
+      method: "POST",
+      body: { username: "user_a", password: "user123456" }
+    });
+    expect(login.status).toBe(200);
+
+    const chat = await cookieRequest(baseUrl, jar, "/api/ai/chat", {
+      method: "POST",
+      body: { message: "如何发起纠纷？", scene: "rules" }
+    });
+
+    expect(chat.status).toBe(200);
+    expect(chat.body.answer).toContain("纠纷");
+    expect(chat.body.fallback).toBe(true);
+    expect(chat.body.providerError).toMatchObject({
+      code: "AI_PROVIDER_ERROR",
+      details: { status: 502, providerCode: "bad_gateway" }
+    });
   });
 });
 
