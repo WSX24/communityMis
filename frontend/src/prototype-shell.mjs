@@ -17,6 +17,7 @@ const api = createApiClient({
 });
 const auth = createAuthController({ api });
 let feedCategoriesCache = null;
+let feedLoadSequence = 0;
 const TASK_PAGE_SIZE = 6;
 
 function requireApiBaseUrl(value) {
@@ -179,10 +180,27 @@ function markCurrentRouteLinks() {
 }
 
 function installAuthForms() {
+  bindAuthTabs();
   bindUserLoginForm();
   bindEmbeddedRegisterForm();
   bindRegisterPageForm();
   bindAdminLoginForm();
+}
+
+function bindAuthTabs() {
+  document.querySelectorAll("#auth-tabs button[data-panel]").forEach((button) => {
+    if (button.dataset.runtimeAuthTabBound === "true") {
+      return;
+    }
+    button.dataset.runtimeAuthTabBound = "true";
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      document.querySelectorAll("#auth-tabs button[data-panel]").forEach((item) => item.classList.toggle("active", item === button));
+      document.querySelectorAll("#auth-tabs a").forEach((item) => item.classList.remove("active"));
+      document.querySelectorAll(".auth-panel").forEach((panel) => panel.classList.toggle("active", panel.id === button.dataset.panel));
+    }, true);
+  });
 }
 
 function installRuntimeBackButtons() {
@@ -1461,7 +1479,7 @@ function communityPostTextarea() {
 }
 
 async function uploadCommunityPostImages(userSession, anchor) {
-  if (!userSession?.token) {
+  if (!hasUserSession(userSession)) {
     navigateTo(`/login?redirect=${encodeURIComponent("/post")}`);
     return;
   }
@@ -1605,10 +1623,10 @@ function installFeedControls(userSession) {
     }
   });
 
-  document.querySelectorAll(".feed-header .category-tabs .chip").forEach((button) => {
+  document.querySelectorAll(".feed-header .category-tabs .chip[data-filter]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
-      updateFeedQuery({ filter: button.dataset.filter || "all", page: 1 }, userSession);
+      updateFeedQuery({ filter: button.dataset.filter, page: 1 }, userSession);
     });
   });
 
@@ -1618,6 +1636,7 @@ function installFeedControls(userSession) {
 }
 
 async function loadFeed(state, userSession) {
+  const seq = ++feedLoadSequence;
   applyFeedControls(state);
   renderFeedState("loading", "正在加载邻里互助动态。");
   // Stage 22 legacy marker: api.requests.list(feedApiParams was replaced by /api/feed mixed community/request hydration.
@@ -1626,9 +1645,12 @@ async function loadFeed(state, userSession) {
       api.feed.list(userSession?.token ?? null, feedApiParams(state)),
       loadFeedCategories()
     ]);
+    // 避免竞态条件：只应用最新一次请求的结果
+    if (seq !== feedLoadSequence) return;
     renderFeedCategories(categoryPayload.categories ?? [], state, userSession);
     renderFeedList(feedPayload, state, userSession);
   } catch (error) {
+    if (seq !== feedLoadSequence) return;
     renderFeedState("error", taskErrorMessage(error), {
       actionText: "重试",
       onAction: () => loadFeed(readFeedQuery(), userSession)
@@ -1726,9 +1748,13 @@ function applyFeedControls(state) {
   }
   document.querySelectorAll(".feed-header .category-tabs .chip").forEach((button) => {
     const categoryCode = button.dataset.categoryCode;
+    const filterAttr = button.dataset.filter;
+    // 跳过没有 data-filter 也没有 data-category-code 的静态占位按钮，
+    // 避免将无属性按钮的兜底值 "all" 错误匹配到 state.filter
+    if (!categoryCode && filterAttr === undefined) return;
     const active = categoryCode
       ? categoryCode === state.category
-      : (button.dataset.filter || "all") === state.filter && !state.category;
+      : filterAttr === state.filter && (!state.category || TASK_FILTERS.get(state.filter)?.category === state.category);
     button.classList.toggle("active", active);
   });
 }
@@ -1759,7 +1785,7 @@ function renderFeedCategories(categories, state, userSession) {
 
   tabs.innerHTML = `
     ${staticFilters.map(([filter, label]) => {
-      const active = filter === state.filter && !state.category;
+      const active = filter === state.filter && (!state.category || TASK_FILTERS.get(state.filter)?.category === state.category);
       return `<button class="chip${active ? " active" : ""}" data-filter="${escapeHtml(filter)}">${escapeHtml(label)}</button>`;
     }).join("")}
     ${categoryButtons.join("")}
@@ -1793,13 +1819,16 @@ function renderFeedList(payload, state, userSession) {
     return;
   }
 
-  content.innerHTML = `
-    <div class="feed-runtime-summary" role="status">
-      <span>真实社区流</span>
-      <strong>${escapeHtml(pagination.total)} 条动态</strong>
-    </div>
-    ${items.map(feedItemCardHtml).join("")}
-  `;
+  const posts = items.filter(item => item.type === "community_post" || item.post);
+  const requests = items.filter(item => !(item.type === "community_post" || item.post));
+  content.innerHTML = "<div class=\"feed-grid\">" +
+    "<div class=\"feed-col\"><div class=\"feed-col-title\">服务需求</div>" +
+    (requests.length > 0 ? requests.map(feedItemCardHtml).join("") : "<p class=\"feed-empty\">暂无需求</p>") +
+    "</div>" +
+    "<div class=\"feed-col\"><div class=\"feed-col-title\">社区帖子</div>" +
+    (posts.length > 0 ? posts.map(feedItemCardHtml).join("") : "<p class=\"feed-empty\">暂无帖子</p>") +
+    "</div>" +
+    "</div>";
   bindTaskCards();
   bindCommunityPostCards();
   bindFeedAcceptButtons(userSession);
@@ -1937,7 +1966,7 @@ function bindFeedAcceptButtons(userSession) {
       if (!requestId) {
         return;
       }
-      if (!userSession?.token) {
+      if (!hasUserSession(userSession)) {
         navigateTo(`/login?redirect=${encodeURIComponent(`/posts/${requestId}`)}`);
         return;
       }
@@ -2006,7 +2035,7 @@ function renderFeedState(kind, message, options = {}) {
 
 async function hydrateFeedNotificationDot(userSession) {
   const dot = document.querySelector(".feed-header .icon-btn .dot");
-  if (!dot || !userSession?.token) {
+  if (!dot || !hasUserSession(userSession)) {
     dot?.setAttribute("hidden", "");
     return;
   }
@@ -2615,7 +2644,7 @@ function applyRequestDetail(item, userSession = null, comments = []) {
   `;
   installRequestDetailCommentActions(item, comments, userSession);
   document.getElementById("accept-request")?.addEventListener("click", async () => {
-    if (!userSession?.token) {
+    if (!hasUserSession(userSession)) {
       navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
@@ -2656,7 +2685,7 @@ function installCommunityPostDetailActions(post, comments, userSession) {
   }, true);
   document.getElementById("share-btn")?.addEventListener("click", () => copyCurrentLink("帖子链接已复制。"), true);
   document.getElementById("like-btn")?.addEventListener("click", interceptSubmit(async () => {
-    if (!userSession?.token) {
+    if (!hasUserSession(userSession)) {
       navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
@@ -2668,7 +2697,7 @@ function installCommunityPostDetailActions(post, comments, userSession) {
     updateCommunityPostActionState(payload.post);
   }), true);
   document.getElementById("collect-post-btn")?.addEventListener("click", interceptSubmit(async () => {
-    if (!userSession?.token) {
+    if (!hasUserSession(userSession)) {
       navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
@@ -2767,7 +2796,7 @@ function bindCommentComposer(onSubmit, userSession) {
   const freshButton = button.cloneNode(true);
   button.replaceWith(freshButton);
   const submit = async () => {
-    if (!userSession?.token) {
+    if (!hasUserSession(userSession)) {
       navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
@@ -2805,7 +2834,7 @@ function bindCommentComposer(onSubmit, userSession) {
 function bindCommentLikeButtons({ userSession, like, unlike }) {
   document.querySelectorAll("[data-comment-like]").forEach((button) => {
     button.addEventListener("click", interceptSubmit(async () => {
-      if (!userSession?.token) {
+      if (!hasUserSession(userSession)) {
         navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
         return;
       }
@@ -2855,7 +2884,7 @@ function assetUrl(asset) {
 
 async function hydrateOrdersRoute(session) {
   const userSession = session ?? auth.readSession("user");
-  if (!userSession?.token) {
+  if (!hasUserSession(userSession)) {
     return;
   }
   installOrderListControls(userSession);
@@ -3121,7 +3150,7 @@ function orderRoleFromPanel(panel) {
 async function hydrateOrderDetailRoute(session) {
   const orderId = routeOrderId();
   const userSession = session ?? auth.readSession("user");
-  if (!orderId || !userSession?.token) {
+  if (!orderId || !hasUserSession(userSession)) {
     return;
   }
   renderOrderDetailLoading();
@@ -3228,7 +3257,7 @@ function applyOrderDetail(order, userSession) {
 }
 
 async function loadOrderAiSummary(button, userSession, orderId) {
-  if (!userSession?.token || !orderId) {
+  if (!hasUserSession(userSession) || !orderId) {
     return;
   }
   const content = document.getElementById("order-ai-summary-content");
@@ -3313,7 +3342,7 @@ function orderDetailConfirmActionHtml(order) {
 
 async function confirmOrderFromButton(button, userSession, onConfirmed) {
   const orderId = button?.dataset.orderConfirm;
-  if (!orderId || !userSession?.token) {
+  if (!orderId || !hasUserSession(userSession)) {
     return;
   }
   const restore = setLoading(button, "确认中...");
@@ -3341,7 +3370,7 @@ function orderConfirmText(order) {
 async function hydrateDisputeCreateRoute(session) {
   const userSession = session ?? auth.readSession("user");
   const orderId = disputeCreateOrderId();
-  if (!userSession?.token) {
+  if (!hasUserSession(userSession)) {
     navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`);
     return;
   }
@@ -3535,7 +3564,7 @@ function renderDisputeCreateSuccess(dispute) {
 async function hydrateJuryVotingRoute(session) {
   const userSession = session ?? auth.readSession("user");
   const disputeId = juryVotingDisputeId();
-  if (!userSession?.token) {
+  if (!hasUserSession(userSession)) {
     return;
   }
   if (!disputeId) {
@@ -3794,7 +3823,7 @@ function installJuryVoteHandlers(dispute, userSession) {
 async function hydrateDisputeDetailRoute(session) {
   const userSession = session ?? auth.readSession("user");
   const disputeId = routeDisputeId();
-  if (!disputeId || !userSession?.token) {
+  if (!disputeId || !hasUserSession(userSession)) {
     return;
   }
   renderDisputeDetailLoading();
@@ -3897,7 +3926,7 @@ function applyDisputeDetail(dispute, userSession) {
 }
 
 async function loadDisputeAiSummary(button, userSession, disputeId) {
-  if (!userSession?.token || !disputeId) {
+  if (!hasUserSession(userSession) || !disputeId) {
     return;
   }
   const content = document.getElementById("dispute-ai-summary-content");
@@ -4047,7 +4076,7 @@ function installEvidenceSubmit(dispute, userSession) {
 async function hydrateReviewRoute(session) {
   const userSession = session ?? auth.readSession("user");
   const orderId = reviewOrderId();
-  if (!userSession?.token) {
+  if (!hasUserSession(userSession)) {
     return;
   }
   if (!orderId) {
@@ -7924,7 +7953,7 @@ function freezeTimelineHtml(timeline) {
 
 async function hydrateMessagesRoute(session) {
   const userSession = session ?? auth.readSession("user");
-  if (!userSession?.token) {
+  if (!hasUserSession(userSession)) {
     return;
   }
   installMessageControls(userSession);
@@ -7932,8 +7961,8 @@ async function hydrateMessagesRoute(session) {
   renderMessageNotificationState("loading", "正在加载通知。");
   try {
     const [messagePayload, notificationPayload] = await Promise.all([
-      api.messages.list(userSession.token, messageApiParams(readMessageQuery())),
-      api.notifications.list(userSession.token, { pageSize: 10 })
+      api.messages.list(sessionToken(userSession), messageApiParams(readMessageQuery())),
+      api.notifications.list(sessionToken(userSession), { pageSize: 10 })
     ]);
     renderMessageConversations(messagePayload, userSession);
     renderMessageNotifications(notificationPayload, userSession);
@@ -8064,7 +8093,7 @@ function updateMessageQuery(patch, userSession) {
 
 async function hydrateNotificationsRoute(session) {
   const userSession = session ?? auth.readSession("user");
-  if (!userSession?.token) {
+  if (!hasUserSession(userSession)) {
     return;
   }
   installNotificationControls(userSession);
@@ -8091,7 +8120,7 @@ function installNotificationControls(userSession) {
     event.stopImmediatePropagation();
     const restore = setLoading(markAll, "处理中...");
     try {
-      await api.notifications.readAll(userSession.token);
+      await api.notifications.readAll(sessionToken(userSession));
       await loadNotifications(readNotificationQuery(), userSession);
     } catch (error) {
       showInlineMessage(markAll, notificationErrorMessage(error), "error");
@@ -8105,7 +8134,7 @@ async function loadNotifications(state, userSession) {
   applyNotificationControls(state);
   renderNotificationState("loading", "正在加载通知。");
   try {
-    const payload = await api.notifications.list(userSession.token, notificationApiParams(state));
+    const payload = await api.notifications.list(sessionToken(userSession), notificationApiParams(state));
     renderNotificationSummary(payload);
     renderNotifications(payload, state, userSession);
   } catch (error) {
@@ -8336,11 +8365,11 @@ function bindNotificationCard(card, userSession) {
 }
 
 async function markNotificationRead(notificationId, userSession, card = null) {
-  if (!notificationId || !userSession?.token) {
+  if (!notificationId || !hasUserSession(userSession)) {
     return null;
   }
   try {
-    const payload = await api.notifications.read(userSession.token, notificationId);
+    const payload = await api.notifications.read(sessionToken(userSession), notificationId);
     if (card) {
       markNotificationCardRead(card);
     }
@@ -8498,7 +8527,7 @@ function conversationItemHtml(item) {
   return `
     <a class="conv-item ${unread > 0 ? "unread" : ""}" href="${escapeHtml(href)}" data-message-user-id="${escapeHtml(participant.userId ?? "")}" data-order-id="${escapeHtml(item.orderId ?? "")}" style="text-decoration:none;color:inherit;">
       <div class="conv-avatar">
-        <div class="avatar" style="background:${escapeHtml(avatarColor(participant.userId ?? item.orderId ?? 1))};display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:700;">${escapeHtml(firstCharacter(name))}</div>
+        <div class="avatar" style="background:${escapeHtml(avatarColor(participant.userId ?? item.orderId ?? 1))};display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:700;border-radius:50%;width:40px;height:40px;">${escapeHtml(firstCharacter(name))}</div>
       </div>
       <div class="conv-body">
         <div class="conv-top">
@@ -8513,7 +8542,7 @@ function conversationItemHtml(item) {
 }
 
 async function openMessageThread(userSession, { userId, orderId = null }) {
-  if (!userSession?.token || !userId) {
+  if (!hasUserSession(userSession) || !userId) {
     return;
   }
   const chatView = document.getElementById("chat-view");
@@ -8536,9 +8565,9 @@ async function openMessageThread(userSession, { userId, orderId = null }) {
   history.replaceState({}, "", `${window.location.pathname}?${params}`);
 
   try {
-    const payload = await api.messages.thread(userSession.token, { userId, orderId, pageSize: 50 });
+    const payload = await api.messages.thread(sessionToken(userSession), { userId, orderId, pageSize: 50 });
     renderMessageThread(payload, userSession);
-    await api.messages.readThread(userSession.token, { userId, orderId });
+    await api.messages.readThread(sessionToken(userSession), { userId, orderId });
     document.querySelector(`.conv-item[data-message-user-id="${CSS.escape(String(userId))}"]`)?.classList.remove("unread");
   } catch (error) {
     if (messages) {
@@ -8616,7 +8645,7 @@ async function sendActiveMessage(userSession, attachments = []) {
   const button = document.getElementById("send-btn");
   const restore = button ? setLoading(button, "发送中...") : null;
   try {
-    await api.messages.send(userSession.token, {
+    await api.messages.send(sessionToken(userSession), {
       receiverId: userId,
       orderId,
       content,
@@ -8627,7 +8656,7 @@ async function sendActiveMessage(userSession, attachments = []) {
       input.style.height = "";
     }
     await openMessageThread(userSession, { userId, orderId });
-    const payload = await api.messages.list(userSession.token, messageApiParams(readMessageQuery()));
+    const payload = await api.messages.list(sessionToken(userSession), messageApiParams(readMessageQuery()));
     renderMessageConversations(payload, userSession);
   } catch (error) {
     showInlineMessage(button ?? input, notificationErrorMessage(error), "error");
@@ -8766,7 +8795,7 @@ function notificationIconHtml(type, size = "21") {
 
 async function hydrateAiAssistantRoute(session) {
   const userSession = session ?? auth.readSession("user");
-  if (!userSession?.token) {
+  if (!hasUserSession(userSession)) {
     return;
   }
   const chatArea = document.getElementById("chat-area");
@@ -8974,7 +9003,7 @@ function bindAiRuntimeActions(userSession) {
 
 async function hydrateAiResultsRoute(session) {
   const userSession = session ?? auth.readSession("user");
-  if (!userSession?.token) {
+  if (!hasUserSession(userSession)) {
     return;
   }
   const params = new URLSearchParams(window.location.search);
@@ -9088,13 +9117,13 @@ function aiSceneLabel(scene) {
 
 async function loadCurrentProfile(session) {
   const userSession = session ?? auth.readSession("user");
-  if (!userSession?.token) {
+  const payload = await api.users.me();
+  if (!payload?.user) {
     return null;
   }
-  const payload = await api.users.me(userSession.token);
   const nextSession = {
-    ...userSession,
-    user: payload.user ?? userSession.user
+    ...(userSession ?? {}),
+    user: payload.user
   };
   auth.saveSession("user", nextSession);
   return {
@@ -9730,7 +9759,7 @@ function installPublicProfileActions(payload, userSession) {
   if (followButton) {
     renderFollowButton(followButton, viewer?.isFollowing);
     followButton.addEventListener("click", interceptSubmit(async () => {
-      if (!userSession?.token) {
+      if (!hasUserSession(userSession)) {
         navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
         return;
       }
@@ -9757,7 +9786,7 @@ function installPublicProfileActions(payload, userSession) {
   }
 
   document.getElementById("contact-open")?.addEventListener("click", interceptSubmit(async () => {
-    if (!userSession?.token) {
+    if (!hasUserSession(userSession)) {
       navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }

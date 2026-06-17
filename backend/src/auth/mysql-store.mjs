@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { ACTIVE_STATUS, INITIAL_TIME_COIN_BALANCE, normalizeUsername } from "./store.mjs";
 import { createMysqlPool } from "../mysql/pool.mjs";
 import { hashRateLimitIdentity } from "../rate-limit.mjs";
@@ -31,6 +33,9 @@ export function createMysqlAuthStore(options = {}) {
   return {
     createUserWithWallet,
     findUserByUsername,
+    findUserByEmail,
+    findUserByPhone,
+    usernameExists,
     findUserById,
     findWalletByUserId,
     updateUserProfile,
@@ -178,6 +183,29 @@ WHERE u.\`user_id\` = @created_user_id;
     if (user) {
       await upsertUserProfile(user.userId, normalizeProfileExtra(input, user));
       await upsertUserSettings(user.userId, normalizeSettings(input.settings));
+
+      if (input.identiconPng && Buffer.isBuffer(input.identiconPng)) {
+        try {
+          const fileId = crypto.randomUUID();
+          const d = new Date().toISOString().slice(0, 10);
+          const relativeDir = path.join(String(user.userId), d);
+          const uploadRoot = process.env.UPLOAD_ROOT || path.join(process.cwd(), "uploads");
+          const targetDir = path.join(uploadRoot, relativeDir);
+          await fs.mkdir(targetDir, { recursive: true });
+          const storagePath = path.join(targetDir, fileId + ".png");
+          await fs.writeFile(storagePath, input.identiconPng);
+          await createFileAsset({
+            fileId, ownerId: user.userId, purpose: "avatar",
+            businessType: "user", businessId: user.userId,
+            visibility: "public",
+            originalName: "identicon-" + username + ".png",
+            storagePath, mimeType: "image/png",
+            sizeBytes: input.identiconPng.length,
+            createdAt: new Date().toISOString()
+          });
+          await updateUserAvatar(user.userId, fileId);
+        } catch {}
+      }
     }
     return {
       user: await findUserById(user.userId),
@@ -198,6 +226,28 @@ WHERE LOWER(u.\`username\`) = ${sqlString(normalized)}
 LIMIT 1;
 `;
     return normalizeUser(await mysqlJson(sql, { optional: true }));
+  }
+
+  async function findUserByEmail(email) {
+    if (!email || typeof email !== "string") return null;
+    const normalized = email.trim().toLowerCase();
+    const sql = "SELECT " + userJsonObjectSql("u","up") + " FROM `user` u LEFT JOIN `user_profile` up ON up.`user_id` = u.`user_id` WHERE LOWER(up.`email`) = " + sqlString(normalized) + " LIMIT 1;";
+    return normalizeUser(await mysqlJson(sql, { optional: true }));
+  }
+
+  async function findUserByPhone(phone) {
+    if (!phone || typeof phone !== "string") return null;
+    const normalized = phone.replace(/D/g, "");
+    if (!normalized) return null;
+    const sql = "SELECT " + userJsonObjectSql("u","up") + " FROM user u LEFT JOIN user_profile up ON up.user_id = u.user_id WHERE u.`phone` = " + sqlString(normalized) + " LIMIT 1;";
+    return normalizeUser(await mysqlJson(sql, { optional: true }));
+  }
+
+  async function usernameExists(username) {
+    const normalized = normalizeUsername(username);
+    if (!normalized) return false;
+    const row = await pooledOne("SELECT 1 AS `exists` FROM `user` WHERE LOWER(`username`) = ? LIMIT 1", [normalized]);
+    return Boolean(row);
   }
 
   async function findUserById(userId) {
@@ -1677,12 +1727,12 @@ FROM (
     ou.username AS ouname,
     ou.username AS odname,
     m.order_id AS oid2,
-    (SELECT m2.content FROM message m2
+    ANY_VALUE((SELECT m2.content FROM message m2
       WHERE (m2.sender_id = ${id} OR m2.receiver_id = ${id})
       AND m2.archived_at IS NULL
       AND CONCAT(COALESCE(m2.order_id, 0), ':', IF(m2.sender_id = ${id}, m2.receiver_id, m2.sender_id)) =
         CONCAT(COALESCE(m.order_id, 0), ':', IF(m.sender_id = ${id}, m.receiver_id, m.sender_id))
-      ORDER BY m2.created_at DESC, m2.message_id DESC LIMIT 1
+      ORDER BY m2.created_at DESC, m2.message_id DESC LIMIT 1)
     ) AS preview,
     SUM(IF(m.receiver_id = ${id} AND m.is_read = 0, 1, 0)) AS unread,
     DATE_FORMAT(MAX(m.created_at), '%Y-%m-%dT%H:%i:%s.000Z') AS updated,
@@ -3647,7 +3697,7 @@ FROM (
     DATE_FORMAT(l.\`created_at\`, '%Y-%m-%dT%H:%i:%s.000Z') AS \`created_at\`,
     ${aiExceptionCaseSql("l")} AS \`exception_type\`,
     ${aiExceptionRiskCaseSql(aiExceptionCaseSql("l"))} AS \`risk_level\`,
-    COALESCE(l.\`error_message\`, (SELECT m.\`content\` FROM \`ai_message\` m WHERE m.\`conversation_id\` = l.\`conversation_id\` ORDER BY m.\`created_at\` DESC, m.\`message_id\` DESC LIMIT 1)) AS \`reason\`,
+    COALESCE(l.\`error_message\`, (SELECT m.\`content\` FROM \`ai_message\` m WHERE m.\`conversation_id\` = l.\`conversation_id\` ORDER BY m.\`created_at\` DESC, m.\`message_id\` DESC LIMIT 1) AS \`reason\`,
     IF(u.\`user_id\` IS NULL, NULL, ${userJsonObjectSql("u")}) AS \`user_json\`,
     IF(c.\`conversation_id\` IS NULL, NULL, ${aiConversationJsonObjectSql("c")}) AS \`conversation_json\`
   FROM \`ai_call_log\` l
@@ -4950,9 +5000,14 @@ LIMIT 1
   }
 
     async function mysqlQuery(sql) {
-    const result = await mysqlJson(sql, { optional: true });
-    if (Array.isArray(result)) return result;
-    return [];
+    try {
+      const pool = await mysqlPool();
+      const [rows] = await pool.query(sql);
+      if (Array.isArray(rows)) return rows;
+      return [];
+    } catch (err) {
+      return [];
+    }
   }
 
 async function upsertUserProfile(userId, patch = {}) {

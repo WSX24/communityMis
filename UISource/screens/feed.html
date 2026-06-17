@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>首页 — 邻帮</title>
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="../css/tokens.css">
-<link rel="stylesheet" href="../css/common.css">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.3cf7927f18de.css">
 <style>
   /* ===== 顶部导航 ===== */
   .feed-header {
@@ -296,9 +296,50 @@
     .feed-header { padding: var(--space-md) var(--space-md) var(--space-sm); }
     .task-card, .post-card { padding: var(--space-md); }
   }
+
+@media(max-width:768px){}
+.feed-col{padding:0 4px}
+.feed-col-title{font-size:16px;font-weight:700;margin:0 0 10px;padding:0 4px;color:var(--accent)}
+.feed-empty{color:var(--muted);font-size:13px;text-align:center;padding:30px 0}
+.feed-col .task-card,.feed-col .community-post-card{margin-bottom:10px;border-radius:12px;background:var(--surface);box-shadow:0 1px 4px rgba(0,0,0,.06);overflow:hidden}
+.feed-col .task-top{padding:12px 14px 0}
+.feed-col .task-title{font-size:15px;font-weight:700;line-height:1.4}
+.feed-col .task-desc{font-size:13px;color:var(--muted);padding:6px 14px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.feed-col .task-meta{padding:8px 14px;font-size:12px;display:flex;gap:10px;flex-wrap:wrap;color:var(--muted)}
+.feed-col .task-footer{padding:10px 14px;border-top:1px solid var(--border-light);display:flex;align-items:center;justify-content:space-between}
+.feed-col .publisher{display:flex;align-items:center;gap:6px;font-size:12px;text-decoration:none;color:inherit}
+.feed-col .publisher .avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700}
+.feed-col .reward-tag{font-size:16px;font-weight:700;color:var(--accent)}
+.feed-col .post-images-detail{margin:6px 14px!important;border-radius:10px;overflow:hidden}
+.feed-col .post-images-detail img{width:100%;height:180px;object-fit:cover}
+.feed-col .btn--sm{padding:6px 14px;font-size:12px;border-radius:16px}
+.feed-runtime-summary{padding:0 4px 10px;margin-bottom:4px;font-size:13px;color:var(--muted)}
+.feed-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:1200px;margin:0 auto}
+@media(max-width:768px){.feed-grid{grid-template-columns:1fr;gap:12px}}
+.feed-col-title{font-size:16px;font-weight:700;color:#8b4513;margin:0 0 10px;padding-bottom:6px;border-bottom:2px solid #e8d5c4}
+.feed-empty{color:#999;font-size:13px;text-align:center;padding:20px 0}
+.feed-col .task-card,.feed-col .community-post-card{margin-bottom:14px;border-radius:10px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.04);border:1px solid #f0ebe3;overflow:hidden}
+.feed-col .task-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.feed-col .task-top{padding:10px 12px 0;display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.feed-col .task-title{font-size:14px;font-weight:700;line-height:1.35;flex:1}
+.feed-col .task-desc{font-size:12px;color:#777;padding:4px 12px 0;margin:0;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.feed-col .task-meta{padding:6px 12px;font-size:11px;display:flex;gap:8px;flex-wrap:wrap;color:#999;align-items:center}
+.feed-col .task-footer{padding:8px 12px;border-top:1px solid #f5f0eb;display:flex;align-items:center;justify-content:space-between}
+.feed-col .publisher{display:flex;align-items:center;gap:6px;font-size:11px;text-decoration:none;color:inherit}
+.feed-col .publisher .avatar{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;flex-shrink:0}
+.feed-col .reward-tag{font-size:15px;font-weight:700;color:#1a1a1a;white-space:nowrap;flex-shrink:0}
+.feed-col .post-images-detail{margin:4px 12px!important;border-radius:8px;overflow:hidden}
+.feed-col .post-images-detail img{width:100%;height:150px;object-fit:cover}
+.feed-col .btn--sm{padding:5px 12px;font-size:11px;border-radius:14px}
+.feed-col .badge{font-size:10px;padding:2px 6px;border-radius:8px}
+.feed-runtime-summary{font-size:12px;color:#999;padding:0 0 6px;margin:0}
+.feed-content{max-width:1200px;margin:0 auto;padding:0 8px}
+.feed-col .community-post-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.08)}
 </style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
 </head>
-<body>
+<body data-route-id="feed" data-route-title="首页信息流" data-route-source="screens/feed.html" data-route-path="/feed" data-route-current-path="/feed" data-route-surface="user" data-route-layout="userShell">
 
 <!-- 顶部 Header -->
 <div class="feed-header" id="feedHeader">
@@ -308,7 +349,7 @@
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
       <input type="text" placeholder="搜帖子、找任务…">
     </div>
-    <a class="icon-btn" href="notifications.html" aria-label="通知">
+    <a class="icon-btn" href="/notifications" aria-label="通知">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       <span class="dot"></span>
     </a>
@@ -325,186 +366,40 @@
 
 <!-- 内容流 -->
 <div class="feed-content">
-
-  <!-- 任务卡片 1 -->
-  <div class="task-card">
-    <div class="task-top">
-      <span class="task-title">代取快递并送到 3 号楼</span>
-      <span class="reward-tag">¥15</span>
-    </div>
-    <p class="task-desc">菜鸟驿站 3 号柜，两个包裹有点重，需要有推车的邻居帮忙送到 3 号楼 1201</p>
-    <div class="task-meta">
-      <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/></svg>阳光花园小区</span>
-      <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>今天 20:00 前</span>
-      <span class="badge badge--warning">即将截止</span>
-    </div>
-    <div class="task-footer">
-      <div class="publisher">
-        <div class="avatar" style="background:oklch(70% 0.08 28);">李</div>
-        <span>李阿姨 · 2分钟前</span>
-      </div>
-      <button class="btn btn--primary btn--sm">我要接单</button>
-    </div>
-  </div>
-
-  <!-- 帖子 1 -->
-  <div class="post-card" onclick="location.href='post-detail.html'">
-    <div class="post-header">
-      <div class="avatar" style="background:oklch(65% 0.10 175);">张</div>
-      <div class="user-info">
-        <div class="user-name">张叔的阳台菜园</div>
-        <div class="post-meta">3小时前 · 阳光花园小区</div>
-      </div>
-      <button class="icon-btn" style="width:32px;height:32px;" onclick="event.stopPropagation()">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
-      </button>
-    </div>
-    <div class="post-body">
-      <div class="tag-row"><span class="badge badge--success">日常分享</span></div>
-      <p>今年阳台上种的小番茄丰收了！🍅 有没有邻居想要？免费送，自己来 6 号楼 502 拿就行，先到先得～</p>
-    </div>
-    <div class="post-images col-2">
-      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect fill='%23f0eee6' width='200' height='200'/%3E%3Ccircle cx='100' cy='100' r='40' fill='%23d97757' opacity='0.6'/%3E%3Ccircle cx='70' cy='80' r='20' fill='%23c96442' opacity='0.5'/%3E%3Ccircle cx='130' cy='90' r='25' fill='%23e8956a' opacity='0.5'/%3E%3Ctext x='100' y='170' text-anchor='middle' fill='%2387867f' font-size='12'%3E📷 阳台小番茄%3C/text%3E%3C/svg%3E" alt="">
-      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect fill='%23e8e6dc' width='200' height='200'/%3E%3Crect x='50' y='50' width='100' height='80' rx='8' fill='%23c96442' opacity='0.5'/%3E%3Ccircle cx='70' cy='70' r='10' fill='%23d97757'/%3E%3Ccircle cx='130' cy='70' r='10' fill='%23d97757'/%3E%3Ctext x='100' y='170' text-anchor='middle' fill='%2387867f' font-size='12'%3E📷 丰收果实%3C/text%3E%3C/svg%3E" alt="">
-    </div>
-    <div class="post-actions">
-      <button class="action-btn" onclick="event.stopPropagation()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/></svg> 28
-      </button>
-      <button class="action-btn" onclick="event.stopPropagation()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> 6
-      </button>
-      <button class="action-btn" onclick="event.stopPropagation()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> 分享
-      </button>
-    </div>
-  </div>
-
-  <!-- 帖子 2 -->
-  <div class="post-card">
-    <div class="post-header">
-      <div class="avatar" style="background:oklch(60% 0.12 255);">王</div>
-      <div class="user-info">
-        <div class="user-name">小王在社区</div>
-        <div class="post-meta">5小时前 · 阳光花园小区</div>
-      </div>
-      <button class="icon-btn" style="width:32px;height:32px;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
-      </button>
-    </div>
-    <div class="post-body">
-      <div class="tag-row"><span class="badge badge--accent">求助问答</span></div>
-      <p>请问小区附近有没有靠谱的干洗店推荐？冬天的羽绒服要收起来了，想找一家性价比高的 🙏</p>
-    </div>
-    <div class="post-actions">
-      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/></svg> 15</button>
-      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> 12</button>
-      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> 分享</button>
-    </div>
-  </div>
-
-  <!-- 任务卡片 2 -->
-  <div class="task-card">
-    <div class="task-top">
-      <span class="task-title">帮忙遛狗 30 分钟</span>
-      <span class="reward-tag">¥20</span>
-    </div>
-    <p class="task-desc">金毛，性格温顺，就在小区内遛，不用出小区大门。今天下午 4 点到 5 点之间即可</p>
-    <div class="task-meta">
-      <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/></svg>阳光花园小区</span>
-      <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>明天 17:00 前</span>
-    </div>
-    <div class="task-footer">
-      <div class="publisher">
-        <div class="avatar" style="background:oklch(65% 0.08 175);">赵</div>
-        <span>赵姐 · 1小时前</span>
-      </div>
-      <button class="btn btn--primary btn--sm">我要接单</button>
-    </div>
-  </div>
-
-  <!-- 帖子 3 -->
-  <div class="post-card">
-    <div class="post-header">
-      <div class="avatar" style="background:oklch(55% 0.14 28);">陈</div>
-      <div class="user-info">
-        <div class="user-name">陈老师教画画</div>
-        <div class="post-meta">昨天 19:30 · 阳光花园小区</div>
-      </div>
-      <button class="icon-btn" style="width:32px;height:32px;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
-      </button>
-    </div>
-    <div class="post-body">
-      <div class="tag-row"><span class="badge badge--success">日常分享</span></div>
-      <p>周六下午在社区活动室开了第一期素描兴趣小组，来了 8 位邻居，大家画得很认真！下周继续，欢迎零基础的邻居来玩～ 材料我这边都备好了 ✏️</p>
-    </div>
-    <div class="post-images col-3">
-      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Crect fill='%23f5f4ed' width='120' height='120'/%3E%3Ccircle cx='60' cy='50' r='25' fill='%23c96442' opacity='0.3'/%3E%3Crect x='45' y='80' width='30' height='20' rx='4' fill='%2387867f' opacity='0.4'/%3E%3Ctext x='60' y='110' text-anchor='middle' fill='%2387867f' font-size='10'%3E📷 素描课%3C/text%3E%3C/svg%3E" alt="">
-      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Crect fill='%23e8e6dc' width='120' height='120'/%3E%3Ccircle cx='60' cy='50' r='25' fill='%235e5d59' opacity='0.3'/%3E%3Ctext x='60' y='110' text-anchor='middle' fill='%2387867f' font-size='10'%3E📷 作品%3C/text%3E%3C/svg%3E" alt="">
-      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Crect fill='%23f0eee6' width='120' height='120'/%3E%3Crect x='30' y='30' width='60' height='70' rx='4' fill='%23d97757' opacity='0.3'/%3E%3Ctext x='60' y='110' text-anchor='middle' fill='%2387867f' font-size='10'%3E📷 合影%3C/text%3E%3C/svg%3E" alt="">
-    </div>
-    <div class="post-actions">
-      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/></svg> 42</button>
-      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> 9</button>
-      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> 分享</button>
-    </div>
-  </div>
-
+<div data-runtime-placeholder class="runtime-placeholder">正在加载真实社区动态。</div>
 </div>
 
 <!-- AI 助手 FAB -->
-<button class="ai-fab" aria-label="AI 助手" onclick="openAIModal('all')">
+<button class="ai-fab" aria-label="AI 助手" data-ai-modal-scene="all">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
   <span class="fab-pulse"></span>
 </button>
 
 <!-- 底部导航 -->
 <nav class="bottom-nav">
-  <a href="feed.html" class="active">
+  <a href="/feed" class="active">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
     首页
   </a>
-  <a href="tasks.html">
+  <a href="/tasks">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     任务
   </a>
-  <a href="post.html" class="publish-btn" aria-label="发布">
+  <a href="/post" class="publish-btn" aria-label="发布">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
   </a>
-  <a href="messages.html">
+  <a href="/messages">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
     消息
   </a>
-  <a href="profile.html">
+  <a href="/profile">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
     我的
   </a>
 </nav>
 
-<script src="../js/ai-modal.js"></script>
-<script>
-  // 分类切换
-  document.querySelectorAll('.category-tabs .chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      document.querySelectorAll('.category-tabs .chip').forEach(c => c.classList.remove('active'));
-      chip.classList.add('active');
-    });
-  });
+<script src="/js/ai-modal.0e861f6ad589.js"></script>
 
-  // Header 滚动阴影
-  const header = document.getElementById('feedHeader');
-  window.addEventListener('scroll', () => {
-    if (window.scrollY > 10) {
-      header.classList.add('scrolled');
-    } else {
-      header.classList.remove('scrolled');
-    }
-  });
-</script>
-<script src="/assets/app/jury-nav.js"></script>
-<script>
-(function(){"use strict";function t(){var u=window.__API_BASE_URL__||"";if(!u){if(!t._r)t._r=0;if(t._r++<20)setTimeout(t,500);return}fetch(u+"/api/auth/me",{credentials:"include"}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.user&&d.user.isJury)n()}).catch(function(){})}function n(){var v=document.querySelector(".bottom-nav");if(!v||document.querySelector(".jlink"))return;var a=document.createElement("a");a.href="/jury";a.className="jlink";a.innerHTML="<svg width=22 height=22 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>陪审";v.insertBefore(a,v.lastElementChild)}setTimeout(t,800)})();
-</script>
+<script type="module" src="/assets/app/main.mjs"></script>
 </body>
 </html>

@@ -433,6 +433,8 @@ async function feedPayload(store, searchParams, viewerId = null) {
   const page = parsePositiveQuery(searchParams.get("page"), 1);
   const pageSize = Math.min(50, parsePositiveQuery(searchParams.get("pageSize") ?? searchParams.get("limit"), 10));
   const keyword = optionalText(searchParams.get("keyword") ?? searchParams.get("q"), 100);
+  const category = optionalText(searchParams.get("category"), 50);
+  const tag = optionalText(searchParams.get("tag"), 50);
   let postResult = { posts: [], total: 0 };
   try {
     postResult = await simpleCommunityPosts(store, viewerId, keyword);
@@ -440,7 +442,7 @@ async function feedPayload(store, searchParams, viewerId = null) {
   let requestItems = [];
   try {
     if (typeof store.listServiceRequests === "function") {
-      requestItems = await feedRequestItems(store, keyword);
+      requestItems = await feedRequestItems(store, keyword, category, tag);
     }
   } catch { /* requests optional */ }
   const items = [
@@ -455,7 +457,7 @@ async function feedPayload(store, searchParams, viewerId = null) {
   };
 }
 
-async function feedRequestItems(store, keyword) {
+async function feedRequestItems(store, keyword, category = null, tag = null) {
   const categories = typeof store.listCategories === "function" ? await store.listCategories() : [];
   const categoryMap = new Map(categories.map((category) => [Number(category.categoryId), category]));
   const requests = await store.listServiceRequests();
@@ -466,6 +468,12 @@ async function feedRequestItems(store, keyword) {
       continue;
     }
     if (keywordText && ![item.title, item.description, item.location, ...(item.tags ?? [])].filter(Boolean).join(" ").toLowerCase().includes(keywordText)) {
+      continue;
+    }
+    if (category && String(item.categoryId ?? "") !== category && String(item.category?.code ?? "") !== category) {
+      continue;
+    }
+    if (tag && !(item.tags ?? []).some(t => String(t).toLowerCase().includes(tag.toLowerCase()))) {
       continue;
     }
     const publisher = typeof store.findUserById === "function" ? await store.findUserById(item.publisherId) : null;
@@ -657,7 +665,8 @@ function publicUser(user) {
     userId: user.userId,
     username: user.username,
     displayName: user.displayName ?? user.username,
-    avatarFileId: user.avatarFileId ?? null
+    avatarFileId: user.avatarFileId ?? null,
+    avatarUrl: user.avatarFileId ? `/api/files/${encodeURIComponent(user.avatarFileId)}` : null
   };
 }
 
