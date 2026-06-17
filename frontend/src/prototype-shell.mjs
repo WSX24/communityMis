@@ -139,10 +139,11 @@ window.NeighborApp = {
   auth
 };
 
+const guardResult = await runRouteGuard();
+
 markCurrentRouteLinks();
 bindRegisterSkillTags();
 
-const guardResult = await runRouteGuard();
 if (guardResult.status !== "redirected") {
   installAuthForms();
   installLogoutHandlers();
@@ -151,7 +152,6 @@ if (guardResult.status !== "redirected") {
 }
 
 async function runRouteGuard() {
-  document.documentElement.dataset.authState = "checking";
   try {
     const result = await auth.guardRoute(route);
     document.documentElement.dataset.authState = result.status === "allowed" ? "authenticated" : "public";

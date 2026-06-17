@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 会话管理 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<link rel="stylesheet" href="../css/admin-p1.css">
+<style>
+  /* ===== 动画定义 ===== */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes slideInLeft {
+    from { opacity: 0; transform: translateX(-20px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes countUp {
+    from { opacity: 0; transform: scale(0.8); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  @keyframes pulse-soft {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.3); }
+    50% { opacity: 0.85; box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+  }
+
+  /* ===== 侧边栏增强（与 dashboard 一致） ===== */
+  .admin-sidebar {
+    background: linear-gradient(175deg, oklch(18% 0.02 265) 0%, oklch(14% 0.015 265) 100%);
+    box-shadow: 4px 0 24px rgba(0,0,0,0.12);
+    animation: slideInLeft 0.5s ease-out;
+  }
+  .admin-sidebar .sb-brand .shield {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--accent), oklch(65% 0.18 265));
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    transition: transform 0.3s ease;
+  }
+  .admin-sidebar .sb-brand:hover .shield {
+    transform: rotate(8deg) scale(1.05);
+  }
+  .admin-sidebar nav a {
+    position: relative;
+    overflow: hidden;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    margin-bottom: 2px;
+    border-radius: var(--radius-md);
+  }
+  .admin-sidebar nav a::before {
+    content: '';
+    position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 0; border-radius: 0 3px 3px 0;
+    background: var(--accent);
+    transition: height 0.3s ease;
+  }
+  .admin-sidebar nav a:hover { 
+    background: rgba(255,255,255,0.08); 
+    color: #fff; 
+    transform: translateX(2px);
+  }
+  .admin-sidebar nav a:hover::before { height: 60%; }
+  .admin-sidebar nav a.active {
+    background: linear-gradient(90deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.06) 100%);
+    color: #fff; font-weight: 600;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+  .admin-sidebar nav a.active::before { height: 70%; }
+  .admin-sidebar nav a svg { transition: transform 0.2s; }
+  .admin-sidebar nav a:hover svg { transform: scale(1.1); }
+  .admin-sidebar .sb-back {
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: var(--radius-md);
+    transition: all 0.25s ease;
+  }
+  .admin-sidebar .sb-back:hover { 
+    background: rgba(255,255,255,0.08); 
+    color: #fff; 
+    border-color: rgba(255,255,255,0.12);
+    transform: translateX(2px);
+  }
+
+  /* ===== 页面头部美化 ===== */
+  .page-head {
+    animation: fadeInUp 0.5s ease-out 0.1s both;
+  }
+  .page-head h1 {
+    background: linear-gradient(135deg, var(--fg), oklch(45% 0.05 265));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.02em;
+  }
+  .head-kicker {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 4px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .head-kicker::before {
+    content: '';
+    width: 20px; height: 2px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+    border-radius: 2px;
+  }
+  .head-actions .btn {
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+  }
+  .head-actions .btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.2);
+  }
+  .head-actions .btn--primary {
+    background: linear-gradient(135deg, var(--accent), oklch(55% 0.18 265));
+    border: none;
+  }
+  .head-actions .btn--primary:hover {
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.3);
+  }
+
+  /* ===== 指标卡片美化 ===== */
+  .metric-grid {
+    animation: fadeInUp 0.5s ease-out 0.15s both;
+  }
+  .metric-card {
+    position: relative;
+    overflow: hidden;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: var(--radius-xl, 16px);
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+  }
+  .metric-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .metric-card:hover {
+    box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+    transform: translateY(-4px);
+    border-color: transparent;
+  }
+  .metric-card:hover::before { opacity: 1; }
+  .metric-card:nth-child(1)::before { background: linear-gradient(90deg, var(--secondary), oklch(65% 0.12 250)); }
+  .metric-card:nth-child(2)::before { background: linear-gradient(90deg, var(--warning), oklch(70% 0.12 75)); }
+  .metric-card:nth-child(3)::before { background: linear-gradient(90deg, var(--success), oklch(60% 0.12 150)); }
+  .metric-card:nth-child(4)::before { background: linear-gradient(90deg, var(--accent), oklch(60% 0.15 265)); }
+  .metric-card .value {
+    animation: countUp 0.6s ease-out both;
+  }
+  .metric-card:nth-child(1) .value { animation-delay: 0.2s; }
+  .metric-card:nth-child(2) .value { animation-delay: 0.3s; }
+  .metric-card:nth-child(3) .value { animation-delay: 0.4s; }
+  .metric-card:nth-child(4) .value { animation-delay: 0.5s; }
+
+  /* ===== 子导航美化 ===== */
+  .subnav {
+    animation: fadeInUp 0.5s ease-out 0.2s both;
+  }
+  .subnav a {
+    transition: all 0.25s ease;
+    position: relative;
+  }
+  .subnav a::after {
+    content: '';
+    position: absolute; bottom: -2px; left: 50%;
+    width: 0; height: 2px;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateX(-50%);
+  }
+  .subnav a:hover::after,
+  .subnav a.active::after {
+    width: 60%;
+  }
+  .subnav a.active {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* ===== 筛选栏美化 ===== */
+  .filter-bar {
+    animation: fadeInUp 0.5s ease-out 0.25s both;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-xl, 16px);
+    padding: var(--space-lg) var(--space-xl);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.03);
+  }
+  .search-box {
+    transition: all 0.25s ease;
+    border-radius: var(--radius-lg);
+  }
+  .search-box:focus-within {
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+    border-color: var(--accent-light);
+  }
+  .search-box input {
+    transition: all 0.2s ease;
+  }
+  .select {
+    transition: all 0.2s ease;
+    cursor: pointer;
+    border-radius: var(--radius-md);
+  }
+  .select:hover {
+    border-color: var(--accent-light);
+  }
+  .select:focus {
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+    border-color: var(--accent-light);
+  }
+
+  /* ===== 数据表格美化 ===== */
+  .data-shell {
+    animation: fadeInUp 0.5s ease-out 0.3s both;
+    border-radius: var(--radius-xl, 16px);
+    overflow: hidden;
+    border: 1px solid var(--border-light);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.03);
+  }
+  .data-table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .data-table thead th {
+    background: oklch(97% 0.003 85);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    padding: 14px 16px;
+    border-bottom: 2px solid var(--border-light);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .data-table tbody tr {
+    transition: all 0.2s ease;
+  }
+  .data-table tbody tr:hover {
+    background: oklch(98.5% 0.002 85);
+  }
+  .data-table tbody td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-light);
+    vertical-align: middle;
+  }
+  .data-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* ===== 头像美化 ===== */
+  .avatar-mini {
+    width: 36px; height: 36px;
+    border-radius: var(--radius-full);
+    background: linear-gradient(135deg, var(--accent), oklch(65% 0.18 265));
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 14px;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
+    transition: transform 0.3s ease;
+  }
+  .person-cell:hover .avatar-mini {
+    transform: scale(1.1) rotate(-5deg);
+  }
+  .person-cell {
+    display: flex; align-items: center; gap: 10px;
+  }
+
+  /* ===== 状态徽章美化 ===== */
+  .badge-state {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 12px; border-radius: var(--radius-full);
+    font-size: 12px; font-weight: 600;
+    transition: all 0.2s ease;
+  }
+  .badge-state.success {
+    background: var(--success-light, oklch(95% 0.03 150));
+    color: var(--success);
+  }
+  .badge-state.warning {
+    background: var(--warning-light, oklch(96% 0.03 80));
+    color: var(--warning);
+    animation: pulse-soft 2.5s ease-in-out infinite;
+  }
+  .badge-state.neutral {
+    background: oklch(94% 0.003 85);
+    color: var(--muted);
+  }
+
+  /* ===== 链接按钮美化 ===== */
+  .link-btn {
+    transition: all 0.2s ease;
+    padding: 6px 14px;
+    border-radius: var(--radius-md);
+    font-weight: 500;
+  }
+  .link-btn:hover {
+    background: var(--accent-subtle);
+    transform: translateX(2px);
+  }
+  .link-btn.active {
+    background: var(--accent-subtle);
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* ===== 详情面板美化 ===== */
+  .panel {
+    animation: fadeInUp 0.5s ease-out 0.35s both;
+    border-radius: var(--radius-xl, 16px);
+    border: 1px solid var(--border-light);
+    background: var(--surface);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.03);
+    padding: var(--space-xl);
+  }
+  .panel h2 {
+    font-family: var(--font-display);
+    font-size: 18px; font-weight: 700;
+    margin-bottom: var(--space-lg);
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .panel h2::after {
+    content: '';
+    flex: 1; height: 1px;
+    background: linear-gradient(90deg, var(--border-light), transparent);
+    margin-left: var(--space-sm);
+  }
+
+  /* ===== 会话卡片美化 ===== */
+  .conversation-card {
+    display: grid;
+    gap: var(--space-md);
+    padding: var(--space-lg);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-xl, 16px);
+    background: var(--bg);
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .conversation-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--accent), oklch(65% 0.15 265));
+    opacity: 0.6;
+  }
+  .conversation-card:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+  }
+  .conversation-card .mono {
+    font-size: 13px; font-weight: 600;
+    color: var(--fg);
+  }
+
+  /* ===== 消息预览美化（聊天气泡风格） ===== */
+  .message-preview {
+    display: grid;
+    gap: var(--space-sm);
+    margin-top: var(--space-md);
+    padding: var(--space-md);
+    background: oklch(98% 0.003 85);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+  }
+  .msg {
+    max-width: 88%;
+    padding: 12px 16px;
+    border-radius: 18px;
+    font-size: 13px;
+    line-height: 1.6;
+    transition: all 0.25s ease;
+    position: relative;
+    animation: fadeInUp 0.4s ease-out both;
+  }
+  .msg:nth-child(1) { animation-delay: 0.1s; }
+  .msg:nth-child(2) { animation-delay: 0.2s; }
+  .msg:nth-child(3) { animation-delay: 0.3s; }
+  .msg:hover {
+    transform: scale(1.01);
+  }
+  .msg.user {
+    justify-self: end;
+    background: linear-gradient(135deg, var(--accent), oklch(55% 0.18 265));
+    color: #fff;
+    border-bottom-right-radius: 4px;
+    box-shadow: 0 3px 12px rgba(99, 102, 241, 0.25);
+  }
+  .msg.assistant {
+    justify-self: start;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-bottom-left-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  }
+
+  /* ===== 权限提示美化 ===== */
+  .permission-note {
+    display: grid;
+    gap: var(--space-sm);
+    padding: var(--space-md) var(--space-lg);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(135deg, color-mix(in oklch, var(--surface), var(--bg) 42%), oklch(97% 0.003 85));
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.6;
+    position: relative;
+    overflow: hidden;
+  }
+  .permission-note::before {
+    content: '🔒';
+    position: absolute;
+    right: 12px; top: 50%;
+    transform: translateY(-50%);
+    font-size: 20px;
+    opacity: 0.15;
+  }
+  .permission-note strong {
+    color: var(--fg);
+    font-weight: 600;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .permission-note strong::before {
+    content: '';
+    width: 6px; height: 6px;
+    background: var(--warning);
+    border-radius: var(--radius-full);
+    display: inline-block;
+  }
+
+  /* ===== 详情列表美化 ===== */
+  .detail-list {
+    margin-top: var(--space-xl);
+  }
+  .detail-item {
+    padding: var(--space-md) 0;
+    border-bottom: 1px solid var(--border-light);
+    transition: all 0.2s ease;
+  }
+  .detail-item:hover {
+    padding-left: 4px;
+  }
+  .detail-item:last-child {
+    border-bottom: none;
+  }
+  .detail-item .label {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .detail-item .value {
+    color: var(--fg);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .row-actions {
+    display: flex; flex-wrap: wrap; gap: var(--space-sm);
+  }
+  .row-actions .link-btn {
+    border: 1px solid var(--border-light);
+    background: var(--bg);
+  }
+  .row-actions .link-btn:hover {
+    border-color: var(--accent-light);
+    background: var(--accent-subtle);
+  }
+
+  /* ===== Toast 美化 ===== */
+  .toast {
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+    backdrop-filter: blur(12px);
+    background: rgba(255,255,255,0.95);
+    border: 1px solid var(--border-light);
+    font-weight: 500;
+  }
+  .toast.show {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+
+  /* ===== 移动端导航美化 ===== */
+  .mobile-admin-bar {
+    background: linear-gradient(175deg, oklch(18% 0.02 265) 0%, oklch(14% 0.015 265) 100%);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  }
+  .mobile-admin-links a {
+    transition: all 0.2s ease;
+    position: relative;
+  }
+  .mobile-admin-links a.active {
+    color: #fff;
+    font-weight: 600;
+  }
+  .mobile-admin-links a.active::after {
+    content: '';
+    position: absolute; bottom: -8px; left: 50%;
+    transform: translateX(-50%);
+    width: 20px; height: 3px;
+    background: var(--accent);
+    border-radius: 3px;
+  }
+
+  /* ===== 空状态美化 ===== */
+  .data-table tbody tr td[colspan] {
+    text-align: center;
+    padding: var(--space-3xl) var(--space-xl);
+    color: var(--muted);
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+<header class="mobile-admin-bar" aria-label="移动端管理导航">
+  <div class="mobile-admin-top">
+    <div class="mobile-admin-title"><span class="shield">⏂</span><span>邻帮·管理后台</span></div>
+    <a class="mobile-admin-home" href="../screens/feed.html">返回社区</a>
+  </div>
+  <nav class="mobile-admin-links" aria-label="后台页面">
+    <a href="admin-dashboard.html">仪表盘</a>
+    <a href="admin-risk-content.html">内容审核</a>
+    <a class="active" href="admin-ai-conversations.html">AI 会话</a>
+    <a href="admin-ai-feedback.html">AI 反馈</a>
+    <a href="admin-ai-errors.html">AI 异常</a>
+    <a href="admin-ai-config.html">AI 配置</a>
+    <a href="admin-audit-log.html">审计日志</a>
+  </nav>
+</header>
+<div class="admin-page">
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="admin-dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="admin-users.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="admin-transactions.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><path d="M7 15h3M14 15h3"/></svg>交易流水</a>
+      <a href="admin-disputes.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理</a>
+      <a href="admin-risk-content.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>内容审核</a>
+      <a href="admin-ai-logs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a class="active" href="admin-ai-conversations.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>AI 会话</a>
+      <a href="admin-ai-feedback.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 11v8a2 2 0 0 0 2 2h7.5a2 2 0 0 0 2-1.6l1.2-6A2 2 0 0 0 17.8 11H14V5.5A2.5 2.5 0 0 0 11.5 3L7 11z"/><path d="M3 11h4v10H3z"/></svg>AI 反馈</a>
+      <a href="admin-ai-errors.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>AI 异常</a>
+      <a href="admin-ai-config.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      <a href="admin-sensitive-words.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+      <a href="admin-stats.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+      <a href="admin-audit-log.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="../screens/feed.html">返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <header class="page-head">
+      <div>
+        <div class="head-kicker">AI Governance</div>
+        <h1>AI 会话管理</h1>
+        <p>用于管理员查询 AI 会话记录，重点查看场景、用户授权范围、处理状态与必要的会话片段。隐私字段默认脱敏，敏感会话只展示摘要。</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn btn--secondary btn--sm" data-action="mask">切换脱敏</button>
+        <button class="btn btn--primary btn--sm" data-action="export">导出选中</button>
+      </div>
+    </header>
+
+    <section class="metric-grid" aria-label="会话概览">
+      <div class="metric-card"><div class="label">今日会话</div><div class="value mono">1,284</div><div class="hint">筛选、规则问答、发布辅助合计</div></div>
+      <div class="metric-card"><div class="label">需复核</div><div class="value mono">23</div><div class="hint">含纠纷、资金、越权提示场景</div></div>
+      <div class="metric-card"><div class="label">平均轮次</div><div class="value mono">3.7</div><div class="hint">单次会话用户与 AI 的交互轮数</div></div>
+      <div class="metric-card"><div class="label">脱敏覆盖</div><div class="value mono">100%</div><div class="hint">手机号、地址、订单证据默认隐藏</div></div>
+    </section>
+
+    <nav class="subnav" aria-label="AI 管理子页">
+      <a class="active" href="admin-ai-conversations.html">会话管理</a>
+      <a href="admin-ai-feedback.html">用户反馈</a>
+      <a href="admin-ai-errors.html">异常调用</a>
+      <a href="admin-ai-logs.html">原始日志</a>
+      <a href="admin-ai-config.html">AI 配置</a>
+    </nav>
+
+    <div class="filter-bar">
+      <label class="search-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input id="searchInput" type="search" placeholder="搜索会话 ID、用户、场景、关键词">
+      </label>
+      <select class="select" id="sceneFilter" aria-label="场景筛选">
+        <option value="">全部场景</option>
+        <option value="智能筛选">智能筛选</option>
+        <option value="规则问答">规则问答</option>
+        <option value="发布辅助">发布辅助</option>
+        <option value="纠纷摘要">纠纷摘要</option>
+        <option value="订单摘要">订单摘要</option>
+      </select>
+      <select class="select" id="statusFilter" aria-label="状态筛选">
+        <option value="">全部状态</option>
+        <option value="正常">正常</option>
+        <option value="需复核">需复核</option>
+        <option value="已归档">已归档</option>
+      </select>
+    </div>
+
+    <section class="detail-layout" aria-label="会话列表与详情">
+      <div class="data-shell">
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>会话</th>
+                <th>用户</th>
+                <th>场景</th>
+                <th>状态</th>
+                <th>轮次</th>
+                <th>最近消息</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="conversationRows">
+<tr data-runtime-placeholder><td colspan="7">正在加载真实 AI 会话。</td></tr>
+</tbody>
+          </table>
+        </div>
+      </div>
+
+      <aside class="panel" id="detailPanel" aria-live="polite"></aside>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let masked = true;
+function showToast(text) {
+  const toast = document.getElementById("toast");
+  if (!toast) return;
+  toast.textContent = text;
+  toast.classList.add("show");
+  window.setTimeout(() => toast.classList.remove("show"), 1800);
+}
+document.addEventListener("click", event => {
+  const action = event.target.closest("[data-action]")?.dataset.action;
+  if (!action) return;
+  if (action === "mask") {
+    masked = !masked;
+    showToast(masked ? "已开启姓名脱敏" : "已临时显示完整姓名");
+    return;
+  }
+  const copy = { export: "已生成当前筛选结果导出任务", mark: "已标记为复核完成", copy: "会话摘要已复制到剪贴板", audit: "已写入审计日志" };
+  showToast(copy[action] || "操作已记录");
+});
+</script>
+</body>
+</html>

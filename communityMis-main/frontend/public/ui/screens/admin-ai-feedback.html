@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 用户反馈 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<link rel="stylesheet" href="../css/admin-p1.css">
+<style>
+  .feedback-type {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .feedback-type.useful {
+    color: var(--success);
+    background: var(--success-light);
+  }
+
+  .feedback-type.useless {
+    color: var(--muted);
+    background: var(--border-light);
+  }
+
+  .feedback-type.wrong,
+  .feedback-type.unsafe {
+    color: var(--danger);
+    background: var(--danger-light);
+  }
+
+  .review-note {
+    display: grid;
+    gap: var(--space-sm);
+  }
+
+  .quote-box {
+    padding: var(--space-md);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--fg);
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
+  .resolution-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-sm);
+  }
+
+  @media (max-width: 520px) {
+    .resolution-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+</head>
+<body>
+<header class="mobile-admin-bar" aria-label="移动端管理导航">
+  <div class="mobile-admin-top">
+    <div class="mobile-admin-title"><span class="shield">⏂</span><span>邻帮·管理后台</span></div>
+    <a class="mobile-admin-home" href="../screens/feed.html">返回社区</a>
+  </div>
+  <nav class="mobile-admin-links" aria-label="后台页面">
+    <a href="admin-dashboard.html">仪表盘</a>
+    <a href="admin-risk-content.html">内容审核</a>
+    <a href="admin-ai-conversations.html">AI 会话</a>
+    <a class="active" href="admin-ai-feedback.html">AI 反馈</a>
+    <a href="admin-ai-errors.html">AI 异常</a>
+    <a href="admin-ai-config.html">AI 配置</a>
+    <a href="admin-audit-log.html">审计日志</a>
+  </nav>
+</header>
+<div class="admin-page">
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="admin-dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="admin-users.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="admin-transactions.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><path d="M7 15h3M14 15h3"/></svg>交易流水</a>
+      <a href="admin-disputes.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理</a>
+      <a href="admin-risk-content.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>内容审核</a>
+      <a href="admin-ai-logs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="admin-ai-conversations.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>AI 会话</a>
+      <a class="active" href="admin-ai-feedback.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 11v8a2 2 0 0 0 2 2h7.5a2 2 0 0 0 2-1.6l1.2-6A2 2 0 0 0 17.8 11H14V5.5A2.5 2.5 0 0 0 11.5 3L7 11z"/><path d="M3 11h4v10H3z"/></svg>AI 反馈</a>
+      <a href="admin-ai-errors.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>AI 异常</a>
+      <a href="admin-ai-config.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      <a href="admin-sensitive-words.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+      <a href="admin-stats.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+      <a href="admin-audit-log.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="../screens/feed.html">返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <header class="page-head">
+      <div>
+        <div class="head-kicker">AI Quality Review</div>
+        <h1>AI 用户反馈管理</h1>
+        <p>集中处理“有用 / 无用 / 错误 / 不安全”反馈，关联到具体消息、场景和处理状态，用于规则修订、提示词复盘和高风险反馈追踪。</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn btn--secondary btn--sm" data-action="batch">批量标为已读</button>
+        <button class="btn btn--primary btn--sm" data-action="report">生成周报</button>
+      </div>
+    </header>
+
+    <section class="metric-grid" aria-label="反馈概览">
+      <div class="metric-card"><div class="label">今日反馈</div><div class="value mono">86</div><div class="hint">较昨日增加 12 条</div></div>
+      <div class="metric-card"><div class="label">负向反馈</div><div class="value mono">17</div><div class="hint">无用、错误、不安全合计</div></div>
+      <div class="metric-card"><div class="label">待处理</div><div class="value mono">9</div><div class="hint">优先看不安全与纠纷场景</div></div>
+      <div class="metric-card"><div class="label">复盘完成</div><div class="value mono">74%</div><div class="hint">本周已闭环反馈占比</div></div>
+    </section>
+
+    <nav class="subnav" aria-label="AI 管理子页">
+      <a href="admin-ai-conversations.html">会话管理</a>
+      <a class="active" href="admin-ai-feedback.html">用户反馈</a>
+      <a href="admin-ai-errors.html">异常调用</a>
+      <a href="admin-ai-logs.html">原始日志</a>
+      <a href="admin-ai-config.html">AI 配置</a>
+    </nav>
+
+    <div class="filter-bar">
+      <label class="search-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input id="searchInput" type="search" placeholder="搜索用户、反馈内容、会话 ID">
+      </label>
+      <select class="select" id="typeFilter" aria-label="反馈类型">
+        <option value="">全部反馈</option>
+        <option value="有用">有用</option>
+        <option value="无用">无用</option>
+        <option value="错误">错误</option>
+        <option value="不安全">不安全</option>
+      </select>
+      <select class="select" id="statusFilter" aria-label="处理状态">
+        <option value="">全部状态</option>
+        <option value="待处理">待处理</option>
+        <option value="处理中">处理中</option>
+        <option value="已复盘">已复盘</option>
+      </select>
+    </div>
+
+    <section class="detail-layout" aria-label="反馈列表与处理">
+      <div class="data-shell">
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>反馈</th>
+                <th>用户</th>
+                <th>场景</th>
+                <th>关联消息</th>
+                <th>状态</th>
+                <th>时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="feedbackRows">
+<tr data-runtime-placeholder><td colspan="7">正在加载真实 AI 反馈。</td></tr>
+</tbody>
+          </table>
+        </div>
+      </div>
+
+      <aside class="panel" id="detailPanel" aria-live="polite"></aside>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function showToast(text) {
+  const toast = document.getElementById("toast");
+  if (!toast) return;
+  toast.textContent = text;
+  toast.classList.add("show");
+  window.setTimeout(() => toast.classList.remove("show"), 1800);
+}
+document.addEventListener("click", event => {
+  const action = event.target.closest("[data-action]")?.dataset.action;
+  if (!action) return;
+  const copy = { batch: "当前筛选结果已标为已读", report: "已生成 AI 反馈周报草稿", assign: "已分配给当前管理员", knowledge: "已加入规则知识库修订清单", prompt: "已标记为提示词问题", done: "反馈已标记为复盘完成" };
+  showToast(copy[action] || "操作已记录");
+});
+</script>
+</body>
+</html>

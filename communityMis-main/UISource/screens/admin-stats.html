@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>平台统计 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  .admin-page {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: 100dvh;
+  }
+  @media (max-width: 860px) {
+    .admin-page { grid-template-columns: 1fr; }
+    .admin-sidebar { display: none; }
+  }
+
+  .admin-sidebar {
+    background: var(--fg); color: oklch(92% 0.004 85);
+    padding: var(--space-2xl) var(--space-lg); display: flex;
+    flex-direction: column; gap: var(--space-3xl);
+    position: sticky; top: 0; height: 100dvh;
+  }
+  .admin-sidebar .sb-brand {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    color: #fff; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .admin-sidebar .shield {
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    background: var(--accent); display: flex; align-items: center;
+    justify-content: center; font-size: 14px;
+  }
+  .admin-sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+  .admin-sidebar nav a {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: oklch(72% 0.005 85);
+    transition: all 0.15s;
+  }
+  .admin-sidebar nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .admin-sidebar nav a.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 600; }
+  .admin-sidebar nav a svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .admin-sidebar .sb-footer { margin-top: auto; }
+  .admin-sidebar .sb-back {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 13px; color: oklch(62% 0.005 85); transition: all 0.15s;
+  }
+  .admin-sidebar .sb-back:hover { background: rgba(255,255,255,0.06); color: #fff; }
+
+  .admin-main {
+    padding: var(--space-3xl); max-width: 1200px;
+  }
+  @media (max-width: 860px) {
+    .admin-main { padding: var(--space-lg); padding-bottom: calc(var(--bottom-nav-height) + var(--space-2xl)); }
+  }
+
+  .au-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-2xl); flex-wrap: wrap; gap: var(--space-lg);
+  }
+  .au-header h2 {
+    font-family: var(--font-display); font-size: 26px; font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .au-header .time-range { display: flex; gap: 4px; }
+  .au-header .time-range button {
+    padding: 6px 14px; border-radius: var(--radius-sm);
+    font-size: 13px; font-weight: 500; color: var(--muted);
+    border: 1px solid var(--border-light); background: var(--surface);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .au-header .time-range button:hover { border-color: var(--accent-light); }
+  .au-header .time-range button.active {
+    background: var(--fg); border-color: var(--fg); color: #fff;
+  }
+
+  /* KPI row */
+  .skpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: var(--space-lg); margin-bottom: var(--space-xl);
+  }
+  .skpi-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+  }
+  .skpi-card .skpi-value {
+    font-family: var(--font-display); font-size: 28px; font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .skpi-card .skpi-label { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .skpi-card .skpi-change {
+    font-size: 12px; margin-top: var(--space-sm);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .skpi-change.up { color: var(--success); }
+  .skpi-change.down { color: var(--danger); }
+
+  /* Chart panels */
+  .chart-panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-xl); margin-bottom: var(--space-xl);
+  }
+  @media (max-width: 860px) { .chart-panels { grid-template-columns: 1fr; } }
+
+  .chart-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+  }
+  .chart-card h4 {
+    font-size: 15px; font-weight: 700; margin-bottom: var(--space-xl);
+  }
+
+  /* Bar chart */
+  .bar-chart { display: flex; align-items: flex-end; gap: var(--space-md); height: 180px; }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: var(--space-sm); }
+  .bar-col .bar-val { font-size: 11px; font-weight: 600; color: var(--muted); font-family: var(--font-mono); }
+  .bar-col .bar {
+    width: 100%; max-width: 40px; border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    transition: height 0.5s var(--ease-standard);
+    background: linear-gradient(180deg, var(--accent), var(--accent-hover));
+  }
+  .bar-col .bar.alt {
+    background: linear-gradient(180deg, var(--secondary), oklch(48% 0.12 175));
+  }
+  .bar-col .bar-label { font-size: 11px; color: var(--muted); }
+
+  /* Horizontal bar chart */
+  .hbar-list { display: flex; flex-direction: column; gap: var(--space-md); }
+  .hbar-item { display: flex; align-items: center; gap: var(--space-md); }
+  .hbar-item .hbar-label {
+    font-size: 13px; font-weight: 500; min-width: 60px; text-align: right;
+  }
+  .hbar-item .hbar-track {
+    flex: 1; height: 20px; border-radius: var(--radius-sm);
+    background: var(--border-light); overflow: hidden;
+  }
+  .hbar-item .hbar-fill {
+    height: 100%; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: flex-end;
+    padding-right: var(--space-sm);
+    font-size: 11px; font-weight: 600; color: #fff; font-family: var(--font-mono);
+  }
+  .hbar-fill.c1 { background: var(--accent); }
+  .hbar-fill.c2 { background: var(--secondary); }
+  .hbar-fill.c3 { background: var(--success); }
+  .hbar-fill.c4 { background: var(--warning); }
+  .hbar-fill.c5 { background: oklch(58% 0.14 255); }
+  .hbar-fill.c6 { background: oklch(50% 0.12 310); }
+
+  /* Progress donut */
+  .donut-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: var(--space-lg);
+  }
+  .donut-item { text-align: center; }
+  .donut-ring {
+    width: 80px; height: 80px; border-radius: var(--radius-full);
+    margin: 0 auto var(--space-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-size: 18px; font-weight: 700;
+  }
+  .donut-label { font-size: 11px; color: var(--muted); line-height: 1.3; }
+
+  /* Trend table */
+  .trend-table-wrap {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); overflow-x: auto;
+    margin-bottom: var(--space-xl);
+  }
+  .trend-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .trend-table th {
+    text-align: left; padding: 12px var(--space-xl); font-size: 11px;
+    font-weight: 600; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.04em; border-bottom: 1px solid var(--border-light);
+    background: var(--bg); white-space: nowrap;
+  }
+  .trend-table td {
+    padding: 12px var(--space-xl); border-bottom: 1px solid var(--border-light);
+    vertical-align: middle;
+  }
+  .trend-table tr:last-child td { border-bottom: none; }
+
+  .trend-up { color: var(--success); font-weight: 600; }
+  .trend-down { color: var(--danger); font-weight: 600; }
+  .trend-neutral { color: var(--muted); }
+
+  @media (max-width: 640px) {
+    .bar-chart { height: 140px; }
+    .hbar-item .hbar-label { min-width: 48px; font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="admin-page">
+
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="admin-dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="admin-users.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="admin-disputes.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理<span style="margin-left:auto;background:var(--danger);color:#fff;font-size:11px;padding:2px 7px;border-radius:var(--radius-full);">1</span></a>
+      <a href="admin-ai-logs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="admin-ai-config.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      	      <a href="admin-categories.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>标签/类别</a>
+	      <a href="admin-sensitive-words.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+	      <a href="admin-stats.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+	      <a href="admin-audit-log.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="../screens/feed.html">← 返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <div class="au-header">
+      <h2>平台统计</h2>
+      <div class="time-range">
+        <button>今日</button>
+        <button>本周</button>
+        <button class="active">本月</button>
+        <button>本季度</button>
+      </div>
+    </div>
+
+    <!-- KPI cards -->
+    <div class="skpi-row">
+      <div class="skpi-card">
+        <div class="skpi-value" style="color:var(--secondary)">1,248</div>
+        <div class="skpi-label">注册用户</div>
+        <div class="skpi-change up">↑ 12.4% 较上月</div>
+      </div>
+      <div class="skpi-card">
+        <div class="skpi-value" style="color:var(--accent)">5,620</div>
+        <div class="skpi-label">⏂ 时间币流通总量</div>
+        <div class="skpi-change up">↑ 8.3% 较上月</div>
+      </div>
+      <div class="skpi-card">
+        <div class="skpi-value" style="color:var(--success)">4,812</div>
+        <div class="skpi-label">累计完成订单</div>
+        <div class="skpi-change up">↑ 5.1% 较上月</div>
+      </div>
+      <div class="skpi-card">
+        <div class="skpi-value" style="color:var(--warning)">2.1%</div>
+        <div class="skpi-label">纠纷率</div>
+        <div class="skpi-change down">↓ 0.3pp 较上月</div>
+      </div>
+      <div class="skpi-card">
+        <div class="skpi-value" style="color:var(--reward-gold)">4.2</div>
+        <div class="skpi-label">用户平均信用分</div>
+        <div class="skpi-change up">↑ 0.1 较上月</div>
+      </div>
+    </div>
+
+    <!-- Charts row 1 -->
+    <div class="chart-panels">
+      <div class="chart-card">
+        <h4>📈 月度交易量趋势</h4>
+        <div class="bar-chart">
+          <div class="bar-col"><div class="bar-val">210</div><div class="bar" style="height:140px"></div><div class="bar-label">1月</div></div>
+          <div class="bar-col"><div class="bar-val">198</div><div class="bar" style="height:132px"></div><div class="bar-label">2月</div></div>
+          <div class="bar-col"><div class="bar-val">245</div><div class="bar" style="height:163px"></div><div class="bar-label">3月</div></div>
+          <div class="bar-col"><div class="bar-val">278</div><div class="bar alt" style="height:185px"></div><div class="bar-label">4月</div></div>
+          <div class="bar-col"><div class="bar-val">310</div><div class="bar alt" style="height:180px"></div><div class="bar-label">5月</div></div>
+          <div class="bar-col"><div class="bar-val">342</div><div class="bar alt" style="height:180px"></div><div class="bar-label">6月</div></div>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <h4>🏷️ 热门服务类型分布</h4>
+        <div class="hbar-list">
+          <div class="hbar-item"><div class="hbar-label">保洁</div><div class="hbar-track"><div class="hbar-fill c1" style="width:28%">28%</div></div></div>
+          <div class="hbar-item"><div class="hbar-label">辅导</div><div class="hbar-track"><div class="hbar-fill c2" style="width:22%">22%</div></div></div>
+          <div class="hbar-item"><div class="hbar-label">维修</div><div class="hbar-track"><div class="hbar-fill c3" style="width:17%">17%</div></div></div>
+          <div class="hbar-item"><div class="hbar-label">跑腿</div><div class="hbar-track"><div class="hbar-fill c4" style="width:14%">14%</div></div></div>
+          <div class="hbar-item"><div class="hbar-label">IT</div><div class="hbar-track"><div class="hbar-fill c5" style="width:10%">10%</div></div></div>
+          <div class="hbar-item"><div class="hbar-label">其他</div><div class="hbar-track"><div class="hbar-fill c6" style="width:9%">9%</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts row 2 -->
+    <div class="chart-panels">
+      <div class="chart-card">
+        <h4>📊 用户增长趋势</h4>
+        <div class="bar-chart">
+          <div class="bar-col"><div class="bar-val">856</div><div class="bar" style="height:130px"></div><div class="bar-label">1月</div></div>
+          <div class="bar-col"><div class="bar-val">912</div><div class="bar" style="height:138px"></div><div class="bar-label">2月</div></div>
+          <div class="bar-col"><div class="bar-val">989</div><div class="bar" style="height:150px"></div><div class="bar-label">3月</div></div>
+          <div class="bar-col"><div class="bar-val">1,060</div><div class="bar alt" style="height:160px"></div><div class="bar-label">4月</div></div>
+          <div class="bar-col"><div class="bar-val">1,148</div><div class="bar alt" style="height:174px"></div><div class="bar-label">5月</div></div>
+          <div class="bar-col"><div class="bar-val">1,248</div><div class="bar alt" style="height:180px"></div><div class="bar-label">6月</div></div>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <h4>⏂ 时间币流通结构</h4>
+        <div class="donut-grid">
+          <div class="donut-item">
+            <div class="donut-ring" style="background:conic-gradient(var(--accent) 0% 45%, var(--border-light) 45% 100%)">
+              <span>45%</span>
+            </div>
+            <div class="donut-label">服务报酬<br>流通占比</div>
+          </div>
+          <div class="donut-item">
+            <div class="donut-ring" style="background:conic-gradient(var(--secondary) 0% 25%, var(--border-light) 25% 100%)">
+              <span>25%</span>
+            </div>
+            <div class="donut-label">注册奖励<br>新增注入</div>
+          </div>
+          <div class="donut-item">
+            <div class="donut-ring" style="background:conic-gradient(var(--success) 0% 18%, var(--border-light) 18% 100%)">
+              <span>18%</span>
+            </div>
+            <div class="donut-label">用户间<br>赠送流转</div>
+          </div>
+          <div class="donut-item">
+            <div class="donut-ring" style="background:conic-gradient(var(--warning) 0% 12%, var(--border-light) 12% 100%)">
+              <span>12%</span>
+            </div>
+            <div class="donut-label">纠纷退还<br>回流</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trend table -->
+    <div class="trend-table-wrap">
+      <table class="trend-table">
+        <thead>
+          <tr>
+            <th>指标</th>
+            <th>本月</th>
+            <th>上月</th>
+            <th>环比</th>
+            <th>同比</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight:600">新增注册用户</td>
+            <td>142</td>
+            <td>128</td>
+            <td class="trend-up">↑ 10.9%</td>
+            <td class="trend-up">↑ 18.3%</td>
+          </tr>
+          <tr>
+            <td style="font-weight:600">发布需求数</td>
+            <td>486</td>
+            <td>452</td>
+            <td class="trend-up">↑ 7.5%</td>
+            <td class="trend-up">↑ 12.1%</td>
+          </tr>
+          <tr>
+            <td style="font-weight:600">完成订单数</td>
+            <td>342</td>
+            <td>326</td>
+            <td class="trend-up">↑ 4.9%</td>
+            <td class="trend-up">↑ 6.3%</td>
+          </tr>
+          <tr>
+            <td style="font-weight:600">订单完成率</td>
+            <td>70.4%</td>
+            <td>72.1%</td>
+            <td class="trend-down">↓ 1.7pp</td>
+            <td class="trend-down">↓ 0.8pp</td>
+          </tr>
+          <tr>
+            <td style="font-weight:600">时间币流通量</td>
+            <td>⏂ 1,710</td>
+            <td>⏂ 1,580</td>
+            <td class="trend-up">↑ 8.2%</td>
+            <td class="trend-up">↑ 15.6%</td>
+          </tr>
+          <tr>
+            <td style="font-weight:600">纠纷发起数</td>
+            <td>7</td>
+            <td>8</td>
+            <td class="trend-down">↓ 12.5%</td>
+            <td class="trend-down">↓ 22.2%</td>
+          </tr>
+          <tr>
+            <td style="font-weight:600">AI 调用总量</td>
+            <td>8,421</td>
+            <td>7,850</td>
+            <td class="trend-up">↑ 7.3%</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td style="font-weight:600">活跃用户数 (MAU)</td>
+            <td>428</td>
+            <td>396</td>
+            <td class="trend-up">↑ 8.1%</td>
+            <td class="trend-up">↑ 14.7%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

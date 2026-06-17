@@ -83,11 +83,13 @@ async function findVisibleAsset(store, fileId, request, authService) {
 
 async function streamAsset(response, isHead, asset) {
   const body = isHead ? null : await fs.readFile(asset.storagePath);
+  const safeName = String(asset.originalName || "file").replace(/["\\]/g, "");
+  const encodedName = encodeURIComponent(safeName);
   response.writeHead(200, {
     "content-type": asset.mimeType,
     "content-length": String(asset.sizeBytes),
     "cache-control": "private, no-store",
-    "content-disposition": `inline; filename="${String(asset.originalName).replace(/["\\]/g, "")}"`
+    "content-disposition": `inline; filename="${encodedName}"; filename*=UTF-8''${encodedName}`
   });
   response.end(isHead ? undefined : body);
 }

@@ -2,6 +2,7 @@ import { ACTIVE_STATUS } from "../auth/store.mjs";
 import { HttpError, methodNotAllowed, readJsonBody, sendJson } from "../http.mjs";
 
 const MESSAGE_READ_RE = /^\/api\/messages\/([^/]+)\/read$/;
+const MESSAGE_RECALL_RE = /^\/api\/messages\/([^/]+)$/;
 const REQUEST_COMMENTS_RE = /^\/api\/requests\/([^/]+)\/comments$/;
 const COMMENT_LIKE_RE = /^\/api\/request-comments\/([^/]+)\/like$/;
 const COMMUNITY_POST_DETAIL_RE = /^\/api\/community-posts\/([^/]+)$/;
@@ -153,6 +154,21 @@ export async function handleSocialRoutes({ request, response, url, authService }
     return true;
   }
 
+  if (url.pathname === "/api/messages/thread" && request.method === "DELETE") {
+    allowOnly(request, response, ["DELETE"]);
+    const context = await authService.authenticateRequest(request);
+    authService.requireRole(context, ["user"]);
+    const body = await readJsonBody(request, { maxBytes: 8 * 1024 });
+    ensureStoreMethod(authService.store, "deleteMessageThread", "MESSAGE_STORE_UNAVAILABLE");
+    const result = await authService.store.deleteMessageThread({
+      viewerId: context.user.userId,
+      userId: parseId(body.userId, "USER_NOT_FOUND"),
+      orderId: optionalId(body.orderId)
+    });
+    sendJson(response, 200, { deleted: result?.deleted ?? 0 });
+    return true;
+  }
+
   if (url.pathname === "/api/messages/thread") {
     allowOnly(request, response, ["GET"]);
     const context = await authService.authenticateRequest(request);
@@ -231,6 +247,31 @@ export async function handleSocialRoutes({ request, response, url, authService }
       targetId: parseId(collectionMatch[2], "COLLECTION_TARGET_NOT_FOUND")
     });
     sendJson(response, 200, { collection });
+    return true;
+  }
+
+  const messageRecallMatch = url.pathname.match(MESSAGE_RECALL_RE);
+  if (messageRecallMatch) {
+    allowOnly(request, response, ["DELETE"]);
+    const context = await authService.authenticateRequest(request);
+    authService.requireRole(context, ["user"]);
+    ensureStoreMethod(authService.store, "recallMessage", "MESSAGE_STORE_UNAVAILABLE");
+    let result;
+    try {
+      result = await authService.store.recallMessage({
+        messageId: parseId(messageRecallMatch[1], "MESSAGE_NOT_FOUND"),
+        userId: context.user.userId
+      });
+    } catch (error) {
+      if (error?.code === "RECALL_TIME_EXCEEDED") {
+        throw new HttpError(409, "RECALL_TIME_EXCEEDED", error.message);
+      }
+      throw error;
+    }
+    if (!result) {
+      throw new HttpError(404, "MESSAGE_NOT_FOUND", "Message was not found or cannot be recalled.");
+    }
+    sendJson(response, 200, { message: messageDto(result), recalled: true });
     return true;
   }
 

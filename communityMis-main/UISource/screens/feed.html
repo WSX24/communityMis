@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>首页 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  /* ===== 顶部导航 ===== */
+  .feed-header {
+    position: sticky; top: 0; z-index: 50;
+    background: oklch(97% 0.005 85 / 0.88);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    padding: var(--space-lg) var(--space-lg) var(--space-md);
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .feed-header.scrolled {
+    border-bottom-color: var(--border-light);
+    box-shadow: var(--shadow-sm);
+  }
+  .feed-header .top-row {
+    display: flex; align-items: center; gap: var(--space-md);
+  }
+  .feed-header h1 {
+    font-family: var(--font-display); font-size: 26px; font-weight: 800;
+    letter-spacing: -0.02em; flex-shrink: 0;
+  }
+  .feed-header h1 span { color: var(--accent); }
+
+  .search-bar {
+    flex: 1; display: flex; align-items: center; gap: var(--space-sm);
+    background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: var(--radius-xl); padding: 10px 16px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .search-bar:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+  }
+  .search-bar input {
+    flex: 1; border: none; outline: none; background: none;
+    font-size: 14px; color: var(--fg);
+  }
+  .search-bar input::placeholder { color: var(--muted); font-size: 14px; }
+
+  .icon-btn {
+    width: 40px; height: 40px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    position: relative; flex-shrink: 0;
+    transition: background 0.2s, transform 0.2s;
+    color: var(--muted);
+  }
+  .icon-btn:hover { background: var(--border-light); color: var(--accent); transform: scale(1.05); }
+  .icon-btn .dot {
+    position: absolute; top: 6px; right: 6px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--danger); border: 2px solid oklch(97% 0.005 85 / 0.88);
+  }
+
+  /* ===== 分类标签 ===== */
+  .category-tabs {
+    display: flex; gap: 8px; margin-top: var(--space-md);
+    overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
+    padding-bottom: 4px;
+  }
+  .category-tabs::-webkit-scrollbar { display: none; }
+
+  .chip {
+    flex-shrink: 0; padding: 7px 16px; border-radius: var(--radius-full);
+    font-size: 13px; font-weight: 600; color: var(--muted);
+    background: var(--surface); border: 1.5px solid var(--border);
+    transition: all 0.2s ease; cursor: pointer; user-select: none;
+  }
+  .chip:hover { border-color: var(--accent-light); color: var(--accent); }
+  .chip.active {
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff; border-color: transparent;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+  }
+
+  /* ===== 内容容器 ===== */
+  .feed-content {
+    padding: var(--space-md) var(--space-lg) calc(var(--space-3xl) + 80px);
+    max-width: 680px; margin: 0 auto;
+  }
+
+  /* ===== 任务卡片 ===== */
+  .task-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+    padding: var(--space-lg);
+    margin-bottom: var(--space-lg);
+    position: relative; overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+  }
+  .task-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--reward-gold), var(--accent));
+  }
+  .task-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+  .task-card .task-top {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: var(--space-sm); margin-bottom: var(--space-sm);
+  }
+  .task-card .task-title {
+    font-size: 16px; font-weight: 700; line-height: 1.4; color: var(--fg);
+  }
+  .reward-tag {
+    display: inline-flex; align-items: center; gap: 3px;
+    background: linear-gradient(135deg, oklch(65% 0.18 82), oklch(58% 0.16 70));
+    color: #fff; padding: 5px 12px; border-radius: var(--radius-full);
+    font-size: 14px; font-weight: 700; flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(217, 119, 87, 0.3);
+  }
+  .task-card .task-desc {
+    font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: var(--space-md);
+  }
+  .task-card .task-meta {
+    display: flex; gap: var(--space-lg); flex-wrap: wrap;
+    font-size: 13px; color: var(--muted);
+    margin-bottom: var(--space-md);
+  }
+  .task-card .task-meta span {
+    display: flex; align-items: center; gap: 4px;
+  }
+  .task-card .task-footer {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .task-card .publisher {
+    display: flex; align-items: center; gap: var(--space-sm);
+    font-size: 13px; color: var(--muted);
+  }
+  .task-card .publisher .avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 12px; font-weight: 700;
+  }
+
+  /* ===== 帖子卡片 ===== */
+  .post-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+    padding: var(--space-lg);
+    margin-bottom: var(--space-lg);
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+  }
+  .post-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+  .post-card .post-header {
+    display: flex; align-items: center; gap: var(--space-md);
+    margin-bottom: var(--space-md);
+  }
+  .post-card .avatar {
+    width: 42px; height: 42px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 16px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .post-card .user-info { flex: 1; min-width: 0; }
+  .post-card .user-name { font-weight: 700; font-size: 15px; color: var(--fg); }
+  .post-card .post-meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .post-card .post-body { font-size: 15px; line-height: 1.7; margin-bottom: var(--space-md); color: var(--text-secondary); }
+  .post-card .post-body .tag-row { display: flex; gap: 6px; margin-bottom: var(--space-sm); }
+
+  .post-card .post-images {
+    display: grid; gap: 6px; margin-bottom: var(--space-md);
+    border-radius: var(--radius-md); overflow: hidden;
+  }
+  .post-card .post-images.col-1 { grid-template-columns: 1fr; }
+  .post-card .post-images.col-2 { grid-template-columns: 1fr 1fr; }
+  .post-card .post-images.col-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .post-card .post-images img {
+    width: 100%; aspect-ratio: 1; object-fit: cover;
+    background: var(--border-light); transition: transform 0.3s;
+  }
+  .post-card:hover .post-images img:hover { transform: scale(1.02); }
+
+  .post-card .post-actions {
+    display: flex; gap: var(--space-xl); padding-top: var(--space-md);
+    border-top: 1px solid var(--border-light);
+  }
+  .post-card .action-btn {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 13px; font-weight: 600; color: var(--muted);
+    transition: all 0.2s; background: none; border: none; cursor: pointer;
+    padding: 4px 8px; border-radius: var(--radius-sm);
+  }
+  .post-card .action-btn:hover {
+    color: var(--accent);
+    background: var(--accent-subtle);
+  }
+  .post-card .action-btn svg { width: 18px; height: 18px; }
+
+  /* ===== 底部导航 ===== */
+  .bottom-nav {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: oklch(98% 0.005 85 / 0.92);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border-light);
+    display: flex; justify-content: space-around; align-items: center;
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+    z-index: 100;
+  }
+  .bottom-nav a {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    transition: color 0.2s; padding: 4px 12px; text-decoration: none;
+  }
+  .bottom-nav a svg { width: 22px; height: 22px; transition: transform 0.2s; }
+  .bottom-nav a:hover { color: var(--accent); }
+  .bottom-nav a:hover svg { transform: translateY(-2px); }
+  .bottom-nav a.active { color: var(--accent); }
+  .bottom-nav a.active svg { transform: translateY(-2px); }
+
+  .publish-btn {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff !important;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+    margin-top: -24px; transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .publish-btn:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 24px rgba(99, 102, 241, 0.45);
+  }
+  .publish-btn svg { width: 24px; height: 24px; }
+
+  /* ===== AI FAB ===== */
+  .ai-fab {
+    position: fixed; right: 20px; bottom: calc(80px + env(safe-area-inset-bottom));
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.35);
+    z-index: 90; transition: transform 0.3s, box-shadow 0.3s;
+  }
+  .ai-fab:hover {
+    transform: scale(1.1) rotate(15deg);
+    box-shadow: 0 6px 28px rgba(99, 102, 241, 0.45);
+  }
+  .ai-fab svg { width: 24px; height: 24px; }
+  .fab-pulse {
+    position: absolute; inset: -4px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    opacity: 0;
+    animation: fabPulse 2s ease-out infinite;
+  }
+  @keyframes fabPulse {
+    0% { transform: scale(1); opacity: 0.6; }
+    100% { transform: scale(1.4); opacity: 0; }
+  }
+
+  /* ===== 通用微件 ===== */
+  .badge {
+    display: inline-flex; align-items: center;
+    padding: 3px 10px; border-radius: var(--radius-full);
+    font-size: 12px; font-weight: 600;
+  }
+  .badge--success { background: oklch(95% 0.05 145); color: oklch(45% 0.12 145); }
+  .badge--accent { background: var(--accent-subtle); color: var(--accent); }
+  .badge--warning { background: oklch(95% 0.05 85); color: oklch(55% 0.12 70); }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: var(--space-sm); border-radius: var(--radius-full);
+    font-weight: 700; border: none; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn--sm { padding: 8px 18px; font-size: 14px; }
+  .btn--primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+  }
+  .btn--primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+  }
+
+  /* 响应式 */
+  @media (max-width: 480px) {
+    .feed-content { padding: var(--space-sm) var(--space-md) calc(var(--space-3xl) + 80px); }
+    .feed-header { padding: var(--space-md) var(--space-md) var(--space-sm); }
+    .task-card, .post-card { padding: var(--space-md); }
+  }
+</style>
+</head>
+<body>
+
+<!-- 顶部 Header -->
+<div class="feed-header" id="feedHeader">
+  <div class="top-row">
+    <h1><span>邻帮</span></h1>
+    <div class="search-bar">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" placeholder="搜帖子、找任务…">
+    </div>
+    <a class="icon-btn" href="notifications.html" aria-label="通知">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span class="dot"></span>
+    </a>
+  </div>
+  <div class="category-tabs">
+    <button class="chip active">全部</button>
+    <button class="chip">日常分享</button>
+    <button class="chip">求助问答</button>
+    <button class="chip">跑腿任务</button>
+    <button class="chip">闲置交易</button>
+    <button class="chip">社区公告</button>
+  </div>
+</div>
+
+<!-- 内容流 -->
+<div class="feed-content">
+
+  <!-- 任务卡片 1 -->
+  <div class="task-card">
+    <div class="task-top">
+      <span class="task-title">代取快递并送到 3 号楼</span>
+      <span class="reward-tag">¥15</span>
+    </div>
+    <p class="task-desc">菜鸟驿站 3 号柜，两个包裹有点重，需要有推车的邻居帮忙送到 3 号楼 1201</p>
+    <div class="task-meta">
+      <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/></svg>阳光花园小区</span>
+      <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>今天 20:00 前</span>
+      <span class="badge badge--warning">即将截止</span>
+    </div>
+    <div class="task-footer">
+      <div class="publisher">
+        <div class="avatar" style="background:oklch(70% 0.08 28);">李</div>
+        <span>李阿姨 · 2分钟前</span>
+      </div>
+      <button class="btn btn--primary btn--sm">我要接单</button>
+    </div>
+  </div>
+
+  <!-- 帖子 1 -->
+  <div class="post-card" onclick="location.href='post-detail.html'">
+    <div class="post-header">
+      <div class="avatar" style="background:oklch(65% 0.10 175);">张</div>
+      <div class="user-info">
+        <div class="user-name">张叔的阳台菜园</div>
+        <div class="post-meta">3小时前 · 阳光花园小区</div>
+      </div>
+      <button class="icon-btn" style="width:32px;height:32px;" onclick="event.stopPropagation()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+      </button>
+    </div>
+    <div class="post-body">
+      <div class="tag-row"><span class="badge badge--success">日常分享</span></div>
+      <p>今年阳台上种的小番茄丰收了！🍅 有没有邻居想要？免费送，自己来 6 号楼 502 拿就行，先到先得～</p>
+    </div>
+    <div class="post-images col-2">
+      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect fill='%23f0eee6' width='200' height='200'/%3E%3Ccircle cx='100' cy='100' r='40' fill='%23d97757' opacity='0.6'/%3E%3Ccircle cx='70' cy='80' r='20' fill='%23c96442' opacity='0.5'/%3E%3Ccircle cx='130' cy='90' r='25' fill='%23e8956a' opacity='0.5'/%3E%3Ctext x='100' y='170' text-anchor='middle' fill='%2387867f' font-size='12'%3E📷 阳台小番茄%3C/text%3E%3C/svg%3E" alt="">
+      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect fill='%23e8e6dc' width='200' height='200'/%3E%3Crect x='50' y='50' width='100' height='80' rx='8' fill='%23c96442' opacity='0.5'/%3E%3Ccircle cx='70' cy='70' r='10' fill='%23d97757'/%3E%3Ccircle cx='130' cy='70' r='10' fill='%23d97757'/%3E%3Ctext x='100' y='170' text-anchor='middle' fill='%2387867f' font-size='12'%3E📷 丰收果实%3C/text%3E%3C/svg%3E" alt="">
+    </div>
+    <div class="post-actions">
+      <button class="action-btn" onclick="event.stopPropagation()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/></svg> 28
+      </button>
+      <button class="action-btn" onclick="event.stopPropagation()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> 6
+      </button>
+      <button class="action-btn" onclick="event.stopPropagation()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> 分享
+      </button>
+    </div>
+  </div>
+
+  <!-- 帖子 2 -->
+  <div class="post-card">
+    <div class="post-header">
+      <div class="avatar" style="background:oklch(60% 0.12 255);">王</div>
+      <div class="user-info">
+        <div class="user-name">小王在社区</div>
+        <div class="post-meta">5小时前 · 阳光花园小区</div>
+      </div>
+      <button class="icon-btn" style="width:32px;height:32px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+      </button>
+    </div>
+    <div class="post-body">
+      <div class="tag-row"><span class="badge badge--accent">求助问答</span></div>
+      <p>请问小区附近有没有靠谱的干洗店推荐？冬天的羽绒服要收起来了，想找一家性价比高的 🙏</p>
+    </div>
+    <div class="post-actions">
+      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/></svg> 15</button>
+      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> 12</button>
+      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> 分享</button>
+    </div>
+  </div>
+
+  <!-- 任务卡片 2 -->
+  <div class="task-card">
+    <div class="task-top">
+      <span class="task-title">帮忙遛狗 30 分钟</span>
+      <span class="reward-tag">¥20</span>
+    </div>
+    <p class="task-desc">金毛，性格温顺，就在小区内遛，不用出小区大门。今天下午 4 点到 5 点之间即可</p>
+    <div class="task-meta">
+      <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/></svg>阳光花园小区</span>
+      <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>明天 17:00 前</span>
+    </div>
+    <div class="task-footer">
+      <div class="publisher">
+        <div class="avatar" style="background:oklch(65% 0.08 175);">赵</div>
+        <span>赵姐 · 1小时前</span>
+      </div>
+      <button class="btn btn--primary btn--sm">我要接单</button>
+    </div>
+  </div>
+
+  <!-- 帖子 3 -->
+  <div class="post-card">
+    <div class="post-header">
+      <div class="avatar" style="background:oklch(55% 0.14 28);">陈</div>
+      <div class="user-info">
+        <div class="user-name">陈老师教画画</div>
+        <div class="post-meta">昨天 19:30 · 阳光花园小区</div>
+      </div>
+      <button class="icon-btn" style="width:32px;height:32px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+      </button>
+    </div>
+    <div class="post-body">
+      <div class="tag-row"><span class="badge badge--success">日常分享</span></div>
+      <p>周六下午在社区活动室开了第一期素描兴趣小组，来了 8 位邻居，大家画得很认真！下周继续，欢迎零基础的邻居来玩～ 材料我这边都备好了 ✏️</p>
+    </div>
+    <div class="post-images col-3">
+      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Crect fill='%23f5f4ed' width='120' height='120'/%3E%3Ccircle cx='60' cy='50' r='25' fill='%23c96442' opacity='0.3'/%3E%3Crect x='45' y='80' width='30' height='20' rx='4' fill='%2387867f' opacity='0.4'/%3E%3Ctext x='60' y='110' text-anchor='middle' fill='%2387867f' font-size='10'%3E📷 素描课%3C/text%3E%3C/svg%3E" alt="">
+      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Crect fill='%23e8e6dc' width='120' height='120'/%3E%3Ccircle cx='60' cy='50' r='25' fill='%235e5d59' opacity='0.3'/%3E%3Ctext x='60' y='110' text-anchor='middle' fill='%2387867f' font-size='10'%3E📷 作品%3C/text%3E%3C/svg%3E" alt="">
+      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Crect fill='%23f0eee6' width='120' height='120'/%3E%3Crect x='30' y='30' width='60' height='70' rx='4' fill='%23d97757' opacity='0.3'/%3E%3Ctext x='60' y='110' text-anchor='middle' fill='%2387867f' font-size='10'%3E📷 合影%3C/text%3E%3C/svg%3E" alt="">
+    </div>
+    <div class="post-actions">
+      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/></svg> 42</button>
+      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> 9</button>
+      <button class="action-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> 分享</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- AI 助手 FAB -->
+<button class="ai-fab" aria-label="AI 助手" onclick="openAIModal('all')">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  <span class="fab-pulse"></span>
+</button>
+
+<!-- 底部导航 -->
+<<nav class="bottom-nav">
+  <a href="feed.html" class="active">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    首页
+  </a>
+  <a href="tasks.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    任务
+  </a>
+  <a href="post.html" class="publish-btn" aria-label="发布">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </a>
+  <a href="messages.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    消息
+  </a>
+  <a href="profile.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    我的
+  </a>
+</nav>
+
+<script src="../js/ai-modal.js"></script>
+<script>
+  // 分类切换
+  document.querySelectorAll('.category-tabs .chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.category-tabs .chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+    });
+  });
+
+  // Header 滚动阴影
+  const header = document.getElementById('feedHeader');
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 10) {
+      header.classList.add('scrolled');
+    } else {
+      header.classList.remove('scrolled');
+    }
+  });
+</script>
+</body>
+</html>

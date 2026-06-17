@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>审计日志 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  .admin-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100dvh; }
+  @media (max-width: 860px) {
+    .admin-page { grid-template-columns: 1fr; }
+    .admin-sidebar { display: none; }
+  }
+  .admin-sidebar {
+    background: var(--fg); color: oklch(92% 0.004 85);
+    padding: var(--space-2xl) var(--space-lg); display: flex;
+    flex-direction: column; gap: var(--space-3xl);
+    position: sticky; top: 0; height: 100dvh;
+  }
+  .admin-sidebar .sb-brand {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    color: #fff; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .admin-sidebar .shield {
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    background: var(--accent); display: flex; align-items: center;
+    justify-content: center; font-size: 14px;
+  }
+  .admin-sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+  .admin-sidebar nav a {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: oklch(72% 0.005 85);
+    transition: all 0.15s;
+  }
+  .admin-sidebar nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .admin-sidebar nav a.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 600; }
+  .admin-sidebar nav a svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .admin-sidebar .sb-footer { margin-top: auto; }
+  .admin-sidebar .sb-back {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 13px; color: oklch(62% 0.005 85); transition: all 0.15s;
+  }
+  .admin-sidebar .sb-back:hover { background: rgba(255,255,255,0.06); color: #fff; }
+
+  .admin-main { padding: var(--space-3xl); max-width: 1200px; }
+  @media (max-width: 860px) { .admin-main { padding: var(--space-lg); } }
+
+  .au-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-2xl); flex-wrap: wrap; gap: var(--space-lg);
+  }
+  .au-header h2 { font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+
+  /* Stats */
+  .al-summary {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: var(--space-lg); margin-bottom: var(--space-xl);
+  }
+  .al-sum-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-lg) var(--space-xl); text-align: center;
+  }
+  .al-sum-card .al-num { font-family: var(--font-display); font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+  .al-sum-card .al-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* Filter row */
+  .au-filter-row {
+    display: flex; gap: var(--space-md); margin-bottom: var(--space-xl);
+    flex-wrap: wrap; align-items: center;
+  }
+  .au-search {
+    flex: 1; min-width: 180px; display: flex; align-items: center; gap: var(--space-sm);
+    background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: var(--radius-md); padding: 10px 16px;
+    transition: border-color 0.15s;
+  }
+  .au-search:focus-within { border-color: var(--accent); }
+  .au-search input { flex: 1; border: none; outline: none; font-size: 14px; background: transparent; }
+  .au-search svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+  .au-filter-row select {
+    padding: 9px 14px; border-radius: var(--radius-md); border: 1.5px solid var(--border);
+    font-size: 14px; outline: none; background: var(--surface);
+  }
+
+  /* Time picker */
+  .au-date-input {
+    padding: 9px 14px; border-radius: var(--radius-md); border: 1.5px solid var(--border);
+    font-size: 14px; outline: none; background: var(--surface); font-family: var(--font-mono);
+  }
+  .au-date-input:focus { border-color: var(--accent); }
+
+  /* Table */
+  .au-table-wrap {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); overflow-x: auto; margin-bottom: var(--space-xl);
+  }
+  .au-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .au-table th {
+    text-align: left; padding: 14px var(--space-xl); font-size: 12px;
+    font-weight: 600; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.04em; border-bottom: 1px solid var(--border-light);
+    background: var(--bg); white-space: nowrap;
+  }
+  .au-table td { padding: 12px var(--space-xl); border-bottom: 1px solid var(--border-light); vertical-align: middle; }
+  .au-table tr:last-child td { border-bottom: none; }
+  .au-table tr:hover td { background: oklch(97% 0.005 85 / 0.5); }
+
+  .au-log-id { font-family: var(--font-mono); font-size: 13px; font-weight: 500; }
+  .au-operator { font-weight: 600; }
+
+  .action-badge {
+    display: inline-block; padding: 3px 10px; border-radius: var(--radius-full);
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+  .action-badge.config { background: var(--secondary-light); color: var(--secondary); }
+  .action-badge.user { background: var(--accent-subtle); color: var(--accent); }
+  .action-badge.order { background: oklch(93% 0.05 82); color: var(--reward-gold); }
+  .action-badge.delete { background: var(--danger-light); color: var(--danger); }
+  .action-badge.system { background: var(--border-light); color: var(--muted); }
+
+  .risk-badge {
+    display: inline-block; padding: 2px 8px; border-radius: var(--radius-full);
+    font-size: 11px; font-weight: 600;
+  }
+  .risk-badge.high { background: var(--danger-light); color: var(--danger); }
+  .risk-badge.medium { background: var(--warning-light); color: var(--warning); }
+  .risk-badge.low { background: var(--success-light); color: var(--success); }
+
+  /* Expandable detail */
+  .au-expand-btn {
+    padding: 4px 12px; border-radius: var(--radius-sm);
+    font-size: 12px; font-weight: 500; cursor: pointer;
+    border: 1px solid var(--border-light); background: var(--surface);
+    color: var(--muted); transition: all 0.15s;
+  }
+  .au-expand-btn:hover { border-color: var(--accent-light); color: var(--accent); }
+  .au-detail-row { display: none; }
+  .au-detail-row.show { display: table-row; }
+  .au-detail-row td { padding: 0; }
+  .au-detail-content {
+    padding: var(--space-xl); background: var(--bg);
+    border-top: 1px solid var(--border-light);
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--space-lg); font-size: 13px;
+  }
+  @media (max-width: 640px) { .au-detail-content { grid-template-columns: 1fr; } }
+  .au-detail-content h5 { font-size: 13px; font-weight: 700; margin-bottom: var(--space-sm); }
+  .au-detail-content .diff-block {
+    background: var(--surface); border-radius: var(--radius-sm); padding: var(--space-md);
+    font-family: var(--font-mono); font-size: 11px; line-height: 1.8; white-space: pre-wrap;
+    word-break: break-all; max-height: 200px; overflow-y: auto;
+  }
+  .diff-add { color: var(--success); }
+  .diff-remove { color: var(--danger); }
+  .diff-key { color: var(--secondary); }
+
+  /* Pagination */
+  .au-pagination {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: var(--space-md);
+  }
+  .au-page-info { font-size: 13px; color: var(--muted); }
+  .au-page-btns { display: flex; gap: 4px; }
+  .au-page-btn {
+    width: 32px; height: 32px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 500; border: 1px solid var(--border-light);
+    background: var(--surface); color: var(--fg); transition: all 0.15s; cursor: pointer;
+  }
+  .au-page-btn:hover { border-color: var(--accent-light); }
+  .au-page-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .au-page-btn.disabled { opacity: 0.35; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div class="admin-page">
+
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="admin-dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="admin-users.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="admin-disputes.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理</a>
+      <a href="admin-ai-logs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="admin-ai-config.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      <a href="admin-categories.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>标签/类别</a>
+      <a href="admin-sensitive-words.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+      <a href="admin-stats.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+      <a href="admin-audit-log.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="../screens/feed.html">← 返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <div class="au-header">
+      <h2>审计日志</h2>
+      <div style="font-size:12px;color:var(--muted)">所有管理操作和配置变更的不可篡改记录</div>
+    </div>
+
+    <!-- Stats -->
+    <div class="al-summary">
+      <div class="al-sum-card"><div class="al-num">12,540</div><div class="al-label">日志总数</div></div>
+      <div class="al-sum-card"><div class="al-num" style="color:var(--danger)">23</div><div class="al-label">高风险操作</div></div>
+      <div class="al-sum-card"><div class="al-num" style="color:var(--secondary)">156</div><div class="al-label">配置变更</div></div>
+      <div class="al-sum-card"><div class="al-num">8,210</div><div class="al-label">用户管理操作</div></div>
+      <div class="al-sum-card"><div class="al-num">4,151</div><div class="al-label">其他操作</div></div>
+    </div>
+
+    <!-- Filter row -->
+    <div class="au-filter-row">
+      <div class="au-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" placeholder="搜索操作人、操作对象、详情…" id="searchInput" oninput="filterLogs()">
+      </div>
+      <select id="actionFilter" onchange="filterLogs()">
+        <option value="">全部操作</option>
+        <option value="config">配置变更</option>
+        <option value="user">用户管理</option>
+        <option value="order">订单处理</option>
+        <option value="delete">删除操作</option>
+        <option value="system">系统事件</option>
+      </select>
+      <select id="riskFilter" onchange="filterLogs()">
+        <option value="">全部风险</option>
+        <option value="high">高风险</option>
+        <option value="medium">中风险</option>
+        <option value="low">低风险</option>
+      </select>
+      <input type="date" class="au-date-input" id="dateFrom" onchange="filterLogs()">
+      <span style="color:var(--muted)">至</span>
+      <input type="date" class="au-date-input" id="dateTo" onchange="filterLogs()">
+      <button class="btn btn--secondary btn--sm" onclick="exportCSV()">导出 CSV</button>
+    </div>
+
+    <!-- Table -->
+    <div class="au-table-wrap">
+      <table class="au-table">
+        <thead>
+          <tr>
+            <th>日志 ID</th>
+            <th>操作时间</th>
+            <th>操作人</th>
+            <th>操作类型</th>
+            <th>操作对象</th>
+            <th>变动摘要</th>
+            <th>风险</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="logTable">
+<tr data-runtime-placeholder><td colspan="7">正在加载真实审计日志。</td></tr>
+</tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="au-pagination">
+      <div class="au-page-info" id="pageInfo">共 12,540 条，显示第 1-15 条</div>
+      <div class="au-page-btns">
+        <button class="au-page-btn disabled">←</button>
+        <button class="au-page-btn active">1</button>
+        <button class="au-page-btn">2</button>
+        <button class="au-page-btn">3</button>
+        <button class="au-page-btn">...</button>
+        <button class="au-page-btn">836</button>
+        <button class="au-page-btn">→</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const logs = [];
+
+</script>
+
+</body>
+</html>

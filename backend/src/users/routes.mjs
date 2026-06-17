@@ -6,6 +6,29 @@ const USER_CREDIT_RE = /^\/api\/users\/([^/]+)\/credit$/;
 const USER_REVIEWS_RE = /^\/api\/users\/([^/]+)\/reviews$/;
 
 export async function handleUserRoutes({ request, response, url, authService }) {
+  if (url.pathname === "/api/users/me/avatar") {
+    allowOnly(request, response, ["POST"]);
+    const context = await authService.authenticateRequest(request);
+    authService.requireRole(context, ["user", "admin", "super_admin"]);
+    const body = await readJsonBody(request);
+    const fileId = parseInt(body.fileId, 10);
+    if (!Number.isFinite(fileId) || fileId <= 0) {
+      throw new HttpError(400, "INVALID_FILE_ID", "A valid file ID is required.");
+    }
+    if (typeof authService.store.updateUserAvatar !== "function") {
+      throw new HttpError(500, "STORE_UNAVAILABLE", "Avatar update is not available.");
+    }
+    const updated = await authService.store.updateUserAvatar(context.user.userId, fileId);
+    if (!updated) {
+      throw new HttpError(404, "FILE_NOT_FOUND", "File asset was not found or does not belong to current user.");
+    }
+    sendJson(response, 200, {
+      user: privateProfileDto(updated),
+      message: "Avatar updated."
+    });
+    return true;
+  }
+
   if (url.pathname === "/api/users/me") {
     allowOnly(request, response, ["GET", "PUT"]);
     const context = await authService.authenticateRequest(request);

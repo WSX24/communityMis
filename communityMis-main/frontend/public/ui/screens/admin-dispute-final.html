@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>纠纷终审 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  .admin-page {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: 100dvh;
+  }
+  @media (max-width: 860px) {
+    .admin-page { grid-template-columns: 1fr; }
+    .admin-sidebar { display: none; }
+  }
+
+  .admin-sidebar {
+    background: var(--fg); color: oklch(92% 0.004 85);
+    padding: var(--space-2xl) var(--space-lg); display: flex;
+    flex-direction: column; gap: var(--space-3xl);
+    position: sticky; top: 0; height: 100dvh;
+  }
+  .admin-sidebar .sb-brand {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    color: #fff; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .admin-sidebar .shield {
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    background: var(--accent); display: flex; align-items: center;
+    justify-content: center; font-size: 14px;
+  }
+  .admin-sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+  .admin-sidebar nav a {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: oklch(72% 0.005 85);
+    transition: all 0.15s;
+  }
+  .admin-sidebar nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .admin-sidebar nav a.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 600; }
+  .admin-sidebar nav a svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .admin-sidebar .nav-section-label {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    color: oklch(52% 0.005 85); letter-spacing: 0.08em;
+    padding: var(--space-lg) 14px var(--space-sm);
+  }
+  .admin-sidebar .sb-footer { margin-top: auto; }
+  .admin-sidebar .sb-back {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 13px; color: oklch(62% 0.005 85); transition: all 0.15s;
+  }
+  .admin-sidebar .sb-back:hover { background: rgba(255,255,255,0.06); color: #fff; }
+
+  .admin-main {
+    padding: var(--space-3xl); max-width: 1100px;
+  }
+  @media (max-width: 860px) {
+    .admin-main { padding: var(--space-lg); padding-bottom: 100px; }
+  }
+
+  /* Breadcrumb */
+  .df-breadcrumb {
+    display: flex; align-items: center; gap: var(--space-sm);
+    font-size: 13px; color: var(--muted); margin-bottom: var(--space-xl);
+  }
+  .df-breadcrumb a { color: var(--accent); font-weight: 500; }
+  .df-breadcrumb a:hover { text-decoration: underline; }
+  .df-breadcrumb .sep { color: var(--border); }
+
+  /* Header */
+  .df-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: var(--space-2xl); flex-wrap: wrap; gap: var(--space-lg);
+  }
+  .df-header-left h2 {
+    font-family: var(--font-display); font-size: 24px; font-weight: 700;
+    letter-spacing: -0.01em; margin-bottom: var(--space-sm);
+  }
+  .df-header-meta {
+    display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap;
+    font-size: 13px; color: var(--muted);
+  }
+  .df-header-meta .df-id {
+    font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+    padding: 3px 10px; border-radius: var(--radius-sm);
+    background: var(--border-light);
+  }
+  .df-type-badge {
+    font-size: 12px; font-weight: 600; padding: 3px 10px;
+    border-radius: var(--radius-full);
+  }
+  .df-type-badge.quality { background: var(--warning-light); color: var(--warning); }
+  .df-type-badge.incomplete { background: var(--danger-light); color: var(--danger); }
+  .df-type-badge.payment { background: var(--accent-subtle); color: var(--accent); }
+
+  .df-status-badge {
+    font-size: 12px; font-weight: 600; padding: 4px 12px;
+    border-radius: var(--radius-full);
+  }
+  .df-status-badge.pending { background: var(--warning-light); color: var(--warning); }
+
+  .df-order-link {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 13px; color: var(--accent); font-weight: 500;
+  }
+  .df-order-link:hover { text-decoration: underline; }
+
+  /* Section cards */
+  .df-section {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-2xl);
+    margin-bottom: var(--space-xl);
+  }
+  .df-section-header {
+    display: flex; align-items: center; gap: var(--space-sm);
+    font-family: var(--font-display); font-size: 17px; font-weight: 700;
+    margin-bottom: var(--space-xl); letter-spacing: -0.005em;
+  }
+  .df-section-header .section-icon {
+    width: 32px; height: 32px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+
+  /* Evidence grid */
+  .evidence-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--space-xl);
+  }
+  @media (max-width: 700px) { .evidence-grid { grid-template-columns: 1fr; } }
+
+  .ev-panel {
+    background: var(--bg); border-radius: var(--radius-md);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+  }
+  .ev-panel .ev-role {
+    display: inline-flex; align-items: center; gap: var(--space-sm);
+    font-size: 12px; font-weight: 600; padding: 4px 12px;
+    border-radius: var(--radius-full); margin-bottom: var(--space-md);
+  }
+  .ev-panel .ev-role.demand { background: var(--secondary-light); color: var(--secondary); }
+  .ev-panel .ev-role.service { background: var(--accent-subtle); color: var(--accent); }
+  .ev-panel .ev-user {
+    display: flex; align-items: center; gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+  }
+  .ev-panel .ev-avatar {
+    width: 44px; height: 44px; border-radius: var(--radius-full);
+    background: var(--border); display: flex; align-items: center;
+    justify-content: center; font-size: 18px;
+  }
+  .ev-panel .ev-name { font-size: 15px; font-weight: 600; }
+  .ev-panel .ev-credit {
+    font-size: 12px; color: var(--muted);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .ev-panel .ev-claim-label {
+    font-size: 12px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--space-sm);
+  }
+  .ev-panel .ev-claim {
+    font-size: 14px; line-height: 1.7; margin-bottom: var(--space-lg);
+    padding: var(--space-md); background: var(--surface);
+    border-radius: var(--radius-sm); border-left: 3px solid var(--border);
+  }
+  .ev-panel.demand .ev-claim { border-left-color: var(--secondary); }
+  .ev-panel.service .ev-claim { border-left-color: var(--accent); }
+
+  .ev-files { display: flex; flex-direction: column; gap: var(--space-sm); }
+  .ev-files-label {
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    margin-bottom: var(--space-xs);
+  }
+  .ev-file {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 8px 12px; border-radius: var(--radius-sm);
+    background: var(--surface); font-size: 12px;
+    font-family: var(--font-mono); color: var(--muted);
+    border: 1px solid var(--border-light);
+  }
+  .ev-file .file-icon { font-size: 16px; }
+  .ev-file .file-size { margin-left: auto; font-size: 11px; color: var(--border); }
+
+  /* Order timeline */
+  .timeline {
+    position: relative; padding-left: var(--space-2xl);
+  }
+  .timeline::before {
+    content: ''; position: absolute; left: 10px; top: 0; bottom: 0;
+    width: 2px; background: var(--border-light);
+  }
+  .tl-item {
+    position: relative; padding-bottom: var(--space-xl);
+  }
+  .tl-item:last-child { padding-bottom: 0; }
+  .tl-item::before {
+    content: ''; position: absolute; left: calc(-1 * var(--space-2xl) + 4px); top: 4px;
+    width: 14px; height: 14px; border-radius: var(--radius-full);
+    background: var(--surface); border: 2.5px solid var(--border);
+  }
+  .tl-item.active::before { border-color: var(--warning); background: var(--warning-light); }
+  .tl-item .tl-time { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+  .tl-item .tl-text { font-size: 14px; line-height: 1.5; }
+
+  /* Jury section */
+  .jury-summary {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-lg); margin-bottom: var(--space-xl);
+  }
+  @media (max-width: 640px) { .jury-summary { grid-template-columns: 1fr; } }
+  .jury-stat {
+    text-align: center; padding: var(--space-xl);
+    background: var(--bg); border-radius: var(--radius-md);
+    border: 1px solid var(--border-light);
+  }
+  .jury-stat .js-num {
+    font-family: var(--font-display); font-size: 36px; font-weight: 700;
+    letter-spacing: -0.02em; margin-bottom: 4px;
+  }
+  .jury-stat .js-label { font-size: 13px; color: var(--muted); }
+  .jury-stat.mediate .js-num { color: var(--warning); }
+  .jury-stat.demand .js-num { color: var(--secondary); }
+  .jury-stat.service .js-num { color: var(--accent); }
+
+  .jury-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 13px;
+  }
+  .jury-table th {
+    text-align: left; font-size: 11px; font-weight: 700;
+    color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;
+    padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--border-light);
+  }
+  .jury-table td {
+    padding: var(--space-md); border-bottom: 1px solid var(--border-light);
+    vertical-align: middle;
+  }
+  .jury-table tr:last-child td { border-bottom: none; }
+  .jury-table .juror-id {
+    font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+  }
+  .jury-table .vote-badge {
+    display: inline-block; padding: 3px 10px; border-radius: var(--radius-full);
+    font-size: 11px; font-weight: 600;
+  }
+  .jury-table .vote-badge.mediate { background: var(--warning-light); color: var(--warning); }
+  .jury-table .vote-badge.demand { background: var(--secondary-light); color: var(--secondary); }
+  .jury-table .vote-badge.service { background: var(--accent-subtle); color: var(--accent); }
+
+  /* AI summary */
+  .ai-box {
+    background: oklch(96% 0.02 200); border: 1px solid var(--secondary-light);
+    border-radius: var(--radius-md); padding: var(--space-xl);
+  }
+  .ai-box-header {
+    display: flex; align-items: center; gap: var(--space-sm);
+    font-size: 14px; font-weight: 700; color: var(--secondary);
+    margin-bottom: var(--space-lg);
+  }
+  .ai-box-header .ai-session {
+    margin-left: auto; font-size: 11px; color: var(--muted);
+    font-weight: 400; font-family: var(--font-mono);
+  }
+  .ai-item {
+    display: flex; gap: var(--space-md); margin-bottom: var(--space-md);
+    font-size: 13px; line-height: 1.6;
+  }
+  .ai-item:last-child { margin-bottom: 0; }
+  .ai-label {
+    font-weight: 600; color: var(--fg); min-width: 64px; flex-shrink: 0;
+    font-size: 12px;
+  }
+  .ai-disclaimer {
+    margin-top: var(--space-lg); font-size: 11px; color: var(--muted);
+    display: flex; align-items: center; gap: 4px;
+    padding-top: var(--space-md); border-top: 1px solid var(--border-light);
+  }
+
+  /* Ruling form */
+  .ruling-form {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 2px solid var(--accent-light); padding: var(--space-2xl);
+  }
+  .ruling-form h3 {
+    font-family: var(--font-display); font-size: 18px; font-weight: 700;
+    margin-bottom: var(--space-sm); letter-spacing: -0.005em;
+  }
+  .ruling-form .rf-subtitle {
+    font-size: 13px; color: var(--muted); margin-bottom: var(--space-xl);
+  }
+  .ruling-options {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-md); margin-bottom: var(--space-xl);
+  }
+  @media (max-width: 640px) { .ruling-options { grid-template-columns: 1fr; } }
+  .ruling-opt {
+    padding: var(--space-xl); border-radius: var(--radius-md);
+    border: 2px solid var(--border-light); text-align: center;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .ruling-opt:hover { border-color: var(--accent-light); background: var(--accent-subtle); }
+  .ruling-opt.selected {
+    border-color: var(--accent); background: var(--accent-subtle);
+    box-shadow: 0 0 0 3px oklch(54% 0.15 28 / 0.12);
+  }
+  .ruling-opt .ro-icon { font-size: 28px; margin-bottom: var(--space-sm); }
+  .ruling-opt .ro-label { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+  .ruling-opt .ro-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
+
+  .ruling-detail {
+    display: none; margin-bottom: var(--space-xl);
+    padding: var(--space-xl); background: var(--bg);
+    border-radius: var(--radius-md);
+  }
+  .ruling-detail.visible { display: block; }
+  .ruling-detail .rd-row {
+    display: flex; align-items: center; gap: var(--space-md);
+    margin-bottom: var(--space-md);
+  }
+  .ruling-detail .rd-label {
+    font-size: 13px; font-weight: 600; min-width: 80px;
+  }
+  .ruling-detail input[type="number"] {
+    width: 120px; padding: 8px 12px; border-radius: var(--radius-sm);
+    border: 1.5px solid var(--border); font-size: 14px; outline: none;
+  }
+  .ruling-detail input[type="number"]:focus { border-color: var(--accent); }
+
+  .ruling-reason-label {
+    font-size: 13px; font-weight: 600; margin-bottom: var(--space-sm);
+  }
+  .ruling-textarea {
+    width: 100%; min-height: 100px; padding: 12px 14px;
+    border-radius: var(--radius-md); border: 1.5px solid var(--border);
+    font-size: 14px; line-height: 1.6; outline: none; resize: vertical;
+    margin-bottom: var(--space-lg); font-family: var(--font-body);
+  }
+  .ruling-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
+
+  .ruling-warn {
+    display: flex; align-items: flex-start; gap: var(--space-sm);
+    padding: var(--space-md); background: var(--warning-light);
+    border-radius: var(--radius-sm); margin-bottom: var(--space-xl);
+    font-size: 13px; color: var(--warning); line-height: 1.5;
+  }
+  .ruling-warn .warn-icon { font-size: 18px; flex-shrink: 0; }
+
+  .ruling-actions {
+    display: flex; gap: var(--space-md); flex-wrap: wrap;
+  }
+
+  /* Submit confirm modal */
+  .confirm-overlay {
+    position: fixed; inset: 0; z-index: 500;
+    background: rgba(0,0,0,0.4); display: flex; align-items: center;
+    justify-content: center; opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .confirm-overlay.open { opacity: 1; pointer-events: auto; }
+  .confirm-dialog {
+    background: var(--surface); border-radius: var(--radius-lg);
+    padding: var(--space-3xl); max-width: 420px; width: 90%;
+    box-shadow: var(--shadow-lg); text-align: center;
+  }
+  .confirm-dialog .cd-icon { font-size: 40px; margin-bottom: var(--space-lg); }
+  .confirm-dialog h3 {
+    font-family: var(--font-display); font-size: 18px; font-weight: 700;
+    margin-bottom: var(--space-sm);
+  }
+  .confirm-dialog p {
+    font-size: 14px; color: var(--muted); line-height: 1.6;
+    margin-bottom: var(--space-xl);
+  }
+  .confirm-dialog .cd-summary {
+    text-align: left; background: var(--bg); border-radius: var(--radius-md);
+    padding: var(--space-md); margin-bottom: var(--space-xl); font-size: 13px;
+    line-height: 1.6;
+  }
+  .confirm-dialog .cd-actions {
+    display: flex; gap: var(--space-md); justify-content: center;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: var(--space-3xl); left: 50%; transform: translateX(-50%);
+    z-index: 600; padding: 12px 24px; border-radius: var(--radius-md);
+    background: var(--fg); color: #fff; font-size: 14px; font-weight: 600;
+    box-shadow: var(--shadow-lg); opacity: 0; pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="admin-page">
+
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="admin-dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="admin-users.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="admin-disputes.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理</a>
+      <a href="admin-ai-logs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="admin-ai-config.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      	      <a href="admin-categories.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>标签/类别</a>
+	      <a href="admin-sensitive-words.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+	      <a href="admin-stats.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+	      <a href="admin-audit-log.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="../screens/feed.html">← 返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+
+    <!-- Breadcrumb -->
+    <div class="df-breadcrumb">
+      <a href="admin-disputes.html">争议处理</a>
+      <span class="sep">/</span>
+      <span>终审裁决</span>
+    </div>
+
+    <!-- Header -->
+    <div class="df-header">
+      <div class="df-header-left">
+        <h2>正在加载纠纷详情</h2>
+        <div class="df-header-meta">
+          <span class="df-id">#--</span>
+          <span class="df-type-badge quality">订单争议</span>
+          <span class="df-status-badge pending">加载中</span>
+          <span>·</span>
+          <span>争议金额 -- ⏂</span>
+          <span>·</span>
+          <span>发起时间 --</span>
+          <span>·</span>
+          <a class="df-order-link" href="order-detail.html">关联订单 -- →</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== Section 1: Order Timeline ====== -->
+    <div class="df-section">
+      <div class="df-section-header">
+        <span class="section-icon" style="background:oklch(92% 0.05 175);color:var(--secondary);">📋</span>
+        订单时间线
+      </div>
+      <div class="timeline">
+<div data-runtime-placeholder class="runtime-placeholder">正在加载真实纠纷时间线。</div>
+</div>
+    </div>
+
+    <!-- ====== Section 2: Evidence From Both Parties ====== -->
+    <div class="df-section">
+      <div class="df-section-header">
+        <span class="section-icon" style="background:oklch(93% 0.04 22);color:var(--danger);">⚡</span>
+        双方举证
+      </div>
+      <div class="evidence-grid">
+        <!-- Demand side -->
+        <div class="ev-panel demand">
+          <div class="ev-role demand">🏠 需求方</div>
+          <div class="ev-user">
+            <div class="ev-avatar">👤</div>
+            <div>
+              <div class="ev-name">正在加载</div>
+              <div class="ev-credit">需求方</div>
+            </div>
+          </div>
+          <div class="ev-claim-label">主张陈述</div>
+          <div class="ev-claim">
+            正在加载真实主张。
+          </div>
+          <div class="ev-files">
+            <div class="ev-files-label">提交证据</div>
+            <div class="ev-file"><span class="file-icon">📎</span> 正在加载真实证据</div>
+          </div>
+        </div>
+
+        <!-- Service side -->
+        <div class="ev-panel service">
+          <div class="ev-role service">🛠 服务方</div>
+          <div class="ev-user">
+            <div class="ev-avatar">👤</div>
+            <div>
+              <div class="ev-name">正在加载</div>
+              <div class="ev-credit">服务方</div>
+            </div>
+          </div>
+          <div class="ev-claim-label">答辩陈述</div>
+          <div class="ev-claim">
+            正在加载真实答辩。
+          </div>
+          <div class="ev-files">
+            <div class="ev-files-label">提交证据</div>
+            <div class="ev-file"><span class="file-icon">📎</span> 正在加载真实证据</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== Section 3: Jury Vote ====== -->
+    <div class="df-section">
+      <div class="df-section-header">
+        <span class="section-icon" style="background:oklch(94% 0.06 75);color:var(--warning);">🗳</span>
+        陪审团投票结果
+        <span style="margin-left:auto;font-size:12px;font-weight:400;color:var(--muted);">正在加载陪审数据</span>
+      </div>
+
+      <div class="jury-summary">
+        <div class="jury-stat mediate">
+          <div class="js-num">0</div>
+          <div class="js-label">建议调解处理</div>
+        </div>
+        <div class="jury-stat demand">
+          <div class="js-num">0</div>
+          <div class="js-label">建议需求方胜诉</div>
+        </div>
+        <div class="jury-stat service">
+          <div class="js-num">0</div>
+          <div class="js-label">建议服务方胜诉</div>
+        </div>
+      </div>
+
+      <table class="jury-table">
+        <thead>
+          <tr>
+            <th>陪审员</th>
+            <th>信用等级</th>
+            <th>投票</th>
+            <th>理由摘要</th>
+            <th>时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td colspan="5">正在加载真实陪审投票。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ====== Section 4: AI Analysis ====== -->
+    <div class="df-section">
+      <div class="df-section-header">
+        <span class="section-icon" style="background:oklch(94% 0.05 82);color:var(--reward-gold);">🤖</span>
+        AI 辅助分析
+      </div>
+      <div class="ai-box">
+        <div class="ai-box-header">
+          🤖 AI 纠纷分析摘要
+          <span class="ai-session">正在加载真实分析摘要</span>
+        </div>
+        <div class="ai-item">
+          <span class="ai-label">争议焦点</span>
+          <span>正在加载真实争议焦点</span>
+        </div>
+        <div class="ai-item">
+          <span class="ai-label">双方主张</span>
+          <span>正在加载双方主张</span>
+        </div>
+        <div class="ai-item">
+          <span class="ai-label">证据评估</span>
+          <span>正在加载证据评估</span>
+        </div>
+        <div class="ai-item">
+          <span class="ai-label">陪审倾向</span>
+          <span>正在加载陪审倾向</span>
+        </div>
+        <div class="ai-item">
+          <span class="ai-label" style="color:var(--danger);">风险提示</span>
+          <span style="color:var(--danger);">请基于真实证据和平台规则独立裁决。</span>
+        </div>
+        <div class="ai-item">
+          <span class="ai-label">历史参考</span>
+          <span>正在加载历史参考</span>
+        </div>
+        <div class="ai-disclaimer">⚠ AI分析仅供参考，最终裁决须由管理员基于全部证据独立作出</div>
+      </div>
+    </div>
+
+    <!-- ====== Section 5: Final Ruling ====== -->
+    <div class="ruling-form" id="rulingForm">
+      <h3>⚖️ 管理员终审裁决</h3>
+      <p class="rf-subtitle">这是最终裁决，一旦提交将立即生效：时间币转账、信用调整、订单归档同步执行。不可撤销。</p>
+
+      <div class="ruling-options" id="rulingOptions">
+        <div class="ruling-opt" onclick="selectRuling(this, 'demand')" data-ruling="demand">
+          <div class="ro-icon">🏠</div>
+          <div class="ro-label">需求方胜诉</div>
+          <div class="ro-desc">全部或部分退还时间币给需求方</div>
+        </div>
+        <div class="ruling-opt" onclick="selectRuling(this, 'service')" data-ruling="service">
+          <div class="ro-icon">🛠</div>
+          <div class="ro-label">服务方胜诉</div>
+          <div class="ro-desc">驳回申诉，维持原交易</div>
+        </div>
+        <div class="ruling-opt" onclick="selectRuling(this, 'mediate')" data-ruling="mediate">
+          <div class="ro-icon">🤝</div>
+          <div class="ro-label">调解处理</div>
+          <div class="ro-desc">建议部分退款，双方和解</div>
+        </div>
+      </div>
+
+      <div class="ruling-detail" id="rulingDetail">
+        <div class="rd-row">
+          <span class="rd-label">退还金额</span>
+          <input type="number" id="refundAmount" min="1" max="15" value="5" placeholder="⏂">
+          <span style="font-size:13px;color:var(--muted);">⏂（争议总金额 15 ⏂）</span>
+        </div>
+        <div class="rd-row">
+          <span class="rd-label">信用调整</span>
+          <label style="display:flex;align-items:center;gap:var(--space-sm);font-size:14px;cursor:pointer;">
+            <input type="checkbox" id="creditPenalty" style="width:16px;height:16px;accent-color:var(--accent);">
+            对服务方信用扣分（-0.5），限制接单 7 天
+          </label>
+        </div>
+      </div>
+
+      <div class="ruling-reason-label">裁决理由（必填，最少20字）</div>
+      <textarea class="ruling-textarea" id="rulingReason" placeholder="请详细说明裁决理由，包括对双方证据的评估、适用的平台规则条款、以及裁决依据……"></textarea>
+
+      <div class="ruling-warn">
+        <span class="warn-icon">⚠</span>
+        <span>提交后立即生效：系统将自动执行时间币退还/扣减、双方信用分调整、订单状态变更、通知双方。此操作不可撤销，请仔细核对所有信息。</span>
+      </div>
+
+      <div class="ruling-actions">
+        <button class="btn btn--primary btn--lg" onclick="showConfirm()">提交终审裁决</button>
+        <button class="btn btn--secondary btn--lg" onclick="saveDraft()">暂存草稿</button>
+        <a class="btn btn--ghost btn--lg" href="admin-disputes.html">取消返回</a>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Confirm overlay -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-dialog">
+    <div class="cd-icon">⚖️</div>
+    <h3 id="confirmTitle">确认提交裁决？</h3>
+    <p>此操作将立即生效，包括时间币变动、信用调整和订单归档。提交后不可撤销。</p>
+    <div class="cd-summary" id="confirmSummary"></div>
+    <div class="cd-actions">
+      <button class="btn btn--ghost" onclick="hideConfirm()">再检查一下</button>
+      <button class="btn btn--primary" onclick="submitRuling()">确认提交</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+let selectedRuling = null;
+
+function selectRuling(opt, type) {
+  document.querySelectorAll('.ruling-opt').forEach(o => o.classList.remove('selected'));
+  opt.classList.add('selected');
+  selectedRuling = type;
+
+  const detail = document.getElementById('rulingDetail');
+  if (type === 'mediate' || type === 'demand') {
+    detail.classList.add('visible');
+    if (type === 'demand') {
+      document.getElementById('refundAmount').value = 15;
+      document.getElementById('creditPenalty').checked = true;
+    } else {
+      document.getElementById('refundAmount').value = 5;
+      document.getElementById('creditPenalty').checked = false;
+    }
+  } else {
+    detail.classList.remove('visible');
+    document.getElementById('refundAmount').value = 0;
+    document.getElementById('creditPenalty').checked = false;
+  }
+}
+
+function showConfirm() {
+  const reason = document.getElementById('rulingReason').value.trim();
+  if (!selectedRuling) {
+    showToast('请先选择裁决结果');
+    return;
+  }
+  if (reason.length < 20) {
+    showToast('裁决理由至少需要20个字符（当前 ' + reason.length + ' 字）');
+    document.getElementById('rulingReason').focus();
+    return;
+  }
+
+  const labels = { demand: '需求方胜诉', service: '服务方胜诉', mediate: '调解处理' };
+  const refund = document.getElementById('refundAmount').value || 0;
+  const penalty = document.getElementById('creditPenalty').checked;
+
+  let summary = '<strong>裁决结果：</strong>' + labels[selectedRuling];
+  if ((selectedRuling === 'demand' || selectedRuling === 'mediate') && refund > 0) {
+    summary += '<br><strong>退还金额：</strong>' + refund + ' ⏂';
+  }
+  if (penalty) {
+    summary += '<br><strong>信用处罚：</strong>服务方信用 -0.5，限制接单 7 天';
+  }
+  summary += '<br><strong>裁决理由：</strong>' + reason;
+
+  document.getElementById('confirmSummary').innerHTML = summary;
+  document.getElementById('confirmOverlay').classList.add('open');
+}
+
+function hideConfirm() {
+  document.getElementById('confirmOverlay').classList.remove('open');
+}
+
+function submitRuling() {
+  hideConfirm();
+  showToast('✅ 终审裁决已提交，系统正在执行时间币变动和通知发送...');
+
+  // Disable form while the production shell submits the final ruling.
+  document.querySelectorAll('#rulingForm .ruling-opt').forEach(o => {
+    o.style.pointerEvents = 'none';
+    o.style.opacity = '0.6';
+  });
+  document.getElementById('rulingReason').disabled = true;
+  document.querySelectorAll('#rulingForm .btn').forEach(b => b.disabled = true);
+
+  setTimeout(() => {
+    showToast('✅ 裁决生效：已退还 ' + (document.getElementById('refundAmount').value || 0) + ' ⏂，订单归档完成');
+    setTimeout(() => { window.location.href = 'admin-disputes.html'; }, 1800);
+  }, 1200);
+}
+
+function saveDraft() {
+  showToast('📝 草稿已保存（本地暂存），可稍后继续编辑');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timeout);
+  t._timeout = setTimeout(() => t.classList.remove('show'), 2500);
+}
+</script>
+
+</body>
+</html>

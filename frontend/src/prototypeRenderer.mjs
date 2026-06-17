@@ -409,13 +409,22 @@ function removeBlocks(html, start, end) {
 }
 
 function injectShell(html, route, options = {}) {
+  const needsAuth = route.surface === "user" || route.surface === "admin";
+  const authGuardCss = needsAuth
+    ? `<style>html[data-auth-state="checking"] body>*{visibility:hidden}html[data-auth-state="checking"] body{background:var(--bg,#f5f5f5)}html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9999;background:var(--bg,#f5f5f5)}</style>`
+    : "";
   const headInjection = [
+    authGuardCss,
     `<link rel="stylesheet" href="${assetPath("/assets/styles/theme.css", options)}">`,
     `<link rel="stylesheet" href="${assetPath("/assets/styles/shell.css", options)}">`
-  ].join("\n");
+  ].filter(Boolean).join("\n");
   const bodyScript = `<script type="module" src="${assetPath(options.shellLogicalPath ?? "/assets/app/prototype-shell.mjs", options)}"></script>`;
 
-  let output = html.replace(/<\/head>/i, `${headInjection}\n</head>`);
+  let output = html;
+  if (needsAuth) {
+    output = output.replace(/(<html[^>]*)/i, `$1 data-auth-state="checking"`);
+  }
+  output = output.replace(/<\/head>/i, `${headInjection}\n</head>`);
   output = output.replace(/<body(\s[^>]*)?>/i, (_match, attrs = "") => {
     if (attrs.includes("data-route-id=")) {
       return `<body${attrs}>`;

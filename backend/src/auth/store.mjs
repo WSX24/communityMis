@@ -234,6 +234,8 @@ export function createMemoryAuthStore(options = {}) {
     createCollection,
     deleteCollection,
     createMessage,
+    recallMessage,
+    deleteMessageThread,
     listMessageThread,
     markMessageThreadRead,
     markMessageRead,
@@ -1141,6 +1143,47 @@ export function createMemoryAuthStore(options = {}) {
     nextMessageId = Math.max(nextMessageId, message.messageId + 1);
     messages.set(message.messageId, message);
     return clone(enrichMessage(message));
+  }
+
+  function recallMessage(input = {}) {
+    const userId = Number(input.userId);
+    const messageId = Number(input.messageId);
+    const message = messages.get(messageId);
+    if (!message) {
+      return null;
+    }
+    if (Number(message.senderId) !== userId) {
+      return null;
+    }
+    const ageMs = Date.now() - new Date(message.createdAt).getTime();
+    if (ageMs > 2 * 60 * 1000) {
+      throw storeError("RECALL_TIME_EXCEEDED", "消息发送超过2分钟，无法撤回。");
+    }
+    message.recalled = true;
+    message.content = "[消息已撤回]";
+    message.attachments = [];
+    message.recalledAt = new Date().toISOString();
+    messages.set(messageId, message);
+    return clone(enrichMessage(message));
+  }
+
+  function deleteMessageThread(input = {}) {
+    const viewerId = Number(input.viewerId);
+    const userId = Number(input.userId);
+    const orderId = input.orderId === undefined || input.orderId === null || input.orderId === "" ? null : Number(input.orderId);
+    let deleted = 0;
+    for (const [key, message] of messages) {
+      if (message.recalled) continue;
+      const match = messageMatchesThread(message, viewerId, userId, orderId);
+      if (match) {
+        message.recalled = true;
+        message.content = "[消息已清除]";
+        message.attachments = [];
+        message.recalledAt = new Date().toISOString();
+        deleted++;
+      }
+    }
+    return { deleted };
   }
 
   function listMessageThread(input = {}) {
