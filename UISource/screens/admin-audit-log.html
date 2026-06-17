@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>审计日志 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  .admin-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100dvh; }
+  @media (max-width: 860px) {
+    .admin-page { grid-template-columns: 1fr; }
+    .admin-sidebar { display: none; }
+  }
+  .admin-sidebar {
+    background: var(--fg); color: oklch(92% 0.004 85);
+    padding: var(--space-2xl) var(--space-lg); display: flex;
+    flex-direction: column; gap: var(--space-3xl);
+    position: sticky; top: 0; height: 100dvh;
+  }
+  .admin-sidebar .sb-brand {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    color: #fff; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .admin-sidebar .shield {
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    background: var(--accent); display: flex; align-items: center;
+    justify-content: center; font-size: 14px;
+  }
+  .admin-sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+  .admin-sidebar nav a {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: oklch(72% 0.005 85);
+    transition: all 0.15s;
+  }
+  .admin-sidebar nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .admin-sidebar nav a.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 600; }
+  .admin-sidebar nav a svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .admin-sidebar .sb-footer { margin-top: auto; }
+  .admin-sidebar .sb-back {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 13px; color: oklch(62% 0.005 85); transition: all 0.15s;
+  }
+  .admin-sidebar .sb-back:hover { background: rgba(255,255,255,0.06); color: #fff; }
+
+  .admin-main { padding: var(--space-3xl); max-width: 1200px; }
+  @media (max-width: 860px) { .admin-main { padding: var(--space-lg); } }
+
+  .au-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-2xl); flex-wrap: wrap; gap: var(--space-lg);
+  }
+  .au-header h2 { font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+
+  /* Stats */
+  .al-summary {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: var(--space-lg); margin-bottom: var(--space-xl);
+  }
+  .al-sum-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-lg) var(--space-xl); text-align: center;
+  }
+  .al-sum-card .al-num { font-family: var(--font-display); font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+  .al-sum-card .al-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* Filter row */
+  .au-filter-row {
+    display: flex; gap: var(--space-md); margin-bottom: var(--space-xl);
+    flex-wrap: wrap; align-items: center;
+  }
+  .au-search {
+    flex: 1; min-width: 180px; display: flex; align-items: center; gap: var(--space-sm);
+    background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: var(--radius-md); padding: 10px 16px;
+    transition: border-color 0.15s;
+  }
+  .au-search:focus-within { border-color: var(--accent); }
+  .au-search input { flex: 1; border: none; outline: none; font-size: 14px; background: transparent; }
+  .au-search svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+  .au-filter-row select {
+    padding: 9px 14px; border-radius: var(--radius-md); border: 1.5px solid var(--border);
+    font-size: 14px; outline: none; background: var(--surface);
+  }
+
+  /* Time picker */
+  .au-date-input {
+    padding: 9px 14px; border-radius: var(--radius-md); border: 1.5px solid var(--border);
+    font-size: 14px; outline: none; background: var(--surface); font-family: var(--font-mono);
+  }
+  .au-date-input:focus { border-color: var(--accent); }
+
+  /* Table */
+  .au-table-wrap {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); overflow-x: auto; margin-bottom: var(--space-xl);
+  }
+  .au-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .au-table th {
+    text-align: left; padding: 14px var(--space-xl); font-size: 12px;
+    font-weight: 600; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.04em; border-bottom: 1px solid var(--border-light);
+    background: var(--bg); white-space: nowrap;
+  }
+  .au-table td { padding: 12px var(--space-xl); border-bottom: 1px solid var(--border-light); vertical-align: middle; }
+  .au-table tr:last-child td { border-bottom: none; }
+  .au-table tr:hover td { background: oklch(97% 0.005 85 / 0.5); }
+
+  .au-log-id { font-family: var(--font-mono); font-size: 13px; font-weight: 500; }
+  .au-operator { font-weight: 600; }
+
+  .action-badge {
+    display: inline-block; padding: 3px 10px; border-radius: var(--radius-full);
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+  .action-badge.config { background: var(--secondary-light); color: var(--secondary); }
+  .action-badge.user { background: var(--accent-subtle); color: var(--accent); }
+  .action-badge.order { background: oklch(93% 0.05 82); color: var(--reward-gold); }
+  .action-badge.delete { background: var(--danger-light); color: var(--danger); }
+  .action-badge.system { background: var(--border-light); color: var(--muted); }
+
+  .risk-badge {
+    display: inline-block; padding: 2px 8px; border-radius: var(--radius-full);
+    font-size: 11px; font-weight: 600;
+  }
+  .risk-badge.high { background: var(--danger-light); color: var(--danger); }
+  .risk-badge.medium { background: var(--warning-light); color: var(--warning); }
+  .risk-badge.low { background: var(--success-light); color: var(--success); }
+
+  /* Expandable detail */
+  .au-expand-btn {
+    padding: 4px 12px; border-radius: var(--radius-sm);
+    font-size: 12px; font-weight: 500; cursor: pointer;
+    border: 1px solid var(--border-light); background: var(--surface);
+    color: var(--muted); transition: all 0.15s;
+  }
+  .au-expand-btn:hover { border-color: var(--accent-light); color: var(--accent); }
+  .au-detail-row { display: none; }
+  .au-detail-row.show { display: table-row; }
+  .au-detail-row td { padding: 0; }
+  .au-detail-content {
+    padding: var(--space-xl); background: var(--bg);
+    border-top: 1px solid var(--border-light);
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--space-lg); font-size: 13px;
+  }
+  @media (max-width: 640px) { .au-detail-content { grid-template-columns: 1fr; } }
+  .au-detail-content h5 { font-size: 13px; font-weight: 700; margin-bottom: var(--space-sm); }
+  .au-detail-content .diff-block {
+    background: var(--surface); border-radius: var(--radius-sm); padding: var(--space-md);
+    font-family: var(--font-mono); font-size: 11px; line-height: 1.8; white-space: pre-wrap;
+    word-break: break-all; max-height: 200px; overflow-y: auto;
+  }
+  .diff-add { color: var(--success); }
+  .diff-remove { color: var(--danger); }
+  .diff-key { color: var(--secondary); }
+
+  /* Pagination */
+  .au-pagination {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: var(--space-md);
+  }
+  .au-page-info { font-size: 13px; color: var(--muted); }
+  .au-page-btns { display: flex; gap: 4px; }
+  .au-page-btn {
+    width: 32px; height: 32px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 500; border: 1px solid var(--border-light);
+    background: var(--surface); color: var(--fg); transition: all 0.15s; cursor: pointer;
+  }
+  .au-page-btn:hover { border-color: var(--accent-light); }
+  .au-page-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .au-page-btn.disabled { opacity: 0.35; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div class="admin-page">
+
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="admin-dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="admin-users.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="admin-disputes.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理</a>
+      <a href="admin-ai-logs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="admin-ai-config.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      <a href="admin-categories.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>标签/类别</a>
+      <a href="admin-sensitive-words.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+      <a href="admin-stats.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+      <a href="admin-audit-log.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="../screens/feed.html">← 返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <div class="au-header">
+      <h2>审计日志</h2>
+      <div style="font-size:12px;color:var(--muted)">所有管理操作和配置变更的不可篡改记录</div>
+    </div>
+
+    <!-- Stats -->
+    <div class="al-summary">
+      <div class="al-sum-card"><div class="al-num">12,540</div><div class="al-label">日志总数</div></div>
+      <div class="al-sum-card"><div class="al-num" style="color:var(--danger)">23</div><div class="al-label">高风险操作</div></div>
+      <div class="al-sum-card"><div class="al-num" style="color:var(--secondary)">156</div><div class="al-label">配置变更</div></div>
+      <div class="al-sum-card"><div class="al-num">8,210</div><div class="al-label">用户管理操作</div></div>
+      <div class="al-sum-card"><div class="al-num">4,151</div><div class="al-label">其他操作</div></div>
+    </div>
+
+    <!-- Filter row -->
+    <div class="au-filter-row">
+      <div class="au-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" placeholder="搜索操作人、操作对象、详情…" id="searchInput" oninput="filterLogs()">
+      </div>
+      <select id="actionFilter" onchange="filterLogs()">
+        <option value="">全部操作</option>
+        <option value="config">配置变更</option>
+        <option value="user">用户管理</option>
+        <option value="order">订单处理</option>
+        <option value="delete">删除操作</option>
+        <option value="system">系统事件</option>
+      </select>
+      <select id="riskFilter" onchange="filterLogs()">
+        <option value="">全部风险</option>
+        <option value="high">高风险</option>
+        <option value="medium">中风险</option>
+        <option value="low">低风险</option>
+      </select>
+      <input type="date" class="au-date-input" id="dateFrom" onchange="filterLogs()" value="2026-06-01">
+      <span style="color:var(--muted)">至</span>
+      <input type="date" class="au-date-input" id="dateTo" onchange="filterLogs()" value="2026-06-04">
+      <button class="btn btn--secondary btn--sm" onclick="exportCSV()">导出 CSV</button>
+    </div>
+
+    <!-- Table -->
+    <div class="au-table-wrap">
+      <table class="au-table">
+        <thead>
+          <tr>
+            <th>日志 ID</th>
+            <th>操作时间</th>
+            <th>操作人</th>
+            <th>操作类型</th>
+            <th>操作对象</th>
+            <th>变动摘要</th>
+            <th>风险</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="logTable">
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="au-pagination">
+      <div class="au-page-info" id="pageInfo">共 12,540 条，显示第 1-15 条</div>
+      <div class="au-page-btns">
+        <button class="au-page-btn disabled">←</button>
+        <button class="au-page-btn active">1</button>
+        <button class="au-page-btn">2</button>
+        <button class="au-page-btn">3</button>
+        <button class="au-page-btn">...</button>
+        <button class="au-page-btn">836</button>
+        <button class="au-page-btn">→</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const logs = [
+  { id:'AUD-6241', time:'2026-06-04 14:52:31', operator:'张三', role:'超级管理员', action:'config', actionLabel:'AI配置变更', target:'AI 服务全局开关', summary:'关闭 — 维修中', detail:'before: {"ai_enabled": true}\nafter:  {"ai_enabled": false}\n原因: 模型服务故障，临时关闭', risk:'high' },
+  { id:'AUD-6240', time:'2026-06-04 14:30:18', operator:'张三', role:'超级管理员', action:'config', actionLabel:'敏感词配置', target:'敏感词库', summary:'新增 3 条强拦截词', detail:'新增敏感词: ["违规内容A", "违规内容B", "违规内容C"]\n级别: 强拦截\n类别: 违法违规', risk:'low' },
+  { id:'AUD-6239', time:'2026-06-04 13:15:42', operator:'张三', role:'超级管理员', action:'order', actionLabel:'纠纷终审', target:'订单 #240528-003', summary:'裁决: 调解处理 — 退还30%', detail:'裁决结果: 调解处理\n退款金额: 4.5 ⏂ (30%)\n信用处罚: 无\n理由: 双方均有一定责任，建议各退一步', risk:'high' },
+  { id:'AUD-6238', time:'2026-06-04 11:08:03', operator:'李四', role:'管理员', action:'user', actionLabel:'用户封禁', target:'用户 王大壮(ID:42)', summary:'封禁至 2026-06-11 — 连续恶意差评', detail:'操作: 封禁\n封禁周期: 7天\n原因: 连续3条恶意差评，信用分降至2.1\n关联订单: #240520-007, #240515-012, #240510-005', risk:'medium' },
+  { id:'AUD-6237', time:'2026-06-04 09:45:22', operator:'张三', role:'超级管理员', action:'config', actionLabel:'标签管理', target:'标签库', summary:'新增标签 "Python辅导" → IT 数码', detail:'操作: 新增标签\n标签名: Python辅导\n所属类别: IT 数码\n初始状态: 已启用', risk:'low' },
+  { id:'AUD-6236', time:'2026-06-04 08:30:05', operator:'system', role:'系统', action:'system', actionLabel:'定时任务', target:'过期需求清理', summary:'自动归档 17 条过期需求', detail:'任务: clean_expired_requests\n执行时间: 2026-06-04 08:30:05\n归档数量: 17 条\n过期阈值: 30天无人接单', risk:'low' },
+  { id:'AUD-6235', time:'2026-06-03 19:12:48', operator:'张三', role:'超级管理员', action:'config', actionLabel:'AI配置变更', target:'AI 调用频率限制', summary:'每日上限: 1000 → 2000', detail:'before: {"daily_limit": 1000}\nafter:  {"daily_limit": 2000}\n原因: 用户增长，扩容AI服务', risk:'medium' },
+  { id:'AUD-6234', time:'2026-06-03 16:40:17', operator:'张三', role:'超级管理员', action:'delete', actionLabel:'用户删除', target:'用户 test_spam_003', summary:'删除测试账号及关联数据', detail:'操作: 物理删除\n用户: test_spam_003 (ID:189)\n关联: 0订单, 3条AI会话, 0条评价\n删除方式: 级联删除', risk:'medium' },
+  { id:'AUD-6233', time:'2026-06-03 15:25:30', operator:'李四', role:'管理员', action:'user', actionLabel:'信用修复', target:'用户 赵姐(ID:15)', summary:'人工提升信用分: 2.8 → 3.6', detail:'操作: 信用修复\n调整前: 2.8 (因单次差评降分过重)\n调整后: 3.6\n原因: 申诉审核通过，差评不实', risk:'medium' },
+  { id:'AUD-6232', time:'2026-06-03 14:30:00', operator:'张三', role:'超级管理员', action:'config', actionLabel:'敏感词配置', target:'敏感词库', summary:'调整 "刷单" 级别: 强拦截 → 弱警告', detail:'before: {"level": "strong"}\nafter:  {"level": "mild"}\n原因: 误拦截率过高，降为弱警告', risk:'low' },
+  { id:'AUD-6231', time:'2026-06-03 10:15:42', operator:'张三', role:'超级管理员', action:'config', actionLabel:'AI配置变更', target:'场景开关', summary:'关闭 "订单摘要" 场景', detail:'before: {"order_summary": true}\nafter:  {"order_summary": false}\n原因: 该场景token消耗过大，暂时下线', risk:'medium' },
+  { id:'AUD-6230', time:'2026-06-02 18:40:08', operator:'system', role:'系统', action:'system', actionLabel:'数据库备份', target:'全量数据库', summary:'自动备份完成 — 1.2 GB', detail:'任务: db_backup_daily\n执行时间: 2026-06-02 18:40:08\n备份大小: 1.2 GB\n存储位置: /backups/20260602_full.sql.gz\n校验: SHA256 passed', risk:'low' },
+  { id:'AUD-6229', time:'2026-06-02 16:05:33', operator:'李四', role:'管理员', action:'order', actionLabel:'纠纷处理', target:'订单 #240520-007', summary:'裁决: 需求方胜诉 — 全额退款', detail:'裁决结果: 需求方胜诉\n退款金额: 20 ⏂ (100%)\n信用处罚: 服务方限制接单7天\n理由: 服务方未按约定完成即自行退出', risk:'high' },
+  { id:'AUD-6228', time:'2026-06-02 14:20:10', operator:'张三', role:'超级管理员', action:'config', actionLabel:'标签管理', target:'标签库', summary:'禁用标签 "数据恢复" → IT 数码', detail:'操作: 禁用标签\n标签名: 数据恢复\n原因: 该类别需求量极少，暂不开放', risk:'low' },
+  { id:'AUD-6227', time:'2026-06-02 09:00:00', operator:'system', role:'系统', action:'system', actionLabel:'登录告警', target:'管理员 张三', summary:'异地登录告警 — IP: 203.0.113.42', detail:'事件: 异地登录\n账号: 张三 (超级管理员)\nIP: 203.0.113.42 (海外)\n常用IP: 192.168.1.100\n处理: 已要求二次验证', risk:'high' },
+];
+
+function actionBadge(a) {
+  const map = { config:'config', user:'user', order:'order', delete:'delete', system:'system' };
+  return `<span class="action-badge ${map[a]||'system'}">${logs.find(l=>l.action===a)?.actionLabel || a}</span>`;
+}
+
+function riskBadge(r) {
+  return `<span class="risk-badge ${r}">${r==='high'?'高风险':r==='medium'?'中风险':'低风险'}</span>`;
+}
+
+function renderTable(data) {
+  document.getElementById('logTable').innerHTML = data.map((l,i) => `
+    <tr>
+      <td><span class="au-log-id">#${l.id}</span></td>
+      <td style="font-family:var(--font-mono);font-size:12px;white-space:nowrap">${l.time}</td>
+      <td><span class="au-operator">${l.operator}</span> <span style="font-size:11px;color:var(--muted)">${l.role}</span></td>
+      <td>${actionBadge(l.action)}</td>
+      <td style="font-size:13px">${l.target}</td>
+      <td style="font-size:13px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.summary}">${l.summary}</td>
+      <td>${riskBadge(l.risk)}</td>
+      <td><button class="au-expand-btn" onclick="toggleDetail(${i})">查看详情</button></td>
+    </tr>
+    <tr class="au-detail-row" id="detail-${i}">
+      <td colspan="8">
+        <div class="au-detail-content">
+          <div>
+            <h5>📋 操作详情</h5>
+            <div style="font-size:12px;line-height:1.8;color:var(--muted)">
+              <div><strong>日志ID：</strong>${l.id}</div>
+              <div><strong>操作时间：</strong>${l.time}</div>
+              <div><strong>操作人：</strong>${l.operator} (${l.role})</div>
+              <div><strong>操作类型：</strong>${l.actionLabel}</div>
+              <div><strong>操作对象：</strong>${l.target}</div>
+              <div><strong>风险等级：</strong>${riskBadge(l.risk)}</div>
+              <div style="margin-top:8px"><strong>IP 地址：</strong>${l.operator==='system'?'—':'192.168.1.' + (100 + i)}</div>
+              <div><strong>User-Agent：</strong>${l.operator==='system'?'—':'Mozilla/5.0 … Chrome/125.0 …'}</div>
+            </div>
+          </div>
+          <div>
+            <h5>📝 变更记录</h5>
+            <div class="diff-block">${formatDiff(l.detail)}</div>
+          </div>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function formatDiff(text) {
+  return text.split('\n').map(line => {
+    if (line.startsWith('before:')) return `<span class="diff-remove">${escapeHtml(line)}</span>`;
+    if (line.startsWith('after:')) return `<span class="diff-add">${escapeHtml(line)}</span>`;
+    if (line.includes(':')) {
+      const [key, ...rest] = line.split(':');
+      return `<span class="diff-key">${escapeHtml(key)}:</span>${escapeHtml(rest.join(':'))}`;
+    }
+    return escapeHtml(line);
+  }).join('\n');
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function toggleDetail(i) {
+  document.getElementById('detail-' + i).classList.toggle('show');
+}
+
+function filterLogs() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const action = document.getElementById('actionFilter').value;
+  const risk = document.getElementById('riskFilter').value;
+  const filtered = logs.filter(l =>
+    (!search || l.operator.includes(search) || l.target.includes(search) || l.summary.includes(search)) &&
+    (!action || l.action === action) &&
+    (!risk || l.risk === risk)
+  );
+  renderTable(filtered);
+  document.getElementById('pageInfo').textContent = `筛选结果: ${filtered.length} 条`;
+}
+
+function exportCSV() {
+  const header = '日志ID,操作时间,操作人,角色,操作类型,操作对象,变动摘要,风险等级\n';
+  const rows = logs.map(l => `${l.id},${l.time},${l.operator},${l.role},${l.actionLabel},${l.target},${l.summary},${l.risk}`).join('\n');
+  const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'audit-log-export.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+renderTable(logs);
+</script>
+
+</body>
+</html>

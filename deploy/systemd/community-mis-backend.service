@@ -1,0 +1,24 @@
+[Unit]
+Description=Community MIS backend API
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=community-mis
+Group=community-mis
+WorkingDirectory=/opt/community-mis/current
+EnvironmentFile=/etc/community-mis/community-mis.env
+ExecStart=/usr/bin/node backend/server.mjs
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/community-mis /var/log/community-mis
+
+[Install]
+WantedBy=multi-user.target

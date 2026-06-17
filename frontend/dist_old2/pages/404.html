@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>路由未找到 - 邻帮</title>
+  <link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+  <link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+  <style>
+    body { min-height: 100dvh; padding: var(--space-2xl); background: var(--bg); color: var(--fg); }
+    main { width: min(100%, 960px); margin: 0 auto; display: grid; gap: var(--space-xl); }
+    h1 { font-family: var(--font-display); font-size: 28px; }
+    section { display: grid; gap: var(--space-md); }
+    .route-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-sm); }
+    a { display: block; padding: 12px 14px; border: 1px solid var(--border-light); border-radius: var(--radius-md); background: var(--surface); }
+    a:hover { color: var(--accent); border-color: var(--accent-light); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>路由未找到</h1>
+      <p class="muted">请选择一个已映射的生产路由。</p>
+    </header>
+    <section>
+    <h2>入口</h2>
+    <div class="route-grid">
+      <a href="/"><strong>邻帮入口</strong><br><span class="muted">/</span></a>
+    </div>
+  </section>
+    <section>
+    <h2>用户端</h2>
+    <div class="route-grid">
+      <a href="/login"><strong>登录</strong><br><span class="muted">/login</span></a>
+<a href="/register"><strong>注册</strong><br><span class="muted">/register</span></a>
+<a href="/feed"><strong>首页信息流</strong><br><span class="muted">/feed</span></a>
+<a href="/tasks"><strong>任务市场</strong><br><span class="muted">/tasks</span></a>
+<a href="/post"><strong>发布</strong><br><span class="muted">/post</span></a>
+<a href="/messages"><strong>消息中心</strong><br><span class="muted">/messages</span></a>
+<a href="/profile"><strong>个人中心</strong><br><span class="muted">/profile</span></a>
+<a href="/posts/demo"><strong>帖子详情</strong><br><span class="muted">/posts/:id</span></a>
+<a href="/users/demo"><strong>服务者公开主页</strong><br><span class="muted">/users/:id</span></a>
+<a href="/notifications"><strong>通知中心</strong><br><span class="muted">/notifications</span></a>
+<a href="/settings"><strong>设置</strong><br><span class="muted">/settings</span></a>
+<a href="/credit"><strong>信用详情</strong><br><span class="muted">/credit</span></a>
+<a href="/wallet"><strong>时间币钱包</strong><br><span class="muted">/wallet</span></a>
+<a href="/wallet/freeze"><strong>冻结明细</strong><br><span class="muted">/wallet/freeze</span></a>
+<a href="/orders"><strong>我的订单</strong><br><span class="muted">/orders</span></a>
+<a href="/orders/demo"><strong>订单详情</strong><br><span class="muted">/orders/:id</span></a>
+<a href="/reviews/new"><strong>订单评价</strong><br><span class="muted">/reviews/new</span></a>
+<a href="/disputes/new"><strong>发起纠纷</strong><br><span class="muted">/disputes/new</span></a>
+<a href="/disputes/demo"><strong>纠纷详情</strong><br><span class="muted">/disputes/:id</span></a>
+<a href="/jury/voting"><strong>陪审投票</strong><br><span class="muted">/jury/voting</span></a>
+<a href="/ai/assistant"><strong>AI 助手</strong><br><span class="muted">/ai/assistant</span></a>
+<a href="/ai/results"><strong>AI 筛选结果</strong><br><span class="muted">/ai/results</span></a>
+    </div>
+  </section>
+    <section>
+    <h2>管理端</h2>
+    <div class="route-grid">
+      <a href="/admin/login"><strong>管理员登录</strong><br><span class="muted">/admin/login</span></a>
+<a href="/admin/dashboard"><strong>管理仪表盘</strong><br><span class="muted">/admin/dashboard</span></a>
+<a href="/admin/users"><strong>用户管理</strong><br><span class="muted">/admin/users</span></a>
+<a href="/admin/transactions"><strong>交易流水</strong><br><span class="muted">/admin/transactions</span></a>
+<a href="/admin/disputes"><strong>争议处理</strong><br><span class="muted">/admin/disputes</span></a>
+<a href="/admin/disputes/final"><strong>纠纷终审</strong><br><span class="muted">/admin/disputes/final</span></a>
+<a href="/admin/stats"><strong>平台统计</strong><br><span class="muted">/admin/stats</span></a>
+<a href="/admin/ai/logs"><strong>AI 日志</strong><br><span class="muted">/admin/ai/logs</span></a>
+<a href="/admin/ai/conversations"><strong>AI 会话管理</strong><br><span class="muted">/admin/ai/conversations</span></a>
+<a href="/admin/ai/feedback"><strong>AI 用户反馈</strong><br><span class="muted">/admin/ai/feedback</span></a>
+<a href="/admin/ai/errors"><strong>AI 异常调用</strong><br><span class="muted">/admin/ai/errors</span></a>
+<a href="/admin/ai/config"><strong>AI 配置管理</strong><br><span class="muted">/admin/ai/config</span></a>
+<a href="/admin/categories"><strong>标签/类别管理</strong><br><span class="muted">/admin/categories</span></a>
+<a href="/admin/sensitive-words"><strong>敏感词管理</strong><br><span class="muted">/admin/sensitive-words</span></a>
+<a href="/admin/risk-content"><strong>内容风险审核</strong><br><span class="muted">/admin/risk-content</span></a>
+<a href="/admin/audit-log"><strong>审计日志</strong><br><span class="muted">/admin/audit-log</span></a>
+<a href="/admin/system"><strong>系统设置</strong><br><span class="muted">/admin/system</span></a>
+    </div>
+  </section>
+  </main>
+</body>
+</html>

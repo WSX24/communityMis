@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>争议处理 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  .admin-page {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: 100dvh;
+  }
+  @media (max-width: 860px) {
+    .admin-page { grid-template-columns: 1fr; }
+    .admin-sidebar { display: none; }
+  }
+
+  .admin-sidebar {
+    background: var(--fg); color: oklch(92% 0.004 85);
+    padding: var(--space-2xl) var(--space-lg); display: flex;
+    flex-direction: column; gap: var(--space-3xl);
+    position: sticky; top: 0; height: 100dvh;
+  }
+  .admin-sidebar .sb-brand {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    color: #fff; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .admin-sidebar .shield {
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    background: var(--accent); display: flex; align-items: center;
+    justify-content: center; font-size: 14px;
+  }
+  .admin-sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+  .admin-sidebar nav a {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: oklch(72% 0.005 85);
+    transition: all 0.15s;
+  }
+  .admin-sidebar nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .admin-sidebar nav a.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 600; }
+  .admin-sidebar nav a svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .admin-sidebar .sb-footer { margin-top: auto; }
+  .admin-sidebar .sb-back {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 13px; color: oklch(62% 0.005 85); transition: all 0.15s;
+  }
+  .admin-sidebar .sb-back:hover { background: rgba(255,255,255,0.06); color: #fff; }
+
+  .admin-main {
+    padding: var(--space-3xl); max-width: 1200px;
+  }
+  @media (max-width: 860px) {
+    .admin-main { padding: var(--space-lg); padding-bottom: calc(var(--bottom-nav-height) + var(--space-2xl)); }
+  }
+
+  .au-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-2xl); flex-wrap: wrap; gap: var(--space-lg);
+  }
+  .au-header h2 {
+    font-family: var(--font-display); font-size: 26px; font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  /* Tabs */
+  .ad-tabs { display: flex; gap: 4px; margin-bottom: var(--space-xl); }
+  .ad-tab {
+    padding: 8px 18px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: var(--muted); cursor: pointer;
+    transition: all 0.15s;
+  }
+  .ad-tab:hover { background: var(--border-light); }
+  .ad-tab.active { background: var(--fg); color: #fff; }
+
+  /* Dispute card */
+  .dispute-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+    margin-bottom: var(--space-lg); transition: box-shadow 0.2s;
+    cursor: pointer;
+  }
+  .dispute-card:hover { box-shadow: var(--shadow-md); }
+  .dispute-card.expanded { border-color: var(--accent-light); }
+  .dc-header {
+    display: flex; align-items: center; gap: var(--space-md);
+    margin-bottom: var(--space-md); flex-wrap: wrap;
+  }
+  .dc-id {
+    font-family: var(--font-mono); font-size: 13px; font-weight: 600;
+    padding: 4px 10px; border-radius: var(--radius-sm);
+    background: var(--border-light);
+  }
+  .dc-type {
+    font-size: 12px; font-weight: 600; padding: 3px 10px;
+    border-radius: var(--radius-full);
+  }
+  .dc-type.quality { background: var(--warning-light); color: var(--warning); }
+  .dc-type.incomplete { background: var(--danger-light); color: var(--danger); }
+  .dc-type.payment { background: var(--accent-subtle); color: var(--accent); }
+  .dc-type.other { background: var(--border-light); color: var(--muted); }
+  .dc-status {
+    margin-left: auto; font-size: 12px; font-weight: 600;
+    padding: 4px 12px; border-radius: var(--radius-full);
+  }
+  .dc-status.pending { background: var(--warning-light); color: var(--warning); }
+  .dc-status.ruled { background: var(--success-light); color: var(--success); }
+  .dc-title { font-size: 16px; font-weight: 600; margin-bottom: var(--space-sm); }
+  .dc-meta { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .dc-parties {
+    display: flex; gap: var(--space-xl); margin-top: var(--space-md); flex-wrap: wrap;
+  }
+  .dc-party { display: flex; align-items: center; gap: var(--space-sm); font-size: 13px; }
+  .dc-party .badge-label {
+    font-size: 11px; padding: 2px 8px; border-radius: var(--radius-full);
+    font-weight: 600;
+  }
+  .dc-party .badge-label.demand { background: var(--secondary-light); color: var(--secondary); }
+  .dc-party .badge-label.service { background: var(--accent-subtle); color: var(--accent); }
+
+  /* Expanded detail */
+  .dc-detail { display: none; margin-top: var(--space-xl); }
+  .dispute-card.expanded .dc-detail { display: block; }
+
+  .evidence-panels {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--space-lg); margin-bottom: var(--space-xl);
+  }
+  @media (max-width: 640px) { .evidence-panels { grid-template-columns: 1fr; } }
+  .evidence-panel {
+    background: var(--bg); border-radius: var(--radius-md);
+    border: 1px solid var(--border-light); padding: var(--space-lg);
+  }
+  .evidence-panel .ep-title {
+    font-size: 14px; font-weight: 700; margin-bottom: var(--space-md);
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .evidence-panel .ep-claim { font-size: 14px; line-height: 1.6; margin-bottom: var(--space-md); }
+  .evidence-panel .ep-files {
+    display: flex; flex-direction: column; gap: var(--space-sm);
+  }
+  .evidence-panel .ep-file {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 6px 10px; border-radius: var(--radius-sm);
+    background: var(--surface); font-size: 12px; color: var(--muted);
+    font-family: var(--font-mono);
+  }
+
+  .ai-summary-box {
+    background: oklch(96% 0.02 200); border: 1px solid var(--secondary-light);
+    border-radius: var(--radius-md); padding: var(--space-xl); margin-bottom: var(--space-xl);
+  }
+  .ai-summary-box h4 {
+    font-size: 14px; font-weight: 700; margin-bottom: var(--space-md);
+    display: flex; align-items: center; gap: var(--space-sm); color: var(--secondary);
+  }
+  .ai-summary-box .ai-id { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: auto; }
+  .ai-summary-box .as-items { display: grid; gap: var(--space-md); }
+  .ai-summary-box .as-item {
+    display: flex; gap: var(--space-md); font-size: 13px; line-height: 1.6;
+  }
+  .ai-summary-box .as-label {
+    font-weight: 600; white-space: nowrap; color: var(--fg); min-width: 56px;
+  }
+  .ai-note {
+    margin-top: var(--space-md); font-size: 11px; color: var(--muted);
+    display: flex; align-items: center; gap: 4px;
+  }
+
+  .ruling-area {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+  }
+  .ruling-area h4 { font-size: 15px; font-weight: 700; margin-bottom: var(--space-lg); }
+  .ruling-options { display: flex; gap: var(--space-md); margin-bottom: var(--space-xl); flex-wrap: wrap; }
+  .ruling-opt {
+    flex: 1; min-width: 120px; padding: var(--space-xl);
+    border-radius: var(--radius-md); border: 2px solid var(--border-light);
+    text-align: center; cursor: pointer; transition: all 0.2s;
+  }
+  .ruling-opt:hover { border-color: var(--accent-light); }
+  .ruling-opt.selected { border-color: var(--accent); background: var(--accent-subtle); }
+  .ruling-opt .ro-label { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+  .ruling-opt .ro-desc { font-size: 12px; color: var(--muted); }
+  .ruling-opt .ro-icon { font-size: 24px; margin-bottom: var(--space-sm); }
+  .ruling-textarea {
+    width: 100%; min-height: 80px; padding: 12px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); font-size: 14px; outline: none;
+    margin-bottom: var(--space-lg); resize: vertical;
+  }
+  .ruling-textarea:focus { border-color: var(--accent); }
+  .ruling-actions { display: flex; gap: var(--space-md); flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<div class="admin-page">
+
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="admin-dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="admin-users.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="admin-disputes.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理<span style="margin-left:auto;background:var(--danger);color:#fff;font-size:11px;padding:2px 7px;border-radius:var(--radius-full);">1</span></a>
+      <a href="admin-ai-logs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="admin-ai-config.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+	      <a href="admin-categories.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>标签/类别</a>
+	      <a href="admin-sensitive-words.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+	      <a href="admin-stats.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+	      <a href="admin-audit-log.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="../screens/feed.html">← 返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <div class="au-header">
+      <h2>争议处理</h2>
+    </div>
+
+    <div class="ad-tabs">
+      <button class="ad-tab active" onclick="switchTab('all',this)">全部争议 (3)</button>
+      <button class="ad-tab" onclick="switchTab('pending',this)">待处理 (1)</button>
+      <button class="ad-tab" onclick="switchTab('ruled',this)">已裁决 (2)</button>
+    </div>
+
+    <div id="disputeList">
+      <!-- Dispute 1: active pending -->
+      <div class="dispute-card" data-status="pending" onclick="toggleDetail(this)">
+        <div class="dc-header">
+          <span class="dc-id">#DSP-240528-003</span>
+          <span class="dc-type quality">质量争议</span>
+          <span class="dc-status pending">待处理</span> <a href="admin-dispute-final.html" style="font-size:13px;font-weight:600;color:var(--accent);padding:4px 12px;border-radius:var(--radius-sm);background:var(--accent-subtle);cursor:pointer;margin-left:auto;" onclick="event.stopPropagation()">进入终审裁决 →</a>
+        </div>
+        <div class="dc-title">保洁服务质量争议 — 需求方反映清洁不彻底</div>
+        <div class="dc-meta">关联订单 #240528-003 · 争议金额 15 ⏂ · 发起时间 2026-06-03 14:22</div>
+        <div class="dc-parties">
+          <div class="dc-party">
+            <span class="badge-label demand">需求方</span> 赵姐 (信用 3.6)
+          </div>
+          <div class="dc-party">
+            <span class="badge-label service">服务方</span> 陈阿姨 (信用 4.7)
+          </div>
+        </div>
+        <div class="dc-detail">
+          <div class="evidence-panels">
+            <div class="evidence-panel">
+              <div class="ep-title">📋 需求方主张 · 赵姐</div>
+              <div class="ep-claim">约定2小时全屋保洁，但卫生间和厨房角落未清理，灶台油污残留。要求退还50%报酬。</div>
+              <div class="ep-files">
+                <div class="ep-file">📎 photo_kichten_01.jpg (1.2 MB)</div>
+                <div class="ep-file">📎 photo_bathroom_02.jpg (0.9 MB)</div>
+              </div>
+            </div>
+            <div class="evidence-panel">
+              <div class="ep-title">🛠 服务方主张 · 陈阿姨</div>
+              <div class="ep-claim">按约定完成了全屋保洁，进出前后都有照片为证。灶台油污是长期积垢需深度清洁（不在此次服务范围），已口头告知。</div>
+              <div class="ep-files">
+                <div class="ep-file">📎 before_after_all.jpg (2.1 MB)</div>
+                <div class="ep-file">📎 chat_screenshot.png (0.6 MB)</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI Summary -->
+          <div class="ai-summary-box">
+            <h4>🤖 AI 纠纷分析摘要<span class="ai-id">会话 #AI-4823</span></h4>
+            <div class="as-items">
+              <div class="as-item"><span class="as-label">双方主张</span><span>需求方认为清洁不彻底（灶台+卫生间），要求退50%；服务方称已完成约定范围，灶台属深度清洁需额外收费</span></div>
+              <div class="as-item"><span class="as-label">关键证据</span><span>需求方提供了灶台、卫生间照片；服务方提供了服务前后对比图及文字沟通截图</span></div>
+              <div class="as-item"><span class="as-label">陪审建议</span><span>4/5 陪审员建议调解（退还30%），1/5 建议服务方胜诉。平均倾向调解</span></div>
+              <div class="as-item"><span class="as-label">风险提示</span><span style="color:var(--danger)">⚠ 需关注灶台清洁是否在原约定服务范围内——该点可能是裁决关键</span></div>
+            </div>
+            <div class="ai-note">⚠ AI分析仅供参考，最终裁决由管理员手动提交</div>
+          </div>
+
+          <!-- Ruling area -->
+          <div class="ruling-area">
+            <h4>⚖️ 管理员终审裁决</h4>
+            <div class="ruling-options" id="rulingOptions">
+              <div class="ruling-opt" onclick="selectRuling(this, 'demand')">
+                <div class="ro-icon">🏠</div>
+                <div class="ro-label">需求方胜诉</div>
+                <div class="ro-desc">退还全部或部分时间币</div>
+              </div>
+              <div class="ruling-opt" onclick="selectRuling(this, 'service')">
+                <div class="ro-icon">🛠</div>
+                <div class="ro-label">服务方胜诉</div>
+                <div class="ro-desc">驳回申诉，维持原判</div>
+              </div>
+              <div class="ruling-opt" onclick="selectRuling(this, 'mediate')">
+                <div class="ro-icon">🤝</div>
+                <div class="ro-label">调解处理</div>
+                <div class="ro-desc">建议部分退款，双方和解</div>
+              </div>
+            </div>
+            <textarea class="ruling-textarea" placeholder="裁决理由（必填）…"></textarea>
+            <div class="ruling-actions">
+              <button class="btn btn--primary">提交终审裁决</button>
+              <button class="btn btn--secondary">暂存草稿</button>
+              <button class="btn btn--ghost">返回争议列表</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dispute 2: ruled -->
+      <div class="dispute-card" data-status="ruled" onclick="toggleDetail(this)">
+        <div class="dc-header">
+          <span class="dc-id">#DSP-240520-007</span>
+          <span class="dc-type incomplete">未完成</span>
+          <span class="dc-status ruled">已裁决</span>
+        </div>
+        <div class="dc-title">家电维修未完成争议 — 服务方中途放弃</div>
+        <div class="dc-meta">关联订单 #240520-007 · 争议金额 20 ⏂ · 已裁决 2026-06-01 10:15 · 裁决人：张三</div>
+        <div class="dc-parties">
+          <div class="dc-party"><span class="badge-label demand">需求方</span> 小明 (信用 4.8)</div>
+          <div class="dc-party"><span class="badge-label service">服务方</span> 王大壮 (信用 2.1)</div>
+        </div>
+        <div class="dc-detail">
+          <div style="padding:var(--space-lg);background:var(--success-light);border-radius:var(--radius-md);margin-bottom:var(--space-lg)">
+            <strong>✅ 已裁决：需求方胜诉</strong> · 退还全额 20 ⏂ · 2026-06-01
+          </div>
+          <p style="font-size:13px;color:var(--muted);line-height:1.6">裁决理由：服务方未按约定完成维修即自行退出，构成违约。根据平台规则第12条，退还需求方全额时间币。服务方信用分下调，限制接单 7 天。</p>
+        </div>
+      </div>
+
+      <!-- Dispute 3: ruled -->
+      <div class="dispute-card" data-status="ruled" onclick="toggleDetail(this)">
+        <div class="dc-header">
+          <span class="dc-id">#DSP-240502-001</span>
+          <span class="dc-type payment">拒付争议</span>
+          <span class="dc-status ruled">已裁决</span>
+        </div>
+        <div class="dc-title">英语辅导拒付争议 — 需求方以效果不理想为由拒付</div>
+        <div class="dc-meta">关联订单 #240502-001 · 争议金额 8 ⏂ · 已裁决 2026-05-15 16:42 · 裁决人：张三</div>
+        <div class="dc-parties">
+          <div class="dc-party"><span class="badge-label demand">需求方</span> 刘阿姨 (信用 4.5)</div>
+          <div class="dc-party"><span class="badge-label service">服务方</span> 周老师 (信用 4.9)</div>
+        </div>
+        <div class="dc-detail">
+          <div style="padding:var(--space-lg);background:oklch(92% 0.02 200);border-radius:var(--radius-md);margin-bottom:var(--space-lg)">
+            <strong>✅ 已裁决：服务方胜诉</strong> · 维持原酬 8 ⏂ · 2026-05-15
+          </div>
+          <p style="font-size:13px;color:var(--muted);line-height:1.6">裁决理由：服务方已按约定完成2小时辅导，提供了教学记录。学习效果主观性强，不构成拒付理由。需求方评价权限保留，可如实评价。</p>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+function switchTab(tab, btn) {
+  document.querySelectorAll('.ad-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.dispute-card').forEach(card => {
+    if (tab === 'all' || card.dataset.status === tab) {
+      card.style.display = 'block';
+    } else {
+      card.style.display = 'none';
+    }
+  });
+}
+
+function toggleDetail(card) {
+  card.classList.toggle('expanded');
+}
+
+function selectRuling(opt, type) {
+  const container = opt.parentElement;
+  container.querySelectorAll('.ruling-opt').forEach(o => o.classList.remove('selected'));
+  opt.classList.add('selected');
+}
+</script>
+
+<script src="/assets/app/jury-nav.js"></script>
+</body>
+</html>

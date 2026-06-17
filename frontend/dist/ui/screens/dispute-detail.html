@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>纠纷详情 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  .dd-header {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--surface); border-bottom: 1px solid var(--border-light);
+    padding: var(--space-lg); display: flex; align-items: center; gap: var(--space-md);
+  }
+  .dd-back {
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    background: var(--border-light); display: flex; align-items: center;
+    justify-content: center; transition: background 0.15s; flex-shrink: 0;
+  }
+  .dd-back:hover { background: var(--border); }
+  .dd-title { flex: 1; font-family: var(--font-display); font-size: 18px; font-weight: 700; }
+
+  .dd-body {
+    padding: var(--space-lg); padding-bottom: calc(var(--bottom-nav-height) + var(--space-2xl));
+    max-width: 720px; margin: 0 auto;
+  }
+  @media (min-width: 1024px) { .dd-body { padding-bottom: var(--space-4xl); } }
+
+  /* Status banner */
+  .status-banner {
+    padding: var(--space-lg); border-radius: var(--radius-lg); margin-bottom: var(--space-lg);
+    display: flex; align-items: flex-start; gap: var(--space-md);
+  }
+  .status-banner.in-progress {
+    background: var(--warning-light); border: 1px solid oklch(90% 0.04 75);
+  }
+  .status-banner.resolved {
+    background: var(--success-light); border: 1px solid oklch(88% 0.04 155);
+  }
+  .status-banner .sb-icon { width: 24px; height: 24px; flex-shrink: 0; margin-top: 1px; }
+  .status-banner .sb-text { flex: 1; }
+  .status-banner .sb-text h4 { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+  .status-banner .sb-text p { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+  /* Info card */
+  .dd-info {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl); margin-bottom: var(--space-lg);
+  }
+  .dd-info .dd-no { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-bottom: var(--space-sm); }
+  .dd-info .dd-dispute-title { font-size: 18px; font-weight: 700; margin-bottom: var(--space-md); }
+  .dd-info .dd-meta-row {
+    display: flex; flex-wrap: wrap; gap: var(--space-xl);
+    font-size: 13px; color: var(--muted);
+  }
+  .dd-info .dd-meta-row span { display: flex; align-items: center; gap: 4px; }
+
+  /* Evidence panels — side by side */
+  .evidence-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-lg);
+    margin: var(--space-lg) 0;
+  }
+  .ev-panel {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); overflow: hidden;
+  }
+  .ev-panel .ev-panel-header {
+    padding: var(--space-lg); border-bottom: 1px solid var(--border-light);
+    display: flex; align-items: center; gap: var(--space-md);
+  }
+  .ev-panel .ev-panel-header .ev-party-role {
+    font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .ev-panel .ev-panel-body { padding: var(--space-lg); }
+  .ev-panel .ev-claim {
+    font-size: 14px; line-height: 1.65; margin-bottom: var(--space-lg);
+  }
+  .ev-panel .ev-files { display: flex; flex-direction: column; gap: var(--space-sm); }
+  .ev-panel .ev-file-item {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 8px 12px; border-radius: var(--radius-sm);
+    background: var(--bg); font-size: 13px; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .ev-panel .ev-file-item:hover { background: var(--border-light); }
+
+  /* Timeline */
+  .dd-timeline { margin: var(--space-lg) 0; }
+  .dd-timeline h3 { font-size: 16px; font-weight: 700; margin-bottom: var(--space-lg); }
+
+  .dtl-step {
+    display: flex; gap: var(--space-lg); padding-bottom: var(--space-xl);
+    position: relative;
+  }
+  .dtl-step:last-child { padding-bottom: 0; }
+  .dtl-step .dtl-node-wrap { display: flex; flex-direction: column; align-items: center; }
+  .dtl-step .dtl-node {
+    width: 28px; height: 28px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; z-index: 1; font-size: 13px;
+  }
+  .dtl-step .dtl-line {
+    flex: 1; width: 2px; min-height: 16px; margin-top: 4px;
+  }
+  .dtl-step.event .dtl-node { background: var(--secondary-light); color: var(--secondary); }
+  .dtl-step.event .dtl-line { background: var(--border-light); }
+  .dtl-step.vote .dtl-node { background: var(--accent-subtle); color: var(--accent); }
+  .dtl-step.vote .dtl-line { background: var(--border-light); }
+  .dtl-step.ruling .dtl-node { background: var(--success-light); color: var(--success); }
+  .dtl-step.ruling .dtl-line { background: var(--success-light); }
+
+  .dtl-step .dtl-content { flex: 1; min-width: 0; padding-top: 2px; }
+  .dtl-step .dtl-title { font-size: 14px; font-weight: 600; }
+  .dtl-step .dtl-desc { font-size: 13px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+  .dtl-step .dtl-time { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono); }
+
+  /* Jury panel */
+  .jury-panel {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+    margin: var(--space-lg) 0;
+  }
+  .jury-panel h3 { font-size: 16px; font-weight: 700; margin-bottom: var(--space-lg); }
+  .jury-stats {
+    display: flex; gap: var(--space-2xl); margin-bottom: var(--space-lg);
+    padding-bottom: var(--space-lg); border-bottom: 1px solid var(--border-light);
+  }
+  .jury-stats .js-item { text-align: center; }
+  .jury-stats .js-val { font-family: var(--font-mono); font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .jury-stats .js-val.for { color: var(--success); }
+  .jury-stats .js-val.against { color: var(--danger); }
+  .jury-stats .js-val.abstain { color: var(--muted); }
+  .jury-stats .js-lbl { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  .jury-list { display: flex; flex-direction: column; gap: var(--space-md); }
+  .jury-member {
+    display: flex; align-items: center; gap: var(--space-lg);
+    padding: var(--space-md) 0; border-bottom: 1px solid var(--border-light);
+  }
+  .jury-member:last-child { border-bottom: none; }
+  .jury-member .jm-info { flex: 1; min-width: 0; }
+  .jury-member .jm-name { font-size: 14px; font-weight: 600; }
+  .jury-member .jm-reason { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+  .jury-member .jm-vote {
+    display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px;
+    border-radius: var(--radius-full); font-size: 12px; font-weight: 700;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .jm-vote.support { background: var(--success-light); color: var(--success); }
+  .jm-vote.oppose { background: var(--danger-light); color: var(--danger); }
+  .jm-vote.abstain { background: var(--border-light); color: var(--muted); }
+
+  /* My vote */
+  .my-vote-section {
+    background: var(--accent-subtle); border-radius: var(--radius-lg);
+    padding: var(--space-xl); margin: var(--space-lg) 0; text-align: center;
+    border: 1.5px solid var(--accent-light);
+  }
+  .my-vote-section h4 { font-size: 15px; font-weight: 700; margin-bottom: var(--space-lg); }
+  .my-vote-section .vote-btns { display: flex; gap: var(--space-md); justify-content: center; }
+  .my-vote-section .vote-btn {
+    padding: 12px 24px; border-radius: var(--radius-md); font-size: 14px;
+    font-weight: 600; border: 2px solid var(--border); cursor: pointer;
+    transition: all 0.15s; background: var(--surface);
+  }
+  .my-vote-section .vote-btn:hover { border-color: var(--accent); }
+  .my-vote-section .vote-btn.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .my-vote-section .vote-btn.voted-support { background: var(--success-light); border-color: var(--success); color: var(--success); }
+  .my-vote-section .vote-extra { margin-top: var(--space-lg); }
+  .my-vote-section .vote-extra textarea {
+    width: 100%; padding: 10px 14px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); font-size: 14px; line-height: 1.5;
+    resize: vertical; min-height: 80px; font-family: var(--font-body);
+    background: var(--surface); outline: none;
+  }
+  .my-vote-section .vote-extra textarea:focus { border-color: var(--accent); }
+
+  /* Ruling card */
+  .ruling-card {
+    background: linear-gradient(135deg, oklch(96% 0.02 200), var(--surface));
+    border: 2px solid var(--secondary); border-radius: var(--radius-lg);
+    padding: var(--space-xl); margin: var(--space-lg) 0;
+  }
+  .ruling-card .ruling-header {
+    display: flex; align-items: center; gap: var(--space-md);
+    margin-bottom: var(--space-lg); padding-bottom: var(--space-lg);
+    border-bottom: 1px solid var(--border);
+  }
+  .ruling-card .admin-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 12px; border-radius: var(--radius-full);
+    background: var(--secondary); color: #fff; font-size: 12px; font-weight: 700;
+  }
+  .ruling-card .ruling-body { font-size: 14px; line-height: 1.7; }
+  .ruling-card .ruling-verdict {
+    font-size: 18px; font-weight: 700; margin: var(--space-lg) 0;
+  }
+  .ruling-card .ruling-verdict .verdict-label { font-size: 12px; color: var(--muted); }
+  .ruling-card .ruling-detail { font-size: 14px; color: var(--muted); line-height: 1.7; }
+  .ruling-card .ruling-meta {
+    font-size: 12px; color: var(--muted); margin-top: var(--space-lg);
+    font-family: var(--font-mono);
+  }
+
+  /* AI Summary */
+  .ai-summary-card {
+    background: linear-gradient(135deg, oklch(96% 0.02 200), var(--surface));
+    border: 1.5px solid var(--secondary-light); border-radius: var(--radius-lg);
+    padding: var(--space-lg); margin: var(--space-lg) 0;
+  }
+  .ai-summary-card .ai-header {
+    display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-md);
+  }
+  .ai-summary-card .ai-badge {
+    font-size: 11px; padding: 3px 10px; border-radius: var(--radius-full);
+    background: var(--secondary); color: #fff; font-weight: 600;
+  }
+  .ai-summary-card .ai-content { font-size: 14px; line-height: 1.7; color: var(--muted); }
+  .ai-summary-card .ai-content strong { color: var(--fg); display: block; margin-top: var(--space-md); margin-bottom: var(--space-sm); }
+  .ai-summary-card .ai-disclaimer {
+    font-size: 11px; color: var(--muted); margin-top: var(--space-md);
+    padding-top: var(--space-md); border-top: 1px dashed var(--border);
+    line-height: 1.5;
+  }
+
+  @media (max-width: 600px) {
+    .evidence-grid { grid-template-columns: 1fr; }
+    .jury-stats { gap: var(--space-xl); }
+    .my-vote-section .vote-btns { flex-direction: column; }
+    .my-vote-section .vote-btn { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="dd-header">
+  <button class="dd-back" onclick="history.back()" aria-label="返回">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
+  <div class="dd-title">纠纷详情</div>
+</div>
+
+<div class="dd-body">
+
+  <!-- Status banner -->
+  <div class="status-banner in-progress">
+    <svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <div class="sb-text">
+      <h4>纠纷处理中 — 等待管理员终审</h4>
+      <p>陪审投票已结束，管理员正在审核各方证据和投票结果，将在终审后作出裁决。</p>
+    </div>
+  </div>
+
+  <!-- Dispute info -->
+  <div class="dd-info">
+    <div class="dd-no">#DSP-LIVE528-003</div>
+    <div class="dd-dispute-title">辅导初三数学 2 小时 — 服务质量争议</div>
+    <div class="dd-meta-row">
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> 订单 ORD-LIVE524-032</span>
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 2024-05-28 创建</span>
+      <span>⏂ 40.00</span>
+    </div>
+  </div>
+
+  <!-- Evidence panels -->
+  <div class="evidence-grid">
+    <div class="ev-panel" style="border-left: 3px solid var(--danger);">
+      <div class="ev-panel-header">
+        <div class="avatar sm" style="background:oklch(50% 0.12 28);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;">张</div>
+        <div>
+          <div style="font-weight:600;font-size:14px;">张姐（需求方）</div>
+          <div class="ev-party-role" style="color:var(--danger);">纠纷发起方</div>
+        </div>
+      </div>
+      <div class="ev-panel-body">
+        <div class="ev-claim">
+          <strong>主张：</strong>服务方约定的辅导时长为2小时，实际只辅导了约 45 分钟就提前离开，且讲解内容与教材不匹配，孩子反馈没有学到实质内容。要求退还部分时间币。
+        </div>
+        <div class="ev-files">
+          <div class="ev-file-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="9 3 9 21"/></svg>
+            <span>课程时间记录截图.png</span>
+          </div>
+          <div class="ev-file-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="9 3 9 21"/></svg>
+            <span>聊天记录-约定辅导内容.png</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ev-panel" style="border-left: 3px solid var(--accent);">
+      <div class="ev-panel-header">
+        <div class="avatar sm" style="background:oklch(60% 0.12 28);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;">叔</div>
+        <div>
+          <div style="font-weight:600;font-size:14px;">用户甲（服务方）</div>
+          <div class="ev-party-role" style="color:var(--accent);">被投诉方</div>
+        </div>
+      </div>
+      <div class="ev-panel-body">
+        <div class="ev-claim">
+          <strong>回应：</strong>辅导时间为完整的 2 小时，从 14:00 到 16:00。中间休息了 5 分钟。教材是按张姐要求使用的，讲解内容是初三数学的核心知识点。可以提供门禁记录证明到达和离开时间。
+        </div>
+        <div class="ev-files">
+          <div class="ev-file-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="9 3 9 21"/></svg>
+            <span>小区门禁进出记录.png</span>
+          </div>
+          <div class="ev-file-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="9 3 9 21"/></svg>
+            <span>辅导用教材照片.png</span>
+          </div>
+          <div class="ev-file-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="9 3 9 21"/></svg>
+            <span>当日课程笔记.jpg</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Timeline -->
+  <div class="dd-timeline">
+    <h3>纠纷时间线</h3>
+    <div class="dtl-step event">
+      <div class="dtl-node-wrap">
+        <div class="dtl-node">!</div>
+        <div class="dtl-line"></div>
+      </div>
+      <div class="dtl-content">
+        <div class="dtl-title">张姐发起纠纷</div>
+        <div class="dtl-desc">投诉服务方辅导时长不足，内容与约定不符</div>
+        <div class="dtl-time">2024-05-28 14:30</div>
+      </div>
+    </div>
+    <div class="dtl-step event">
+      <div class="dtl-node-wrap">
+        <div class="dtl-node">↩</div>
+        <div class="dtl-line"></div>
+      </div>
+      <div class="dtl-content">
+        <div class="dtl-title">用户甲提交回应与证据</div>
+        <div class="dtl-desc">提交门禁记录和课程笔记反驳指控</div>
+        <div class="dtl-time">2024-05-28 18:45</div>
+      </div>
+    </div>
+    <div class="dtl-step vote">
+      <div class="dtl-node-wrap">
+        <div class="dtl-node">⚖</div>
+        <div class="dtl-line"></div>
+      </div>
+      <div class="dtl-content">
+        <div class="dtl-title">陪审投票开启</div>
+        <div class="dtl-desc">5 位社区陪审员参与投票，投票于 5 月 30 日结束</div>
+        <div class="dtl-time">2024-05-29 09:00 — 2024-05-30 23:59</div>
+      </div>
+    </div>
+    <div class="dtl-step ruling">
+      <div class="dtl-node-wrap">
+        <div class="dtl-node">⏳</div>
+      </div>
+      <div class="dtl-content">
+        <div class="dtl-title">等待管理员终审</div>
+        <div class="dtl-desc">管理员正在审核双方证据、陪审投票结果和 AI 摘要</div>
+        <div class="dtl-time">预计 2024-06-06 前完成</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Jury panel -->
+  <div class="jury-panel">
+    <h3>社区陪审投票结果</h3>
+    <div class="jury-stats">
+      <div class="js-item">
+        <div class="js-val for">3</div>
+        <div class="js-lbl">支持服务方</div>
+      </div>
+      <div class="js-item">
+        <div class="js-val against">1</div>
+        <div class="js-lbl">支持需求方</div>
+      </div>
+      <div class="js-item">
+        <div class="js-val abstain">1</div>
+        <div class="js-lbl">弃权</div>
+      </div>
+    </div>
+    <div class="jury-list">
+      <div class="jury-member">
+        <div class="avatar sm" style="background:oklch(60% 0.10 175);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;">李</div>
+        <div class="jm-info">
+          <div class="jm-name">李老师</div>
+          <div class="jm-reason">门禁记录显示用户甲确实在小区待了 2 小时，证据更充分。</div>
+        </div>
+        <div class="jm-vote support">支持服务方</div>
+      </div>
+      <div class="jury-member">
+        <div class="avatar sm" style="background:oklch(55% 0.08 255);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;">王</div>
+        <div class="jm-info">
+          <div class="jm-name">王阿姨</div>
+          <div class="jm-reason">双方都有道理，但服务方的门禁记录是硬证据。</div>
+        </div>
+        <div class="jm-vote support">支持服务方</div>
+      </div>
+      <div class="jury-member">
+        <div class="avatar sm" style="background:oklch(70% 0.06 85);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;">赵</div>
+        <div class="jm-info">
+          <div class="jm-name">用户己</div>
+          <div class="jm-reason">课程笔记详细，说明服务方认真准备了。</div>
+        </div>
+        <div class="jm-vote support">支持服务方</div>
+      </div>
+      <div class="jury-member">
+        <div class="avatar sm" style="background:oklch(50% 0.14 28);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;">陈</div>
+        <div class="jm-info">
+          <div class="jm-name">陈师傅</div>
+          <div class="jm-reason">需求方的截图显示沟通时间确实有差异，应部分退款。</div>
+        </div>
+        <div class="jm-vote oppose">支持需求方</div>
+      </div>
+      <div class="jury-member">
+        <div class="avatar sm" style="background:var(--border);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;font-weight:700;">周</div>
+        <div class="jm-info">
+          <div class="jm-name">周同学</div>
+          <div class="jm-reason">证据不足以下定论，由管理员裁决更合适。</div>
+        </div>
+        <div class="jm-vote abstain">弃权</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- My vote -->
+  <div class="my-vote-section">
+    <h4>你是陪审员 — 请投票</h4>
+    <div class="vote-btns" id="vote-btns">
+      <button class="vote-btn" data-vote="support">支持服务方（用户甲）</button>
+      <button class="vote-btn" data-vote="oppose">支持需求方（张姐）</button>
+      <button class="vote-btn" data-vote="abstain">弃权</button>
+    </div>
+    <div class="vote-extra" style="display:none;" id="vote-reason-section">
+      <textarea placeholder="简述你的投票理由（选填）…" id="vote-reason"></textarea>
+    </div>
+    <button class="btn btn--primary btn--lg" id="cast-vote-btn" style="display:none;margin-top:var(--space-lg);">确认投票</button>
+    <div id="vote-result" style="display:none;color:var(--success);font-weight:600;margin-top:var(--space-lg);">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="vertical-align:middle;margin-right:6px;"><polyline points="20 6 9 17 4 12"/></svg> 你的投票已提交
+    </div>
+  </div>
+
+  <!-- AI summary -->
+  <div class="ai-summary-card">
+    <div class="ai-header">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--secondary)" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span style="font-weight:600;font-size:15px;">AI 纠纷摘要</span>
+      <span class="ai-badge">仅供参考</span>
+    </div>
+    <div class="ai-content">
+      <strong>双方主张</strong>
+      <p>需求方（张姐）主张服务方辅导时长不足（约定2小时，实际约45分钟），且讲解内容与教材不匹配。服务方（用户甲）回应辅导时间为完整2小时，并提供了门禁记录和课程笔记作为证据。</p>
+      <strong>关键证据</strong>
+      <p>1. 服务方提供的小区门禁记录显示进出时间为 14:02 和 15:58，总时长约 1 小时 56 分。<br>2. 课程笔记包含初三数学核心知识点，与约定内容一致。<br>3. 需求方提供的聊天记录显示双方在辅导内容上有过讨论。</p>
+      <strong>投票摘要</strong>
+      <p>5 位陪审员中，3 位支持服务方（认为门禁记录是硬证据）、1 位支持需求方（认为沟通有差异）、1 位弃权（认为证据不足）。多数意见倾向于服务方有充分证据。</p>
+    </div>
+    <div class="ai-disclaimer">
+      ⚠ AI 摘要基于现有纠纷材料生成，已区分「已记录事实」与「AI 推测或建议」。不构成裁决依据，最终裁决由管理员人工做出。
+    </div>
+  </div>
+
+</div>
+
+<script>
+  var selectedVote = '';
+
+  document.querySelectorAll('#vote-btns .vote-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('#vote-btns .vote-btn').forEach(function(b) { b.classList.remove('selected'); });
+      this.classList.add('selected');
+      selectedVote = this.dataset.vote;
+      document.getElementById('vote-reason-section').style.display = 'block';
+      document.getElementById('cast-vote-btn').style.display = 'inline-flex';
+    });
+  });
+
+  document.getElementById('cast-vote-btn').addEventListener('click', function() {
+    this.textContent = '提交中…';
+    this.disabled = true;
+
+    setTimeout(function() {
+      document.getElementById('vote-btns').style.display = 'none';
+      document.getElementById('vote-reason-section').style.display = 'none';
+      document.getElementById('cast-vote-btn').style.display = 'none';
+      document.getElementById('vote-result').style.display = 'block';
+
+      // Update stats
+      var forEl = document.querySelector('.js-val.for');
+      var currentFor = parseInt(forEl.textContent);
+      forEl.textContent = currentFor + 1;
+    }, 500);
+  });
+</script>
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav">
+  <a href="feed.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    首页
+  </a>
+  <a href="tasks.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    任务
+  </a>
+  <a href="post.html" class="publish-btn" aria-label="发布">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </a>
+  <a href="messages.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    消息
+  </a>
+  <a href="profile.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    我的
+  </a>
+</nav>
+
+<script src="/assets/app/jury-nav.js"></script>
+
+</body>
+</html>

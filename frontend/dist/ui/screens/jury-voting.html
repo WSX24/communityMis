@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>陪审投票 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  .jury-page { max-width: 860px; margin: 0 auto; padding: var(--space-3xl) var(--space-lg); }
+  @media (max-width: 640px) { .jury-page { padding: var(--space-lg); } }
+
+  .jury-back {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted);
+    margin-bottom: var(--space-2xl); transition: color 0.15s;
+  }
+  .jury-back:hover { color: var(--fg); }
+
+  .jury-header {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-2xl);
+    margin-bottom: var(--space-xl);
+  }
+  .jury-badge-row { display: flex; gap: var(--space-sm); margin-bottom: var(--space-lg); flex-wrap: wrap; }
+  .jury-badge-row .jtag {
+    font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: var(--radius-full);
+  }
+  .jtag.dispute { background: var(--danger-light); color: var(--danger); }
+  .jtag.order { background: var(--border-light); color: var(--muted); }
+  .jtag.urgent { background: var(--warning-light); color: var(--warning); }
+
+  .jury-header h1 {
+    font-family: var(--font-display); font-size: 22px; font-weight: 700;
+    letter-spacing: -0.01em; margin-bottom: var(--space-sm); line-height: 1.3;
+  }
+  .jury-header .jh-meta { font-size: 13px; color: var(--muted); line-height: 1.7; }
+  .jury-header .jh-meta strong { color: var(--fg); }
+
+  /* Evidence panels */
+  .evidence-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--space-lg); margin-bottom: var(--space-xl);
+  }
+  @media (max-width: 640px) { .evidence-grid { grid-template-columns: 1fr; } }
+  .evidence-panel {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+  }
+  .evidence-panel .ep-role {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; margin-bottom: var(--space-md); color: var(--muted);
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .evidence-panel .ep-role .dot {
+    width: 10px; height: 10px; border-radius: var(--radius-full);
+  }
+  .evidence-panel .ep-role .dot.demand { background: var(--secondary); }
+  .evidence-panel .ep-role .dot.service { background: var(--accent); }
+  .evidence-panel .ep-user { font-size: 16px; font-weight: 700; margin-bottom: var(--space-sm); }
+  .evidence-panel .ep-credit { font-size: 12px; color: var(--muted); margin-bottom: var(--space-lg); }
+  .evidence-panel .ep-claim {
+    font-size: 14px; line-height: 1.7; color: var(--fg); margin-bottom: var(--space-lg);
+    padding: var(--space-md); background: var(--bg); border-radius: var(--radius-sm);
+  }
+  .evidence-panel .ep-files { display: flex; flex-direction: column; gap: var(--space-sm); }
+  .evidence-panel .ep-file {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 8px 12px; border-radius: var(--radius-sm);
+    background: var(--bg); font-size: 12px; color: var(--muted);
+    font-family: var(--font-mono);
+  }
+
+  /* AI summary box */
+  .ai-box {
+    background: oklch(96% 0.02 200); border: 1px solid var(--secondary-light);
+    border-radius: var(--radius-lg); padding: var(--space-xl); margin-bottom: var(--space-xl);
+  }
+  .ai-box h3 {
+    font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: var(--space-sm);
+    color: var(--secondary); margin-bottom: var(--space-lg);
+  }
+  .ai-box .ai-items { display: grid; gap: var(--space-md); }
+  .ai-box .ai-item { display: flex; gap: var(--space-md); font-size: 13px; line-height: 1.6; }
+  .ai-box .ai-label { font-weight: 600; white-space: nowrap; color: var(--fg); min-width: 64px; }
+  .ai-box .ai-note {
+    margin-top: var(--space-md); font-size: 11px; color: var(--muted);
+    display: flex; align-items: center; gap: 4px;
+  }
+
+  /* Current tally */
+  .tally-section { margin-bottom: var(--space-xl); }
+  .tally-section h3 {
+    font-family: var(--font-display); font-size: 18px; font-weight: 700;
+    margin-bottom: var(--space-lg); display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .tally-bars { display: flex; gap: var(--space-md); flex-wrap: wrap; }
+  .tally-bar-card {
+    flex: 1; min-width: 120px; background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-lg); text-align: center;
+  }
+  .tally-bar-card .tb-label { font-size: 13px; color: var(--muted); margin-bottom: var(--space-sm); }
+  .tally-bar-card .tb-count {
+    font-family: var(--font-display); font-size: 28px; font-weight: 700; letter-spacing: -0.02em;
+    margin-bottom: var(--space-sm);
+  }
+  .tally-bar-card .tb-bar {
+    height: 6px; border-radius: 3px; background: var(--border-light); overflow: hidden;
+  }
+  .tally-bar-card .tb-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+  .tb-fill.demand { background: var(--secondary); }
+  .tb-fill.service { background: var(--accent); }
+  .tb-fill.mediate { background: var(--warning); }
+
+  .tally-table {
+    width: 100%; background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); overflow: hidden;
+    margin-top: var(--space-lg);
+  }
+  .tally-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .tally-table th {
+    text-align: left; padding: 12px var(--space-lg); font-size: 11px;
+    font-weight: 600; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.04em; border-bottom: 1px solid var(--border-light);
+    background: var(--bg);
+  }
+  .tally-table td { padding: 12px var(--space-lg); border-bottom: 1px solid var(--border-light); }
+  .tally-table tr:last-child td { border-bottom: none; }
+  .tally-table .vote-badge {
+    display: inline-block; padding: 3px 10px; border-radius: var(--radius-full);
+    font-size: 12px; font-weight: 600;
+  }
+  .vote-badge.demand { background: var(--secondary-light); color: var(--secondary); }
+  .vote-badge.service { background: var(--accent-subtle); color: var(--accent); }
+  .vote-badge.mediate { background: var(--warning-light); color: var(--warning); }
+
+  /* Vote form */
+  .vote-form {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 2px solid var(--accent); padding: var(--space-2xl);
+  }
+  .vote-form h3 {
+    font-family: var(--font-display); font-size: 18px; font-weight: 700;
+    margin-bottom: var(--space-sm);
+  }
+  .vote-form .vf-subtitle {
+    font-size: 13px; color: var(--muted); margin-bottom: var(--space-xl);
+  }
+  .vote-options { display: flex; gap: var(--space-md); margin-bottom: var(--space-xl); flex-wrap: wrap; }
+  .vote-opt {
+    flex: 1; min-width: 130px; padding: var(--space-xl); border-radius: var(--radius-md);
+    border: 2px solid var(--border-light); text-align: center; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .vote-opt:hover { border-color: var(--accent-light); }
+  .vote-opt.selected { border-color: var(--accent); background: var(--accent-subtle); }
+  .vote-opt .vo-icon { font-size: 28px; margin-bottom: var(--space-sm); }
+  .vote-opt .vo-label { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+  .vote-opt .vo-desc { font-size: 12px; color: var(--muted); }
+  .vote-textarea {
+    width: 100%; min-height: 80px; padding: 12px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); font-size: 14px; outline: none;
+    margin-bottom: var(--space-xl); resize: vertical; font-family: var(--font-body);
+  }
+  .vote-textarea:focus { border-color: var(--accent); }
+  .vote-char-count { font-size: 12px; color: var(--muted); text-align: right; margin-top: -16px; margin-bottom: var(--space-lg); }
+  .vote-actions { display: flex; gap: var(--space-md); flex-wrap: wrap; }
+  .vote-submitted {
+    text-align: center; padding: var(--space-3xl);
+  }
+  .vote-submitted .vs-icon { font-size: 48px; margin-bottom: var(--space-lg); }
+  .vote-submitted .vs-title { font-size: 18px; font-weight: 700; margin-bottom: var(--space-sm); }
+  .vote-submitted .vs-desc { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: var(--space-xl); }
+
+  /* Confirm dialog overlay */
+  .confirm-overlay {
+    position: fixed; inset: 0; z-index: 400; background: rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  }
+  .confirm-overlay.open { opacity: 1; pointer-events: auto; }
+  .confirm-dialog {
+    background: var(--surface); border-radius: var(--radius-xl); padding: var(--space-3xl);
+    max-width: 420px; width: 90%; text-align: center; box-shadow: var(--shadow-lg);
+  }
+  .confirm-dialog .cd-icon { font-size: 40px; margin-bottom: var(--space-lg); }
+  .confirm-dialog .cd-title { font-size: 17px; font-weight: 700; margin-bottom: var(--space-sm); }
+  .confirm-dialog .cd-desc { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: var(--space-xl); }
+  .confirm-dialog .cd-actions { display: flex; gap: var(--space-md); justify-content: center; }
+
+  .toast {
+    position: fixed; bottom: var(--space-3xl); left: 50%; transform: translateX(-50%);
+    background: var(--fg); color: #fff; padding: 12px 24px; border-radius: var(--radius-md);
+    font-size: 14px; font-weight: 500; z-index: 500; box-shadow: var(--shadow-lg);
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="jury-page">
+  <a class="jury-back" href="javascript:history.back()">← 返回</a>
+
+  <!-- Header -->
+  <div class="jury-header">
+    <div class="jury-badge-row">
+      <span class="jtag dispute">质量争议</span>
+      <span class="jtag order">#DSP-LIVE528-003</span>
+      <span class="jtag urgent">投票中 · 剩余 18 小时</span>
+    </div>
+    <h1>保洁服务质量争议 — 需求方反映清洁不彻底</h1>
+    <div class="jh-meta">
+      关联订单 <strong>#240528-003</strong> · 争议金额 <strong>15 ⏂</strong> · 发起时间 <strong>2026-06-03 14:22</strong><br>
+      当前阶段：<strong style="color:var(--warning)">陪审投票中</strong> · 已投票 4/7 · 还剩 3 席未投
+    </div>
+  </div>
+
+  <!-- Evidence -->
+  <div class="evidence-grid">
+    <div class="evidence-panel">
+      <div class="ep-role"><span class="dot demand"></span>需求方主张</div>
+      <div class="ep-user">用户己 <span style="font-size:13px;color:var(--muted)">信用 3.6</span></div>
+      <div class="ep-credit">注册 2025-08 · 完成 12 单 · 被评 8 次</div>
+      <div class="ep-claim">约定2小时全屋保洁，但卫生间和厨房角落未清理，灶台油污残留。服务方未提前告知深度清洁需额外收费。要求退还 50% 报酬（7.5 ⏂）。</div>
+      <div class="ep-files">
+        <div class="ep-file">📎 photo_kitchen_01.jpg (1.2 MB)</div>
+        <div class="ep-file">📎 photo_bathroom_02.jpg (0.9 MB)</div>
+        <div class="ep-file">📎 chat_screenshot_p1.png (0.5 MB)</div>
+      </div>
+    </div>
+    <div class="evidence-panel">
+      <div class="ep-role"><span class="dot service"></span>服务方主张</div>
+      <div class="ep-user">用户丁 <span style="font-size:13px;color:var(--muted)">信用 4.7</span></div>
+      <div class="ep-credit">注册 2025-03 · 完成 89 单 · 被评 72 次</div>
+      <div class="ep-claim">按约定完成了全屋保洁，进出前后都有照片为证。灶台油污是长期积垢需深度清洁（不在此次服务范围），已在服务前口头告知。愿意退还 20%（3 ⏂）作为善意。</div>
+      <div class="ep-files">
+        <div class="ep-file">📎 before_after_all.jpg (2.1 MB)</div>
+        <div class="ep-file">📎 chat_screenshot.png (0.6 MB)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI analysis -->
+  <div class="ai-box">
+    <h3>🤖 AI 辅助分析</h3>
+    <div class="ai-items">
+      <div class="ai-item"><span class="ai-label">争议焦点</span><span>灶台清洁是否在原约定服务范围内——该点可能决定裁决方向</span></div>
+      <div class="ai-item"><span class="ai-label">证据评估</span><span>双方均有照片证据；服务方有口头告知的主张但无书面记录；需求方提供的灶台照片显示油污较重但无法确认是否为一次服务可清理</span></div>
+      <div class="ai-item"><span class="ai-label">历史参考</span><span>平台历史上有 3 起类似保洁类纠纷，均以调解退还 25%-40% 结案</span></div>
+    </div>
+    <div class="ai-note">⚠ AI分析仅供参考，请独立做出判断</div>
+  </div>
+
+  <!-- Current tally -->
+  <div class="tally-section">
+    <h3>📊 当前投票统计</h3>
+    <div class="tally-bars" id="tallyBars">
+      <div class="tally-bar-card">
+        <div class="tb-label">调解建议</div>
+        <div class="tb-count" style="color:var(--warning)" id="countMediate">4</div>
+        <div class="tb-bar"><div class="tb-fill mediate" style="width:57%" id="barMediate"></div></div>
+      </div>
+      <div class="tally-bar-card">
+        <div class="tb-label">需求方胜诉</div>
+        <div class="tb-count" style="color:var(--secondary)" id="countDemand">1</div>
+        <div class="tb-bar"><div class="tb-fill demand" style="width:14%" id="barDemand"></div></div>
+      </div>
+      <div class="tally-bar-card">
+        <div class="tb-label">服务方胜诉</div>
+        <div class="tb-count" style="color:var(--accent)" id="countService">0</div>
+        <div class="tb-bar"><div class="tb-fill service" style="width:0%" id="barService"></div></div>
+      </div>
+    </div>
+
+    <div class="tally-table">
+      <table>
+        <thead><tr><th>陪审员</th><th>信用分</th><th>投票</th><th>理由摘要</th><th>时间</th></tr></thead>
+        <tbody id="juryTable">
+          <tr><td><strong>李明</strong></td><td>4.8</td><td><span class="vote-badge mediate">调解</span></td><td>灶台清洗范围界定不清，建议双方各退一步</td><td>06-03 16:30</td></tr>
+          <tr><td><strong>王芳</strong></td><td>4.5</td><td><span class="vote-badge mediate">调解</span></td><td>双方都有一定道理，调解退还30%较为公平</td><td>06-03 18:15</td></tr>
+          <tr><td><strong>张伟</strong></td><td>4.9</td><td><span class="vote-badge mediate">调解</span></td><td>服务方有告知义务未履行到位，但需求方要求偏高</td><td>06-03 20:02</td></tr>
+          <tr><td><strong>赵雪</strong></td><td>4.3</td><td><span class="vote-badge demand">需求方胜诉</span></td><td>服务结果明显未达标准，支持退还50%</td><td>06-04 08:40</td></tr>
+          <tr id="selfVoteRow" style="display:none"></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Vote form -->
+  <div class="vote-form" id="voteForm">
+    <h3>✋ 我的投票</h3>
+    <div class="vf-subtitle">作为本纠纷的陪审员之一，请根据证据和平台规则作出独立判断。投票后不可修改。</div>
+
+    <div class="vote-options" id="voteOptions">
+      <div class="vote-opt" data-vote="demand" onclick="selectVote('demand', this)">
+        <div class="vo-icon">🏠</div>
+        <div class="vo-label">需求方胜诉</div>
+        <div class="vo-desc">支持退还全部或部分时间币</div>
+      </div>
+      <div class="vote-opt" data-vote="service" onclick="selectVote('service', this)">
+        <div class="vo-icon">🛠</div>
+        <div class="vo-label">服务方胜诉</div>
+        <div class="vo-desc">驳回申诉，维持原约定</div>
+      </div>
+      <div class="vote-opt" data-vote="mediate" onclick="selectVote('mediate', this)">
+        <div class="vo-icon">🤝</div>
+        <div class="vo-label">调解处理</div>
+        <div class="vo-desc">建议双方各退一步，部分退款</div>
+      </div>
+    </div>
+
+    <textarea class="vote-textarea" id="voteReason" placeholder="请说明你的投票理由（至少20字）…" oninput="updateCharCount()" maxlength="500"></textarea>
+    <div class="vote-char-count"><span id="charCount">0</span>/500</div>
+
+    <div class="vote-actions">
+      <button class="btn btn--primary" onclick="submitVote()">提交投票</button>
+      <button class="btn btn--secondary" onclick="window.location.reload()">清除重选</button>
+    </div>
+  </div>
+
+  <!-- Submitted state -->
+  <div class="vote-form vote-submitted" id="voteSubmitted" style="display:none">
+    <div class="vs-icon">✅</div>
+    <div class="vs-title">投票已提交</div>
+    <div class="vs-desc">
+      你的投票已记录，感谢你的参与。<br>
+      投票截止后，管理员将综合陪审意见做出终审裁决。
+    </div>
+    <button class="btn btn--outline" onclick="window.location.reload()">查看最新统计</button>
+  </div>
+
+</div>
+
+<!-- Confirm dialog -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-dialog">
+    <div class="cd-icon">⚖️</div>
+    <div class="cd-title">确认提交投票？</div>
+    <div class="cd-desc">
+      你的投票结果为 "<strong id="confirmVoteLabel"></strong>"。<br>
+      投票提交后<strong>不可修改或撤回</strong>。
+    </div>
+    <div class="cd-actions">
+      <button class="btn btn--primary" onclick="confirmSubmit()">确认提交</button>
+      <button class="btn btn--secondary" onclick="closeConfirm()">再想想</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+let selectedVote = null;
+
+function selectVote(vote, el) {
+  document.querySelectorAll('.vote-opt').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedVote = vote;
+}
+
+function updateCharCount() {
+  const len = document.getElementById('voteReason').value.length;
+  document.getElementById('charCount').textContent = len;
+}
+
+function submitVote() {
+  if (!selectedVote) {
+    showToast('请选择一个投票方向');
+    return;
+  }
+  const reason = document.getElementById('voteReason').value.trim();
+  if (reason.length < 20) {
+    showToast('投票理由至少需要 20 字');
+    return;
+  }
+  const labelMap = { demand: '需求方胜诉', service: '服务方胜诉', mediate: '调解处理' };
+  document.getElementById('confirmVoteLabel').textContent = labelMap[selectedVote];
+  document.getElementById('confirmOverlay').classList.add('open');
+}
+
+function closeConfirm() {
+  document.getElementById('confirmOverlay').classList.remove('open');
+}
+
+function confirmSubmit() {
+  document.getElementById('confirmOverlay').classList.remove('open');
+  document.getElementById('voteForm').style.display = 'none';
+  document.getElementById('voteSubmitted').style.display = 'block';
+
+  // Update tally
+  const labelMap = { demand: '需求方胜诉', service: '服务方胜诉', mediate: '调解' };
+  const row = document.getElementById('selfVoteRow');
+  row.style.display = '';
+  row.innerHTML = `<td><strong>我</strong> <span style="font-size:11px;color:var(--muted)">(当前用户)</span></td>
+    <td>4.6</td>
+    <td><span class="vote-badge ${selectedVote}">${labelMap[selectedVote]}</span></td>
+    <td>${document.getElementById('voteReason').value.trim()}</td>
+    <td style="font-size:12px;color:var(--muted)">刚刚</td>`;
+
+  // Update count and bar
+  const keyMap = { demand: 'Demand', service: 'Service', mediate: 'Mediate' };
+  const key = keyMap[selectedVote];
+  const countEl = document.getElementById('count' + key);
+  const barEl = document.getElementById('bar' + key);
+  const newCount = parseInt(countEl.textContent) + 1;
+  countEl.textContent = newCount;
+  barEl.style.width = ((newCount / 6) * 100) + '%';
+
+  showToast('投票已成功提交');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+</script>
+
+<script src="/assets/app/jury-hall.js"></script>
+</body>
+</html>

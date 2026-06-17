@@ -1,0 +1,16 @@
+[Unit]
+Description=Community MIS maintenance job
+After=network-online.target community-mis-backend.service
+
+[Service]
+Type=oneshot
+User=community-mis
+Group=community-mis
+WorkingDirectory=/opt/community-mis/current
+EnvironmentFile=/etc/community-mis/community-mis.env
+ExecStart=/usr/bin/node scripts/maintenance.mjs
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/community-mis /var/log/community-mis

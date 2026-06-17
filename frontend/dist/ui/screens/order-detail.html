@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>订单详情 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  .detail-header {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--surface); border-bottom: 1px solid var(--border-light);
+    padding: var(--space-lg); display: flex; align-items: center; gap: var(--space-md);
+  }
+  .detail-back {
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    background: var(--border-light); display: flex; align-items: center;
+    justify-content: center; transition: background 0.15s; flex-shrink: 0;
+  }
+  .detail-back:hover { background: var(--border); }
+  .detail-title { flex: 1; font-family: var(--font-display); font-size: 18px; font-weight: 700; }
+
+  .detail-body {
+    padding: var(--space-lg); padding-bottom: calc(var(--bottom-nav-height) + var(--space-2xl));
+    max-width: 680px; margin: 0 auto;
+  }
+  @media (min-width: 1024px) { .detail-body { padding-bottom: var(--space-4xl); } }
+
+  /* Info card */
+  .info-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+    margin-bottom: var(--space-lg);
+  }
+  .info-card .order-no {
+    font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+    margin-bottom: var(--space-sm);
+  }
+  .info-card .order-title {
+    font-family: var(--font-display); font-size: 22px; font-weight: 700;
+    line-height: 1.3; margin-bottom: var(--space-md);
+  }
+  .info-card .info-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-lg);
+    margin-top: var(--space-lg); padding-top: var(--space-lg);
+    border-top: 1px solid var(--border-light);
+  }
+  .info-cell dt { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+  .info-cell dd { font-size: 15px; font-weight: 600; }
+  .info-cell dd.amount { font-family: var(--font-mono); font-size: 22px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+
+  /* Timeline */
+  .timeline { margin: var(--space-xl) 0; }
+  .timeline h3 { font-size: 16px; font-weight: 700; margin-bottom: var(--space-lg); }
+  .tl-step {
+    display: flex; gap: var(--space-lg); padding-bottom: var(--space-xl);
+    position: relative;
+  }
+  .tl-step:last-child { padding-bottom: 0; }
+  .tl-step .tl-node-wrap { position: relative; display: flex; flex-direction: column; align-items: center; }
+  .tl-step .tl-node {
+    width: 32px; height: 32px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; z-index: 1;
+  }
+  .tl-step .tl-line {
+    flex: 1; width: 2px; min-height: 20px; margin-top: 4px;
+  }
+  .tl-step.done .tl-node { background: var(--success); color: #fff; }
+  .tl-step.done .tl-line { background: var(--success); }
+  .tl-step.active .tl-node {
+    background: var(--accent-subtle); color: var(--accent);
+    border: 2px solid var(--accent);
+  }
+  .tl-step.active .tl-line { background: var(--border-light); }
+  .tl-step.pending .tl-node {
+    background: var(--border-light); color: var(--muted);
+  }
+  .tl-step.pending .tl-line { background: var(--border-light); }
+
+  .tl-step .tl-content { flex: 1; min-width: 0; padding-top: 4px; }
+  .tl-step .tl-step-title { font-size: 15px; font-weight: 600; }
+  .tl-step .tl-step-desc { font-size: 13px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+  .tl-step .tl-step-time { font-size: 12px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono); }
+
+  /* Party cards */
+  .party-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);
+    margin: var(--space-lg) 0;
+  }
+  .party-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-lg); text-align: center;
+  }
+  .party-card .party-role {
+    font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--muted); margin-bottom: var(--space-md);
+  }
+  .party-card .party-confirm {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: var(--radius-full);
+    font-size: 13px; font-weight: 600; margin-top: var(--space-sm);
+  }
+  .party-card .confirmed { background: var(--success-light); color: var(--success); }
+  .party-card .unconfirmed { background: var(--warning-light); color: var(--warning); }
+
+  /* Action bar */
+  .action-bar {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-lg);
+    margin: var(--space-lg) 0;
+  }
+  .action-bar h3 { font-size: 15px; font-weight: 700; margin-bottom: var(--space-md); }
+  .action-bar .btn-row { display: flex; gap: var(--space-md); flex-wrap: wrap; }
+
+  /* AI Summary card */
+  .ai-summary-card {
+    background: linear-gradient(135deg, oklch(96% 0.02 200), var(--surface));
+    border: 1.5px solid var(--secondary-light); border-radius: var(--radius-lg);
+    padding: var(--space-lg); margin: var(--space-lg) 0;
+  }
+  .ai-summary-card .ai-header {
+    display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-md);
+  }
+  .ai-summary-card .ai-badge {
+    font-size: 11px; padding: 3px 10px; border-radius: var(--radius-full);
+    background: var(--secondary); color: #fff; font-weight: 600;
+  }
+  .ai-summary-card .ai-content {
+    font-size: 14px; line-height: 1.7; color: var(--muted);
+  }
+  .ai-summary-card .ai-disclaimer {
+    font-size: 11px; color: var(--muted); margin-top: var(--space-md);
+    padding-top: var(--space-md); border-top: 1px dashed var(--border);
+  }
+
+  .summary-loading {
+    display: flex; align-items: center; gap: var(--space-sm);
+    color: var(--secondary); font-size: 14px; padding: var(--space-md) 0;
+  }
+
+  /* Chat messages area */
+  .chat-area { margin: var(--space-lg) 0; }
+  .chat-area h3 { font-size: 16px; font-weight: 700; margin-bottom: var(--space-lg); }
+  .chat-msg {
+    display: flex; gap: var(--space-md); margin-bottom: var(--space-lg);
+  }
+  .chat-msg.me { flex-direction: row-reverse; }
+  .chat-msg .cm-bubble {
+    max-width: 75%; padding: 10px 16px; border-radius: var(--radius-lg);
+    font-size: 14px; line-height: 1.55;
+  }
+  .chat-msg.other .cm-bubble {
+    background: var(--bg); border: 1px solid var(--border-light);
+    border-bottom-left-radius: 4px;
+  }
+  .chat-msg.me .cm-bubble {
+    background: var(--accent); color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .chat-msg .cm-time {
+    font-size: 11px; color: var(--muted); margin-top: 4px;
+  }
+
+  @media (max-width: 480px) {
+    .info-card .info-row { grid-template-columns: 1fr; gap: var(--space-md); }
+    .party-row { grid-template-columns: 1fr; }
+    .action-bar .btn-row { flex-direction: column; }
+    .action-bar .btn-row .btn { width: 100%; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+
+<div class="detail-header">
+  <button class="detail-back" onclick="history.back()" aria-label="返回">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
+  <div class="detail-title">订单详情</div>
+</div>
+
+<div class="detail-body">
+  <!-- Info card -->
+  <div class="info-card">
+    <div class="order-no">#ORD-LIVE603-042</div>
+    <div class="order-title">帮用户乙代购日用品</div>
+    <div style="display:flex;align-items:center;gap:var(--space-md);flex-wrap:wrap;">
+      <span class="status-pill status-done"><span class="sp-dot"></span>已完成</span>
+      <span class="badge badge--success">双方已互评</span>
+    </div>
+    <div class="info-row">
+      <div class="info-cell"><dt>时间币金额</dt><dd class="amount">⏂ 35.00</dd></div>
+      <div class="info-cell"><dt>约合服务时间</dt><dd>7 小时</dd></div>
+      <div class="info-cell"><dt>创建时间</dt><dd>2024-06-03 10:15</dd></div>
+      <div class="info-cell"><dt>完成时间</dt><dd>2024-06-03 14:22</dd></div>
+    </div>
+  </div>
+
+  <!-- Party cards -->
+  <div class="party-row">
+    <div class="party-card">
+      <div class="party-role">需求方</div>
+      <div class="avatar lg" style="background:oklch(50% 0.12 255);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:24px;font-weight:700;width:56px;height:56px;">刘</div>
+      <div style="font-weight:600;margin-top:var(--space-sm);">用户戊</div>
+      <div style="font-size:12px;color:var(--reward-gold);margin-top:2px;">★★★★☆ 4.6</div>
+      <div class="party-confirm confirmed">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> 已确认
+      </div>
+    </div>
+    <div class="party-card">
+      <div class="party-role">服务方</div>
+      <div class="avatar lg" style="background:oklch(60% 0.12 28);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:24px;font-weight:700;width:56px;height:56px;">张</div>
+      <div style="font-weight:600;margin-top:var(--space-sm);">用户甲</div>
+      <div style="font-size:12px;color:var(--reward-gold);margin-top:2px;">★★★★★ 4.9</div>
+      <div class="party-confirm confirmed">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> 已确认
+      </div>
+    </div>
+  </div>
+
+  <!-- Status timeline -->
+  <div class="timeline">
+    <h3>订单进度</h3>
+    <div class="tl-step done">
+      <div class="tl-node-wrap">
+        <div class="tl-node"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="tl-line"></div>
+      </div>
+      <div class="tl-content">
+        <div class="tl-step-title">需求发布</div>
+        <div class="tl-step-desc">用户戊发布了「帮用户乙代购日用品」需求，约 7 小时服务时间</div>
+        <div class="tl-step-time">2024-06-03 09:00</div>
+      </div>
+    </div>
+    <div class="tl-step done">
+      <div class="tl-node-wrap">
+        <div class="tl-node"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="tl-line"></div>
+      </div>
+      <div class="tl-content">
+        <div class="tl-step-title">服务接单</div>
+        <div class="tl-step-desc">用户甲接单，承诺在当天 14:00 前完成</div>
+        <div class="tl-step-time">2024-06-03 09:35</div>
+      </div>
+    </div>
+    <div class="tl-step done">
+      <div class="tl-node-wrap">
+        <div class="tl-node"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="tl-line"></div>
+      </div>
+      <div class="tl-content">
+        <div class="tl-step-title">服务方确认完成后需求方确认</div>
+        <div class="tl-step-desc">需求方用户戊确认服务完成，服务方用户甲确认完成</div>
+        <div class="tl-step-time">需求方: 2024-06-03 14:10 · 服务方: 2024-06-03 14:15</div>
+      </div>
+    </div>
+    <div class="tl-step done">
+      <div class="tl-node-wrap">
+        <div class="tl-node"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div class="tl-line"></div>
+      </div>
+      <div class="tl-content">
+        <div class="tl-step-title">时间币转账</div>
+        <div class="tl-step-desc">用户戊扣除 ⏂35.00，用户甲获得 ⏂35.00，系统记录双账户流水</div>
+        <div class="tl-step-time">2024-06-03 14:15</div>
+      </div>
+    </div>
+    <div class="tl-step done">
+      <div class="tl-node-wrap">
+        <div class="tl-node"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+      </div>
+      <div class="tl-content">
+        <div class="tl-step-title">双方互评完成</div>
+        <div class="tl-step-desc">双方互相给出 ★★★★★ 评价，订单归档</div>
+        <div class="tl-step-time">2024-06-03 15:00</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Summary -->
+  <div class="ai-summary-card">
+    <div class="ai-header">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--secondary)" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span style="font-weight:600;font-size:15px;">AI 订单摘要</span>
+      <span class="ai-badge">仅供参考</span>
+    </div>
+    <div class="ai-content" id="ai-summary-content">
+      <p><strong>服务事项：</strong>帮助用户戊去永辉超市代购日用品（洗衣液×1、抽纸×2、垃圾袋×1）。</p>
+      <p style="margin-top:8px;"><strong>时间约定：</strong>2024年6月3日上午，预计3.5小时完成。实际于14:10完成。</p>
+      <p style="margin-top:8px;"><strong>转账记录：</strong>需求方（用户戊）扣减 ⏂35.00，服务方（用户甲）获得 ⏂35.00。</p>
+      <p style="margin-top:8px;"><strong>评价结果：</strong>双方互评均为5星，无争议事项。</p>
+    </div>
+    <div class="ai-disclaimer">
+      ⚠ AI 摘要基于订单记录生成，已区分「已记录事实」与「AI 辅助建议」。不构成法律或裁决依据。
+    </div>
+  </div>
+
+  <!-- Chat / messages -->
+  <div class="chat-area">
+    <h3>沟通记录</h3>
+    <div class="chat-msg other">
+      <div class="avatar sm" style="background:oklch(50% 0.12 255);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;">刘</div>
+      <div>
+        <div class="cm-bubble">小张你好，我这边需要帮忙去永辉超市买三样东西：洗衣液×1、抽纸×2、垃圾袋×1，你看方便吗？</div>
+        <div class="cm-time">09:05</div>
+      </div>
+    </div>
+    <div class="chat-msg me">
+      <div class="avatar sm" style="background:oklch(60% 0.12 28);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;">张</div>
+      <div>
+        <div class="cm-bubble">没问题用户戊，我上午就去，大概 11 点前送回来。清单我看过了。</div>
+        <div class="cm-time">09:08</div>
+      </div>
+    </div>
+    <div class="chat-msg other">
+      <div class="avatar sm" style="background:oklch(50% 0.12 255);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;">刘</div>
+      <div>
+        <div class="cm-bubble">太感谢了！钱我让超市帮你预留好了。</div>
+        <div class="cm-time">09:12</div>
+      </div>
+    </div>
+    <div class="chat-msg me">
+      <div class="avatar sm" style="background:oklch(60% 0.12 28);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;">张</div>
+      <div>
+        <div class="cm-bubble">用户戊，东西都买好了，我现在送过来，大概10分钟到。</div>
+        <div class="cm-time">10:50</div>
+      </div>
+    </div>
+    <div class="chat-msg other">
+      <div class="avatar sm" style="background:oklch(50% 0.12 255);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;">刘</div>
+      <div>
+        <div class="cm-bubble">好的好的，到了按门铃就行。非常感谢你！</div>
+        <div class="cm-time">10:52</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav">
+  <a href="feed.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    首页
+  </a>
+  <a href="tasks.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    任务
+  </a>
+  <a href="post.html" class="publish-btn" aria-label="发布">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </a>
+  <a href="messages.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    消息
+  </a>
+  <a href="profile.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    我的
+  </a>
+</nav>
+
+<script src="/assets/app/jury-nav.js"></script>
+
+</body>
+</html>

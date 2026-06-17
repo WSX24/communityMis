@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="zh-CN" data-auth-state="checking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>敏感词管理 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.3cf7927f18de.css">
+<style>
+  .admin-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100dvh; }
+  @media (max-width: 860px) {
+    .admin-page { grid-template-columns: 1fr; }
+    .admin-sidebar { display: none; }
+  }
+  .admin-sidebar {
+    background: var(--fg); color: oklch(92% 0.004 85);
+    padding: var(--space-2xl) var(--space-lg); display: flex;
+    flex-direction: column; gap: var(--space-3xl);
+    position: sticky; top: 0; height: 100dvh;
+  }
+  .admin-sidebar .sb-brand {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    color: #fff; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .admin-sidebar .shield {
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    background: var(--accent); display: flex; align-items: center;
+    justify-content: center; font-size: 14px;
+  }
+  .admin-sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+  .admin-sidebar nav a {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: oklch(72% 0.005 85);
+    transition: all 0.15s;
+  }
+  .admin-sidebar nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .admin-sidebar nav a.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 600; }
+  .admin-sidebar nav a svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .admin-sidebar .sb-footer { margin-top: auto; }
+  .admin-sidebar .sb-back {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 13px; color: oklch(62% 0.005 85); transition: all 0.15s;
+  }
+  .admin-sidebar .sb-back:hover { background: rgba(255,255,255,0.06); color: #fff; }
+
+  .admin-main { padding: var(--space-3xl); max-width: 1200px; }
+  @media (max-width: 860px) { .admin-main { padding: var(--space-lg); } }
+
+  .au-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-2xl); flex-wrap: wrap; gap: var(--space-lg);
+  }
+  .au-header h2 { font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+
+  /* Stats row */
+  .sw-stats { display: flex; gap: var(--space-lg); margin-bottom: var(--space-xl); flex-wrap: wrap; }
+  .sw-stat {
+    background: var(--surface); border-radius: var(--radius-lg); border: 1px solid var(--border-light);
+    padding: var(--space-lg) var(--space-xl); text-align: center; min-width: 120px; flex: 1;
+  }
+  .sw-stat .sw-num { font-family: var(--font-display); font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+  .sw-stat .sw-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* Toolbar */
+  .sw-toolbar {
+    display: flex; gap: var(--space-md); margin-bottom: var(--space-xl);
+    flex-wrap: wrap; align-items: center;
+  }
+  .sw-search {
+    flex: 1; min-width: 200px; display: flex; align-items: center; gap: var(--space-sm);
+    background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: var(--radius-md); padding: 10px 16px;
+    transition: border-color 0.15s;
+  }
+  .sw-search:focus-within { border-color: var(--accent); }
+  .sw-search input { flex: 1; border: none; outline: none; font-size: 14px; background: transparent; }
+  .sw-search svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+
+  /* Add form */
+  .sw-add-row {
+    display: flex; gap: var(--space-md); margin-bottom: var(--space-xl);
+    flex-wrap: wrap; align-items: flex-end;
+  }
+  .sw-add-row .input-wrap { flex: 1; min-width: 160px; }
+  .sw-add-row .input-wrap label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+  .sw-add-row input, .sw-add-row select {
+    width: 100%; padding: 10px 14px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); background: var(--surface);
+    font-size: 14px; outline: none; transition: border-color 0.15s;
+  }
+  .sw-add-row input:focus, .sw-add-row select:focus { border-color: var(--accent); }
+
+  /* Table */
+  .sw-table-wrap {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); overflow-x: auto;
+  }
+  .sw-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .sw-table th {
+    text-align: left; padding: 14px var(--space-xl); font-size: 12px;
+    font-weight: 600; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.04em; border-bottom: 1px solid var(--border-light);
+    background: var(--bg); white-space: nowrap;
+  }
+  .sw-table td { padding: 12px var(--space-xl); border-bottom: 1px solid var(--border-light); vertical-align: middle; }
+  .sw-table tr:last-child td { border-bottom: none; }
+  .sw-table tr:hover td { background: oklch(97% 0.005 85 / 0.5); }
+
+  .sw-word { font-family: var(--font-mono); font-size: 14px; font-weight: 500; }
+  .sw-word.strong { color: var(--danger); }
+  .sw-word.mild { color: var(--warning); }
+
+  .level-badge {
+    display: inline-block; padding: 3px 10px; border-radius: var(--radius-full);
+    font-size: 12px; font-weight: 600;
+  }
+  .level-badge.strong { background: var(--danger-light); color: var(--danger); }
+  .level-badge.mild { background: var(--warning-light); color: var(--warning); }
+  .level-badge.review { background: var(--secondary-light); color: var(--secondary); }
+
+  .cat-badge {
+    display: inline-block; padding: 2px 8px; border-radius: var(--radius-full);
+    font-size: 11px; font-weight: 600; background: var(--border-light); color: var(--muted);
+  }
+
+  .sw-toggle {
+    width: 44px; height: 24px; border-radius: var(--radius-full);
+    background: var(--border); position: relative; cursor: pointer;
+    transition: background 0.2s; display: inline-block;
+    vertical-align: middle;
+  }
+  .sw-toggle.on { background: var(--success); }
+  .sw-toggle::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 20px; height: 20px; border-radius: var(--radius-full);
+    background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    transition: transform 0.2s;
+  }
+  .sw-toggle.on::after { transform: translateX(20px); }
+
+  .sw-actions { display: flex; gap: 4px; }
+  .sw-action-btn {
+    padding: 5px 12px; border-radius: var(--radius-sm); font-size: 12px;
+    font-weight: 500; cursor: pointer; transition: all 0.15s;
+  }
+  .sw-action-btn.edit { color: var(--secondary); border: 1px solid var(--secondary-light); }
+  .sw-action-btn.edit:hover { background: var(--secondary-light); }
+  .sw-action-btn.del { color: var(--danger); border: 1px solid var(--danger-light); }
+  .sw-action-btn.del:hover { background: var(--danger-light); }
+
+  /* Batch import modal */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 400; background: rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  }
+  .modal-overlay.open { opacity: 1; pointer-events: auto; }
+  .modal {
+    background: var(--surface); border-radius: var(--radius-xl); padding: var(--space-3xl);
+    max-width: 560px; width: 90%; box-shadow: var(--shadow-lg);
+  }
+  .modal h3 { font-family: var(--font-display); font-size: 18px; font-weight: 700; margin-bottom: var(--space-lg); }
+  .modal .modal-body { font-size: 14px; line-height: 1.6; margin-bottom: var(--space-xl); }
+  .modal textarea {
+    width: 100%; min-height: 140px; padding: 12px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); font-size: 13px; font-family: var(--font-mono);
+    line-height: 1.7; outline: none; resize: vertical;
+  }
+  .modal textarea:focus { border-color: var(--accent); }
+  .modal-actions { display: flex; gap: var(--space-md); justify-content: flex-end; margin-top: var(--space-lg); }
+
+  /* Confirm */
+  .confirm-overlay {
+    position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  }
+  .confirm-overlay.open { opacity: 1; pointer-events: auto; }
+  .confirm-dialog {
+    background: var(--surface); border-radius: var(--radius-xl); padding: var(--space-3xl);
+    max-width: 400px; width: 90%; text-align: center; box-shadow: var(--shadow-lg);
+  }
+  .confirm-dialog .cd-title { font-size: 16px; font-weight: 700; margin-bottom: var(--space-md); }
+  .confirm-dialog .cd-body { font-size: 13px; color: var(--muted); margin-bottom: var(--space-xl); line-height: 1.6; }
+  .confirm-dialog .cd-actions { display: flex; gap: var(--space-md); justify-content: center; }
+
+  .toast {
+    position: fixed; bottom: var(--space-3xl); left: 50%; transform: translateX(-50%);
+    background: var(--fg); color: #fff; padding: 12px 24px; border-radius: var(--radius-md);
+    font-size: 14px; font-weight: 500; z-index: 600; box-shadow: var(--shadow-lg);
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+</style>
+<style>
+html[data-auth-state="checking"] body>*{visibility:hidden}
+html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9998;background:var(--bg,#f8f9fa)}
+html[data-auth-state="checking"] body::before{content:"加载中...";position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--fg-secondary,#888);font-family:system-ui,sans-serif}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="admin-sensitive-words" data-route-title="敏感词管理" data-route-source="screens/admin-sensitive-words.html" data-route-path="/admin/sensitive-words" data-route-current-path="/admin/sensitive-words" data-route-surface="admin" data-route-layout="adminShell">
+
+<div class="admin-page">
+
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="/admin/dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="/admin/users"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="/admin/disputes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理</a>
+      <a href="/admin/ai/logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="/admin/ai/config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      <a href="/admin/categories"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>标签/类别</a>
+      <a href="/admin/sensitive-words" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+      <a href="/admin/stats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+      <a href="/admin/audit-log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="/feed">← 返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <div class="au-header">
+      <h2>敏感词管理</h2>
+      <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap">
+        <button class="btn btn--outline btn--sm">批量导入</button>
+        <button class="btn btn--secondary btn--sm">导出 CSV</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="sw-stats">
+      <div class="sw-stat"><div class="sw-num" style="color:var(--danger)">128</div><div class="sw-label">强拦截词</div></div>
+      <div class="sw-stat"><div class="sw-num" style="color:var(--warning)">56</div><div class="sw-label">弱警告词</div></div>
+      <div class="sw-stat"><div class="sw-num" style="color:var(--secondary)">34</div><div class="sw-label">人工复核词</div></div>
+      <div class="sw-stat"><div class="sw-num">218</div><div class="sw-label">总计</div></div>
+      <div class="sw-stat"><div class="sw-num" style="color:var(--success)">3,412</div><div class="sw-label">今日拦截次数</div></div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="sw-toolbar">
+      <div class="sw-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" placeholder="搜索敏感词..." id="searchInput">
+      </div>
+      <select style="padding:9px 14px;border-radius:var(--radius-md);border:1.5px solid var(--border);font-size:14px;outline:none;background:var(--surface)" id="levelFilter">
+        <option value="">全部级别</option>
+        <option value="strong">强拦截</option>
+        <option value="mild">弱警告</option>
+        <option value="review">人工复核</option>
+      </select>
+      <select style="padding:9px 14px;border-radius:var(--radius-md);border:1.5px solid var(--border);font-size:14px;outline:none;background:var(--surface)" id="catFilter">
+        <option value="">全部类别</option>
+        <option value="政治敏感">政治敏感</option>
+        <option value="色情低俗">色情低俗</option>
+        <option value="广告营销">广告营销</option>
+        <option value="人身攻击">人身攻击</option>
+        <option value="违法违规">违法违规</option>
+        <option value="其他">其他</option>
+      </select>
+    </div>
+
+    <!-- Add form -->
+    <div class="sw-add-row">
+      <div class="input-wrap"><label>敏感词</label><input type="text" id="newWord" placeholder="输入敏感词…"></div>
+      <div class="input-wrap"><label>替换为</label><input type="text" id="newReplace" placeholder="替换内容（可选）"></div>
+      <div class="input-wrap"><label>拦截级别</label>
+        <select id="newLevel">
+          <option value="strong">强拦截（直接拒绝）</option>
+          <option value="mild">弱警告（提示用户修改）</option>
+          <option value="review">人工复核（标记待审）</option>
+        </select>
+      </div>
+      <div class="input-wrap"><label>类别</label>
+        <select id="newCat">
+          <option value="政治敏感">政治敏感</option>
+          <option value="色情低俗">色情低俗</option>
+          <option value="广告营销">广告营销</option>
+          <option value="人身攻击">人身攻击</option>
+          <option value="违法违规">违法违规</option>
+          <option value="其他">其他</option>
+        </select>
+      </div>
+      <button class="btn btn--primary btn--sm">添加</button>
+    </div>
+
+    <!-- Table -->
+    <div class="sw-table-wrap">
+      <table class="sw-table">
+        <thead>
+          <tr>
+            <th>敏感词</th>
+            <th>替换为</th>
+            <th>级别</th>
+            <th>类别</th>
+            <th>状态</th>
+            <th>添加时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="wordTable">
+<tr data-runtime-placeholder><td colspan="6">正在加载真实敏感词。</td></tr>
+</tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<!-- Import modal -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal">
+    <h3>批量导入敏感词</h3>
+    <div class="modal-body">
+      <p>每行一个敏感词，格式：<code>敏感词,替换为,级别,类别</code></p>
+      <p style="font-size:13px;color:var(--muted)">级别：strong / mild / review；类别：政治敏感/色情低俗/广告营销/人身攻击/违法违规/其他</p>
+      <textarea id="importText" placeholder="sb,***,strong,人身攻击&#10;广告词,***,mild,广告营销&#10;违禁品,***,strong,违法违规"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn--primary">导入</button>
+      <button class="btn btn--secondary">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm dialog -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-dialog">
+    <div class="cd-title">确认删除？</div>
+    <div class="cd-body" id="confirmBody"></div>
+    <div class="cd-actions">
+      <button class="btn btn--danger" id="confirmDeleteBtn" style="background:var(--danger);color:#fff">确认删除</button>
+      <button class="btn btn--secondary">取消</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+
+
+<script type="module" src="/assets/app/main.mjs?v=1781615784482"></script>
+</body>
+</html>

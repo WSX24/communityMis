@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>帮助与规则中心 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.3cf7927f18de.css">
+<style>
+  .help-shell {
+    max-width: 980px; margin: 0 auto;
+    padding: var(--space-lg) var(--space-lg) calc(var(--bottom-nav-height) + var(--space-3xl));
+  }
+  @media (min-width: 1024px) { .help-shell { padding-bottom: var(--space-4xl); } }
+
+  .help-hero {
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: var(--radius-xl); padding: clamp(var(--space-xl), 5vw, var(--space-4xl));
+    margin-bottom: var(--space-xl); position: relative; overflow: hidden;
+  }
+  .help-hero::after {
+    content: ''; position: absolute; right: -70px; top: -90px;
+    width: 240px; height: 240px; border-radius: var(--radius-full);
+    background: radial-gradient(circle, var(--accent-subtle), transparent 70%);
+  }
+  .hero-row {
+    display: grid; grid-template-columns: 1fr auto; gap: var(--space-xl);
+    align-items: center; position: relative; z-index: 1;
+  }
+  @media (max-width: 720px) { .hero-row { grid-template-columns: 1fr; } }
+  .back-link {
+    display: inline-flex; align-items: center; gap: var(--space-sm);
+    color: var(--muted); font-size: 14px; font-weight: 700; margin-bottom: var(--space-lg);
+  }
+  .back-link:hover { color: var(--accent); }
+  .help-hero h1 {
+    font-family: var(--font-display); font-size: clamp(30px, 7vw, 48px);
+    line-height: 1.08; letter-spacing: -0.03em; font-weight: 900;
+  }
+  .help-hero p { color: var(--muted); line-height: 1.7; margin-top: var(--space-md); max-width: 56ch; }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin-top: var(--space-xl); }
+  .hero-card {
+    min-width: 220px; padding: var(--space-lg); border-radius: var(--radius-lg);
+    background: var(--fg); color: oklch(100% 0 0); box-shadow: var(--shadow-md);
+  }
+  .hero-card .hc-num { font-family: var(--font-mono); font-size: 26px; font-weight: 900; }
+  .hero-card .hc-text { font-size: 12px; color: oklch(82% 0.004 85); margin-top: 4px; line-height: 1.6; }
+
+  .search-card {
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg); padding: var(--space-lg);
+    margin-bottom: var(--space-lg); position: sticky; top: var(--space-md); z-index: 40;
+    box-shadow: var(--shadow-sm);
+  }
+  .help-search {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 12px 16px; border-radius: var(--radius-xl);
+    border: 1.5px solid var(--border); background: var(--bg);
+    margin-bottom: var(--space-md);
+  }
+  .help-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
+  .help-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-size: 15px; }
+  .topic-tabs { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .topic-tabs::-webkit-scrollbar { display: none; }
+  .topic-tabs button {
+    white-space: nowrap; padding: 7px 14px; border-radius: var(--radius-full);
+    border: 1.5px solid var(--border); color: var(--muted);
+    font-size: 13px; font-weight: 700; transition: all 0.15s;
+  }
+  .topic-tabs button.active { background: var(--accent); border-color: var(--accent); color: oklch(100% 0 0); }
+
+  .help-grid {
+    display: grid; grid-template-columns: 260px 1fr; gap: var(--space-xl);
+    align-items: start;
+  }
+  @media (max-width: 860px) { .help-grid { grid-template-columns: 1fr; } }
+  .quick-links {
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg); padding: var(--space-lg); position: sticky; top: 132px;
+  }
+  @media (max-width: 860px) { .quick-links { position: static; } }
+  .quick-links h2,
+  .faq-list h2 {
+    font-family: var(--font-display); font-size: 18px; font-weight: 900;
+    margin-bottom: var(--space-md);
+  }
+  .quick-link {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-md); padding: 12px 0; border-bottom: 1px solid var(--border-light);
+    font-size: 14px; color: var(--muted);
+  }
+  .quick-link:last-child { border-bottom: none; }
+  .quick-link:hover { color: var(--accent); }
+
+  .faq-list { display: grid; gap: var(--space-md); }
+  .faq-card {
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm);
+  }
+  .faq-card.hidden { display: none; }
+  .faq-question {
+    width: 100%; display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-md); padding: var(--space-lg) var(--space-xl);
+    text-align: left; font-weight: 900; color: var(--fg);
+  }
+  .faq-question span:first-child { line-height: 1.4; }
+  .faq-question .tag {
+    font-size: 11px; font-weight: 800; color: var(--accent);
+    background: var(--accent-subtle); padding: 3px 9px;
+    border-radius: var(--radius-full); white-space: nowrap;
+  }
+  .faq-answer {
+    display: none; padding: 0 var(--space-xl) var(--space-xl);
+    color: var(--muted); font-size: 14px; line-height: 1.75;
+  }
+  .faq-card.open .faq-answer { display: block; }
+  .faq-answer ul { margin: var(--space-sm) 0 0; padding-left: 18px; }
+  .faq-answer li + li { margin-top: 6px; }
+  .answer-note {
+    margin-top: var(--space-md); padding: var(--space-md);
+    border-radius: var(--radius-md); background: var(--bg);
+    color: var(--fg); font-size: 13px;
+  }
+  .empty-state { display: none; }
+  .empty-state.show { display: block; }
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="help" data-route-title="帮助与规则" data-route-source="screens/help.html" data-route-path="/help" data-route-current-path="/help" data-route-surface="public" data-route-layout="userShell">
+
+<main class="help-shell">
+  <section class="help-hero">
+    <a class="back-link" href="/feed">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+      返回社区首页
+    </a>
+    <div class="hero-row">
+      <div>
+        <h1>帮助与规则中心</h1>
+        <p>这里整理时间币、发布接单、结算评价、纠纷陪审和 AI 助手边界。AI 可以解释规则，但平台以本页规则和人工审核结果为准。</p>
+        <div class="hero-actions">
+          <button class="btn btn--primary" data-ai-modal-scene="rules">询问 AI 助手</button>
+          <a class="btn btn--secondary" href="/wallet/freeze">查看冻结明细</a>
+        </div>
+      </div>
+      <div class="hero-card">
+        <div class="hc-num">9 类</div>
+        <div class="hc-text">覆盖用户端最常被追问的流程规则，可作为 AI 规则问答的知识来源。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="search-card" aria-label="规则搜索">
+    <label class="help-search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="ruleSearch" type="search" placeholder="搜索：冻结、发起纠纷、评价、敏感词、AI 边界…">
+    </label>
+    <div class="topic-tabs" id="topicTabs">
+      <button class="active" data-topic="all">全部</button>
+      <button data-topic="coin">时间币</button>
+      <button data-topic="post">发布 / 接单</button>
+      <button data-topic="order">订单结算</button>
+      <button data-topic="credit">评价信用</button>
+      <button data-topic="dispute">纠纷陪审</button>
+      <button data-topic="ai">AI 助手</button>
+      <button data-topic="safety">内容安全</button>
+    </div>
+  </section>
+
+  <div class="help-grid">
+    <aside class="quick-links">
+      <h2>常用入口</h2>
+      <a class="quick-link" href="/wallet"><span>时间币钱包</span><span>→</span></a>
+      <a class="quick-link" href="/wallet/freeze"><span>冻结明细</span><span>→</span></a>
+      <a class="quick-link" href="/post"><span>发布需求</span><span>→</span></a>
+      <a class="quick-link" href="/tasks"><span>任务市场</span><span>→</span></a>
+      <a class="quick-link" href="/orders"><span>我的订单</span><span>→</span></a>
+      <a class="quick-link" href="/disputes/new"><span>发起纠纷</span><span>→</span></a>
+      <a class="quick-link" href="/ai/assistant"><span>AI 助手独立页</span><span>→</span></a>
+    </aside>
+
+    <section class="faq-list" aria-label="规则条目">
+      <h2>规则条目</h2>
+
+      <article class="faq-card open" data-topic="coin" data-keywords="时间币 获取 余额 冻结 释放">
+        <button class="faq-question"><span>时间币是什么？如何获得？</span><span class="tag">时间币</span></button>
+        <div class="faq-answer">
+          <p>时间币是邻帮平台的互助计量单位，不作为现金兑换。用户通过帮助邻居完成服务获得时间币，也可以用时间币发布需求请邻居帮忙。</p>
+          <ul>
+            <li>完成服务并被确认后，服务方获得对应时间币。</li>
+            <li>发布需求时会预留或冻结对应时间币，避免余额被重复使用。</li>
+            <li>新用户奖励、平台活动奖励会单独标记来源。</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="faq-card" data-topic="coin" data-keywords="冻结 为什么被冻结 冻结金额 释放 钱包">
+        <button class="faq-question"><span>我的时间币为什么被冻结？</span><span class="tag">冻结</span></button>
+        <div class="faq-answer">
+          <p>常见原因包括：订单进行中、纠纷处理中、任务预算预留、系统风控核查。冻结不是扣除，只有满足释放条件后才会转入对方或退回你的可用余额。</p>
+          <div class="answer-note">查看具体来源：进入“时间币钱包 → 冻结明细”，每笔冻结都会展示关联订单、原因和预计释放条件。</div>
+        </div>
+      </article>
+
+      <article class="faq-card" data-topic="post" data-keywords="发布需求 接单 取消 任务市场">
+        <button class="faq-question"><span>发布需求和接单有哪些限制？</span><span class="tag">发布 / 接单</span></button>
+        <div class="faq-answer">
+          <p>发布需求时请填写服务内容、地点、截止时间、时间币报酬和必要说明。接单前应确认自己具备对应能力和时间，不建议为无法履约的需求接单。</p>
+          <ul>
+            <li>需求含敏感词或高风险内容时，可能被系统提示或转入人工审核。</li>
+            <li>接单后请通过订单页沟通和确认进度，避免私下绕开平台结算。</li>
+            <li>取消订单会根据阶段影响信用记录，恶意取消可能触发限制。</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="faq-card" data-topic="order" data-keywords="确认完成 结算 转账 订单 完成">
+        <button class="faq-question"><span>订单如何确认完成并结算？</span><span class="tag">订单结算</span></button>
+        <div class="faq-answer">
+          <p>服务完成后，需求方需要在订单详情页确认。确认后，冻结的时间币会释放给服务方，并生成钱包流水与订单记录。</p>
+          <ul>
+            <li>如果双方对服务结果有异议，不要确认完成，应先沟通或发起纠纷。</li>
+            <li>平台不会让 AI 自动确认完成或自动结算。</li>
+            <li>结算后的流水会保留在钱包和管理员交易记录中。</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="faq-card" data-topic="credit" data-keywords="评价 信用分 评分 差评">
+        <button class="faq-question"><span>评价会怎样影响信用分？</span><span class="tag">评价信用</span></button>
+        <div class="faq-answer">
+          <p>订单完成后，双方可以根据沟通、准时、服务质量进行评价。连续低评分、恶意取消、纠纷败诉等行为会影响信用分和接单能力。</p>
+          <div class="answer-note">如果认为评价不实，可以从订单或信用详情页发起说明，管理员会结合订单证据判断。</div>
+        </div>
+      </article>
+
+      <article class="faq-card" data-topic="dispute" data-keywords="纠纷 发起纠纷 陪审 投票 证据 裁决">
+        <button class="faq-question"><span>什么时候可以发起纠纷？</span><span class="tag">纠纷陪审</span></button>
+        <div class="faq-answer">
+          <p>当服务未完成、服务质量明显不符、双方沟通无法达成一致时，可以在订单链路发起纠纷。提交时应选择纠纷类型并整理证据。</p>
+          <ul>
+            <li>纠纷期间相关时间币会临时冻结。</li>
+            <li>陪审投票提供社区意见，但最终裁决由管理员提交。</li>
+            <li>AI 摘要只负责整理事实线索，不能代替裁决。</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="faq-card" data-topic="ai" data-keywords="AI 助手 筛选 发布 摘要 边界">
+        <button class="faq-question"><span>AI 助手能做什么，不能做什么？</span><span class="tag">AI 助手</span></button>
+        <div class="faq-answer">
+          <p>AI 助手可以帮助筛选需求、解释规则、生成发布草稿、整理订单或纠纷摘要。它不能自动接单、确认完成、结算、退款、释放冻结、封禁用户或执行配置快照恢复。</p>
+          <div class="answer-note">所有关键操作都必须由你在页面里确认，或由管理员在后台人工提交。</div>
+        </div>
+      </article>
+
+      <article class="faq-card" data-topic="safety" data-keywords="敏感词 内容安全 风险 审核">
+        <button class="faq-question"><span>哪些内容会触发安全审核？</span><span class="tag">内容安全</span></button>
+        <div class="faq-answer">
+          <p>涉及违法违规、骚扰、辱骂、虚假交易、线下现金交易诱导、个人隐私泄露等内容会触发提示、拦截或人工审核。重复触发可能影响信用和账号状态。</p>
+          <ul>
+            <li>弱风险内容会提示修改。</li>
+            <li>强风险内容会阻止发布并记录审计。</li>
+            <li>管理员可在敏感词和审计日志中追踪处理结果。</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="faq-card" data-topic="order" data-keywords="退款 释放 退回 取消">
+        <button class="faq-question"><span>取消任务后时间币会退回吗？</span><span class="tag">订单结算</span></button>
+        <div class="faq-answer">
+          <p>未被接单的任务取消后，预留的时间币会退回可用余额。已接单或已执行的订单取消，需要根据当前阶段、双方确认情况和平台规则判断。</p>
+        </div>
+      </article>
+
+      <div class="empty-state" id="emptyState">
+        <p>没有找到匹配的规则。可以换个关键词，或直接询问 AI 助手。</p>
+      </div>
+    </section>
+  </div>
+</main>
+
+<button class="ai-fab" aria-label="AI 助手" data-ai-modal-scene="rules">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33"/></svg>
+  <span class="fab-pulse"></span>
+</button>
+
+<nav class="bottom-nav">
+  <a href="/feed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>首页</a>
+  <a href="/tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>任务</a>
+  <a href="/post" class="publish-btn" aria-label="发布"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></a>
+  <a href="/messages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>消息</a>
+  <a href="/profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>我的</a>
+</nav>
+
+<script src="/js/ai-modal.3985de9eb7ef.js"></script>
+
+<script type="module" src="/assets/app/main.mjs?v=1781615784426"></script>
+</body>
+</html>

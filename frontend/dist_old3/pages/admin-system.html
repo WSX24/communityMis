@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="zh-CN" data-auth-state="checking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>系统设置 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.7d27460f6ca5.css">
+<link rel="stylesheet" href="/css/admin-p1.46416840170f.css">
+<style>
+  .system-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.8fr);
+    gap: var(--space-xl);
+    align-items: start;
+  }
+
+  .setting-grid {
+    display: grid;
+    gap: var(--space-md);
+  }
+
+  .setting-card {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-lg);
+    align-items: center;
+    padding: var(--space-lg);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+  }
+
+  .setting-card h3 {
+    margin: 0 0 4px;
+    font-size: 16px;
+  }
+
+  .setting-card p {
+    max-width: 58ch;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .switch {
+    position: relative;
+    width: 46px;
+    height: 26px;
+    flex-shrink: 0;
+    border-radius: var(--radius-full);
+    background: var(--border);
+    transition: background 0.18s;
+  }
+
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-full);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.18s;
+  }
+
+  .switch.on {
+    background: var(--accent);
+  }
+
+  .switch.on::after {
+    transform: translateX(20px);
+  }
+
+  .input-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-md);
+  }
+
+  .sys-field {
+    display: grid;
+    gap: 7px;
+  }
+
+  .sys-field label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+
+  .sys-field .input {
+    background: var(--bg);
+  }
+
+  .backup-list {
+    display: grid;
+    gap: var(--space-md);
+  }
+
+  .backup-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: var(--space-md);
+    align-items: center;
+    padding: var(--space-lg);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    background: var(--bg);
+  }
+
+  .backup-icon {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-md);
+    background: var(--accent-subtle);
+    color: var(--accent);
+  }
+
+  .backup-main strong {
+    display: block;
+    font-size: 14px;
+  }
+
+  .backup-main span {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .backup-actions {
+    display: flex;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .danger-zone {
+    border-color: var(--danger-light);
+    background:
+      linear-gradient(135deg, color-mix(in oklch, var(--danger) 8%, transparent), transparent),
+      var(--surface);
+  }
+
+  .danger-zone .panel-head h2 {
+    color: var(--danger);
+  }
+
+  .confirm-box {
+    display: none;
+    margin-top: var(--space-lg);
+    padding: var(--space-lg);
+    border: 1px dashed var(--danger);
+    border-radius: var(--radius-lg);
+    background: var(--danger-light);
+  }
+
+  .confirm-box.open {
+    display: grid;
+    gap: var(--space-md);
+  }
+
+  .confirm-box p {
+    color: var(--danger);
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.55;
+  }
+
+  .confirm-actions {
+    display: flex;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+  }
+
+  .audit-mini {
+    display: grid;
+    gap: var(--space-md);
+  }
+
+  .audit-row {
+    position: relative;
+    padding-left: var(--space-xl);
+  }
+
+  .audit-row::before {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 7px;
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-full);
+    background: var(--accent);
+  }
+
+  .audit-row::after {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: 20px;
+    bottom: calc(var(--space-md) * -1);
+    width: 1px;
+    background: var(--border-light);
+  }
+
+  .audit-row:last-child::after {
+    display: none;
+  }
+
+  .audit-row strong {
+    display: block;
+    font-size: 13px;
+  }
+
+  .audit-row span {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .progress-shell {
+    display: none;
+    gap: var(--space-sm);
+    margin-top: var(--space-md);
+  }
+
+  .progress-shell.open {
+    display: grid;
+  }
+
+  .progress-track {
+    height: 9px;
+    overflow: hidden;
+    border-radius: var(--radius-full);
+    background: var(--border-light);
+  }
+
+  .progress-fill {
+    width: 0%;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);
+    transition: width 0.22s;
+  }
+
+  .progress-label {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  @media (max-width: 980px) {
+    .system-layout,
+    .input-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .backup-row {
+      grid-template-columns: auto 1fr;
+    }
+
+    .backup-actions {
+      grid-column: 2;
+      justify-content: flex-start;
+    }
+  }
+
+  @media (max-width: 520px) {
+    .setting-card {
+      grid-template-columns: 1fr;
+    }
+
+    .backup-row {
+      grid-template-columns: 1fr;
+    }
+
+    .backup-actions {
+      grid-column: auto;
+    }
+  }
+</style>
+<style>
+html[data-auth-state="checking"] body>*{visibility:hidden}
+html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9998;background:var(--bg,#f8f9fa)}
+html[data-auth-state="checking"] body::before{content:"加载中...";position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--fg-secondary,#888);font-family:system-ui,sans-serif}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="admin-system" data-route-title="系统设置" data-route-source="screens/admin-system.html" data-route-path="/admin/system" data-route-current-path="/admin/system" data-route-surface="admin" data-route-layout="adminShell">
+
+<div class="admin-page">
+  <div class="mobile-admin-bar">
+    <div class="mobile-admin-top">
+      <div class="mobile-admin-title"><div class="shield">⏂</div>系统设置</div>
+      <a class="mobile-admin-home" href="/admin/dashboard">仪表盘</a>
+    </div>
+    <nav class="mobile-admin-links">
+      <a href="/admin/dashboard">仪表盘</a>
+      <a href="/admin/users">用户</a>
+      <a href="/admin/transactions">交易</a>
+      <a href="/admin/disputes">争议</a>
+      <a href="/admin/ai/logs">AI</a>
+      <a href="/admin/system" class="active">系统</a>
+    </nav>
+  </div>
+
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="/admin/dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        仪表盘
+      </a>
+      <a href="/admin/users">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>
+        用户管理
+      </a>
+      <a href="/admin/transactions">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><path d="M7 15h3M14 15h3"/></svg>
+        交易流水
+      </a>
+      <a href="/admin/disputes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+        争议处理
+      </a>
+      <a href="/admin/ai/logs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        AI 日志
+      </a>
+      <a href="/admin/risk-content">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>
+        内容审核
+      </a>
+      <a href="/admin/ai/config">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82"/></svg>
+        AI 配置
+      </a>
+      <a href="/admin/categories">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+        标签/类别
+      </a>
+      <a href="/admin/sensitive-words">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        敏感词管理
+      </a>
+      <a href="/admin/stats">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        平台统计
+      </a>
+      <a href="/admin/audit-log">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+        审计日志
+      </a>
+      <a href="/admin/system" class="active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><circle cx="12" cy="12" r="3"/></svg>
+        系统设置
+      </a>
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="/feed">← 返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <div class="page-head">
+      <div>
+        <p class="head-kicker">P2 · SYSTEM OPS</p>
+        <h1>系统配置快照 / 系统设置</h1>
+        <p>管理平台级参数、配置快照和维护开关。高风险动作不能由 AI 自动执行，必须由管理员二次确认并写入审计日志。</p>
+      </div>
+      <div class="head-actions">
+        <a class="btn btn--secondary btn--sm" href="/admin/audit-log">查看审计日志</a>
+        <button class="btn btn--primary btn--sm" id="save-settings">保存参数</button>
+      </div>
+    </div>
+
+    <section class="metric-grid" aria-label="系统指标">
+      <div class="metric-card">
+        <div class="label">最近快照</div>
+        <div class="value mono">02:30</div>
+        <div class="hint">今天凌晨自动完成</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">数据体积</div>
+        <div class="value mono">1.84GB</div>
+        <div class="hint">含订单、消息、审计日志</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">系统状态</div>
+        <div class="value">正常</div>
+        <div class="hint">无维护窗口</div>
+      </div>
+      <div class="metric-card">
+        <div class="label">高风险待确认</div>
+        <div class="value mono">0</div>
+        <div class="hint">快照 / 清理操作均未执行</div>
+      </div>
+    </section>
+
+    <div class="system-layout">
+      <div class="stack" style="display:grid;gap:var(--space-xl);">
+        <section class="panel" aria-label="系统参数">
+          <div class="panel-head">
+            <div>
+              <h2>系统参数</h2>
+              <p class="muted small">这些参数会影响用户端订单、时间币和消息流转。</p>
+            </div>
+          </div>
+
+          <div class="input-grid">
+            <div class="sys-field">
+              <label for="freeze-days">纠纷冻结天数</label>
+              <input class="input" id="freeze-days" type="number" value="7" min="1" max="30">
+            </div>
+            <div class="sys-field">
+              <label for="auto-archive">需求自动归档天数</label>
+              <input class="input" id="auto-archive" type="number" value="30" min="7" max="180">
+            </div>
+            <div class="sys-field">
+              <label for="new-user-coin">新用户奖励时间币</label>
+              <input class="input" id="new-user-coin" type="number" value="5.0" min="0" max="20" step="0.5">
+            </div>
+          </div>
+
+          <div class="setting-grid" style="margin-top:var(--space-lg);">
+            <div class="setting-card">
+              <div>
+                <h3>维护模式</h3>
+                <p>开启后用户端只读，发布、接单、结算、纠纷提交会被暂停。管理员仍可登录后台。</p>
+              </div>
+              <button class="switch" data-label="维护模式" aria-label="维护模式"></button>
+            </div>
+            <div class="setting-card">
+              <div>
+                <h3>自动配置快照</h3>
+                <p>每天 02:30 生成一次系统配置快照。完整数据库和上传文件备份由运维定时任务执行。</p>
+              </div>
+              <button class="switch on" data-label="自动配置快照" aria-label="自动配置快照"></button>
+            </div>
+            <div class="setting-card">
+              <div>
+                <h3>AI 高风险拦截</h3>
+                <p>当 AI 请求涉及封禁、转账、裁决、配置快照恢复时，只返回解释和人工入口，不执行动作。</p>
+              </div>
+              <button class="switch on" data-label="AI 高风险拦截" aria-label="AI 高风险拦截"></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" aria-label="系统配置快照列表">
+          <div class="panel-head">
+            <div>
+              <h2>系统配置快照</h2>
+              <p class="muted small">快照动作只记录平台配置状态，不代表完整灾备。</p>
+            </div>
+            <button class="btn btn--primary btn--sm" id="start-backup">生成快照</button>
+          </div>
+
+          <div class="progress-shell" id="backup-progress">
+            <div class="progress-track"><div class="progress-fill" id="backup-fill"></div></div>
+            <div class="progress-label" id="backup-label">正在创建快照… 0%</div>
+          </div>
+
+          <div class="backup-list" style="margin-top:var(--space-lg);">
+<div class="backup-row" data-runtime-placeholder><div class="backup-main"><strong>正在加载配置快照</strong><span>配置快照和人工确认动作将从生产接口读取。</span></div></div>
+</div>
+        </section>
+
+        <section class="panel danger-zone" aria-label="高风险操作">
+          <div class="panel-head">
+            <div>
+              <h2>高风险操作</h2>
+              <p class="muted small">以下动作只提供人工入口，AI 不能代替管理员点击确认。</p>
+            </div>
+          </div>
+          <div class="setting-grid">
+            <div class="setting-card">
+              <div>
+                <h3>清理 180 天前已归档消息</h3>
+                <p>只清理用户已读且无纠纷关联的归档消息；订单、审计、纠纷证据不受影响。</p>
+              </div>
+              <button class="btn btn--outline btn--sm danger-action" data-action="清理归档消息">申请清理</button>
+            </div>
+            <div class="setting-card">
+              <div>
+                <h3>恢复到指定配置快照</h3>
+                <p>恢复只影响平台配置项，不替代数据库和上传文件恢复演练。</p>
+              </div>
+              <button class="btn btn--outline btn--sm danger-action" data-action="恢复指定配置快照">申请恢复</button>
+            </div>
+          </div>
+
+          <div class="confirm-box" id="confirm-box">
+            <p id="confirm-text">请确认高风险操作。</p>
+            <input class="input" id="confirm-input" placeholder="输入 CONFIRM 以继续">
+            <div class="confirm-actions">
+              <button class="btn btn--primary btn--sm" id="confirm-approve">确认并写入审计</button>
+              <button class="btn btn--secondary btn--sm" id="confirm-cancel">取消</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <aside class="stack" style="display:grid;gap:var(--space-xl);">
+        <section class="panel" aria-label="权限边界">
+          <h2>权限边界</h2>
+          <div class="detail-list" style="margin-top:var(--space-md);">
+            <div class="detail-item">
+              <div class="label">AI 可做</div>
+              <div class="value">解释配置快照策略、生成操作摘要、提醒风险、帮助查找审计记录。</div>
+            </div>
+            <div class="detail-item">
+              <div class="label">AI 不可做</div>
+              <div class="value">自动恢复配置快照、删除数据、修改时间币余额、绕过管理员确认。</div>
+            </div>
+            <div class="detail-item">
+              <div class="label">人工必须确认</div>
+              <div class="value">快照恢复、清理、维护模式、AI 高风险拦截关闭、纠纷终审。</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" aria-label="最近系统审计">
+          <div class="panel-head">
+            <h2>最近系统审计</h2>
+            <a class="section-action" href="/admin/audit-log">全部</a>
+          </div>
+          <div class="audit-mini">
+<div class="audit-row" data-runtime-placeholder><strong>正在加载系统审计</strong><span>真实审计记录将从后端接口读取</span></div>
+</div>
+        </section>
+
+        <section class="panel" aria-label="系统健康">
+          <h2>系统健康</h2>
+          <div class="detail-list" style="margin-top:var(--space-md);">
+            <div class="detail-item">
+              <div class="label">任务队列</div>
+              <div class="value"><span class="badge-state success">正常</span> 0 个积压任务</div>
+            </div>
+            <div class="detail-item">
+              <div class="label">AI 日志写入</div>
+              <div class="value"><span class="badge-state success">正常</span> 最近写入 14:22</div>
+            </div>
+            <div class="detail-item">
+              <div class="label">审计链路</div>
+              <div class="value"><span class="badge-state success">正常</span> 高风险动作均可追踪</div>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast">已保存</div>
+
+
+<script type="module" src="/assets/app/main.mjs?v=1781616991965"></script>
+</body>
+</html>

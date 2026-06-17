@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>标签/类别管理 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  .admin-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100dvh; }
+  @media (max-width: 860px) {
+    .admin-page { grid-template-columns: 1fr; }
+    .admin-sidebar { display: none; }
+  }
+  .admin-sidebar {
+    background: var(--fg); color: oklch(92% 0.004 85);
+    padding: var(--space-2xl) var(--space-lg); display: flex;
+    flex-direction: column; gap: var(--space-3xl);
+    position: sticky; top: 0; height: 100dvh;
+  }
+  .admin-sidebar .sb-brand {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    color: #fff; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .admin-sidebar .shield {
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    background: var(--accent); display: flex; align-items: center;
+    justify-content: center; font-size: 14px;
+  }
+  .admin-sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+  .admin-sidebar nav a {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: oklch(72% 0.005 85);
+    transition: all 0.15s;
+  }
+  .admin-sidebar nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .admin-sidebar nav a.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 600; }
+  .admin-sidebar nav a svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .admin-sidebar .sb-footer { margin-top: auto; }
+  .admin-sidebar .sb-back {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 13px; color: oklch(62% 0.005 85); transition: all 0.15s;
+  }
+  .admin-sidebar .sb-back:hover { background: rgba(255,255,255,0.06); color: #fff; }
+
+  .admin-main { padding: var(--space-3xl); max-width: 1200px; }
+  @media (max-width: 860px) { .admin-main { padding: var(--space-lg); } }
+
+  .au-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-2xl); flex-wrap: wrap; gap: var(--space-lg);
+  }
+  .au-header h2 { font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: -0.01em; }
+
+  /* Two-column layout */
+  .ct-layout {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--space-xl);
+  }
+  @media (max-width: 860px) { .ct-layout { grid-template-columns: 1fr; } }
+
+  .ct-panel {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+  }
+  .ct-panel-header {
+    padding: var(--space-lg) var(--space-xl);
+    border-bottom: 1px solid var(--border-light);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .ct-panel-header h3 { font-family: var(--font-display); font-size: 16px; font-weight: 700; }
+  .ct-panel-body { padding: var(--space-lg) var(--space-xl); }
+
+  /* Add row */
+  .ct-add-row { display: flex; gap: var(--space-sm); margin-bottom: var(--space-lg); }
+  .ct-add-row input {
+    flex: 1; padding: 10px 14px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); background: var(--bg);
+    font-size: 14px; outline: none; transition: border-color 0.15s;
+  }
+  .ct-add-row input:focus { border-color: var(--accent); }
+
+  /* List items */
+  .ct-item {
+    display: flex; align-items: center; gap: var(--space-md);
+    padding: 12px var(--space-lg); border-bottom: 1px solid var(--border-light);
+    transition: background 0.15s;
+  }
+  .ct-item:last-child { border-bottom: none; }
+  .ct-item:hover { background: var(--bg); }
+  .ct-item .ct-icon {
+    width: 36px; height: 36px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .ct-item .ct-info { flex: 1; min-width: 0; }
+  .ct-item .ct-name { font-size: 14px; font-weight: 600; }
+  .ct-item .ct-meta { font-size: 12px; color: var(--muted); margin-top: 2px; display: flex; gap: var(--space-sm); align-items: center; }
+  .ct-item .ct-count {
+    font-size: 12px; color: var(--muted); font-family: var(--font-mono);
+  }
+  .ct-item .ct-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .ct-item .ct-btn {
+    padding: 5px 12px; border-radius: var(--radius-sm); font-size: 12px;
+    font-weight: 500; cursor: pointer; transition: all 0.15s;
+  }
+  .ct-item .ct-btn.edit { color: var(--secondary); border: 1px solid var(--secondary-light); }
+  .ct-item .ct-btn.edit:hover { background: var(--secondary-light); }
+  .ct-item .ct-btn.del { color: var(--danger); border: 1px solid var(--danger-light); }
+  .ct-item .ct-btn.del:hover { background: var(--danger-light); }
+
+  .ct-toggle {
+    width: 40px; height: 22px; border-radius: var(--radius-full);
+    background: var(--border); position: relative; cursor: pointer;
+    transition: background 0.2s; flex-shrink: 0;
+  }
+  .ct-toggle.on { background: var(--success); }
+  .ct-toggle::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 18px; height: 18px; border-radius: var(--radius-full);
+    background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    transition: transform 0.2s;
+  }
+  .ct-toggle.on::after { transform: translateX(18px); }
+
+  .ct-tag-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ct-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 5px 10px; border-radius: var(--radius-full);
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    transition: all 0.15s;
+    border: 1.5px solid var(--border); color: var(--muted);
+  }
+  .ct-tag:hover { border-color: var(--accent-light); color: var(--fg); }
+  .ct-tag.active { background: var(--accent-subtle); border-color: var(--accent); color: var(--accent); }
+  .ct-tag.selected { background: var(--secondary-light); border-color: var(--secondary); color: var(--secondary); }
+
+  .ct-empty {
+    text-align: center; padding: var(--space-3xl); color: var(--muted); font-size: 14px;
+  }
+
+  /* Edit inline */
+  .ct-inline-edit {
+    display: flex; gap: var(--space-sm); align-items: center;
+  }
+  .ct-inline-edit input {
+    flex: 1; padding: 8px 12px; border-radius: var(--radius-sm);
+    border: 1.5px solid var(--accent); font-size: 14px; outline: none;
+  }
+  .ct-inline-edit .ct-save-btn {
+    padding: 7px 14px; border-radius: var(--radius-sm);
+    background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .ct-inline-edit .ct-cancel-btn {
+    padding: 7px 14px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); font-size: 13px; cursor: pointer; color: var(--muted);
+  }
+
+  .toast {
+    position: fixed; bottom: var(--space-3xl); left: 50%; transform: translateX(-50%);
+    background: var(--fg); color: #fff; padding: 12px 24px; border-radius: var(--radius-md);
+    font-size: 14px; font-weight: 500; z-index: 600; box-shadow: var(--shadow-lg);
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  /* Confirm */
+  .confirm-overlay {
+    position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  }
+  .confirm-overlay.open { opacity: 1; pointer-events: auto; }
+  .confirm-dialog {
+    background: var(--surface); border-radius: var(--radius-xl); padding: var(--space-3xl);
+    max-width: 400px; width: 90%; text-align: center; box-shadow: var(--shadow-lg);
+  }
+  .confirm-dialog .cd-title { font-size: 16px; font-weight: 700; margin-bottom: var(--space-md); }
+  .confirm-dialog .cd-body { font-size: 13px; color: var(--muted); margin-bottom: var(--space-xl); line-height: 1.6; }
+  .confirm-dialog .cd-actions { display: flex; gap: var(--space-md); justify-content: center; }
+</style>
+</head>
+<body>
+
+<div class="admin-page">
+
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="admin-dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="admin-users.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="admin-disputes.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理</a>
+      <a href="admin-ai-logs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="admin-ai-config.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      <a href="admin-categories.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>标签/类别</a>
+      <a href="admin-sensitive-words.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+      <a href="admin-stats.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+      <a href="admin-audit-log.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="../screens/feed.html">← 返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <div class="au-header">
+      <h2>标签/类别管理</h2>
+      <div style="font-size:12px;color:var(--muted)">AI 标签建议仅从已启用的标签库中选取</div>
+    </div>
+
+    <div class="ct-layout">
+      <!-- Categories -->
+      <div class="ct-panel">
+        <div class="ct-panel-header">
+          <h3>📂 服务类别</h3>
+          <span style="font-size:12px;color:var(--muted)" id="catCount">6 个</span>
+        </div>
+        <div class="ct-panel-body">
+          <div class="ct-add-row">
+            <input type="text" id="newCatName" placeholder="新类别名称…">
+            <span style="font-size:28px;cursor:pointer" id="newCatIcon">📁</span>
+            <button class="btn btn--primary btn--sm" onclick="addCategory()">添加</button>
+          </div>
+          <div id="catList"></div>
+        </div>
+      </div>
+
+      <!-- Tags -->
+      <div class="ct-panel">
+        <div class="ct-panel-header">
+          <h3>🏷️ 技能标签</h3>
+          <span style="font-size:12px;color:var(--muted)" id="tagCount">24 个</span>
+        </div>
+        <div class="ct-panel-body">
+          <div class="ct-add-row">
+            <input type="text" id="newTagName" placeholder="新标签名称…">
+            <select id="newTagCat" style="padding:9px 12px;border-radius:var(--radius-md);border:1.5px solid var(--border);font-size:14px;outline:none;background:var(--bg)">
+            </select>
+            <button class="btn btn--primary btn--sm" onclick="addTag()">添加</button>
+          </div>
+          <div class="ct-tag-grid" id="tagGrid"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Confirm -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-dialog">
+    <div class="cd-title" id="confirmTitle"></div>
+    <div class="cd-body" id="confirmBody"></div>
+    <div class="cd-actions">
+      <button class="btn btn--primary" id="confirmActionBtn" style="background:var(--danger);color:#fff">确认删除</button>
+      <button class="btn btn--secondary" onclick="closeConfirm()">取消</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let categories = [
+  { name:'家政服务', icon:'🧹', order:1, enabled:true },
+  { name:'IT 数码', icon:'💻', order:2, enabled:true },
+  { name:'教育培训', icon:'📚', order:3, enabled:true },
+  { name:'维修安装', icon:'🔧', order:4, enabled:true },
+  { name:'设计创意', icon:'🎨', order:5, enabled:true },
+  { name:'其他服务', icon:'📦', order:6, enabled:true },
+];
+
+let tags = [
+  { name:'保洁', cat:'家政服务', enabled:true },
+  { name:'月嫂', cat:'家政服务', enabled:true },
+  { name:'收纳整理', cat:'家政服务', enabled:false },
+  { name:'电脑维修', cat:'IT 数码', enabled:true },
+  { name:'手机维修', cat:'IT 数码', enabled:true },
+  { name:'网络布线', cat:'IT 数码', enabled:true },
+  { name:'数据恢复', cat:'IT 数码', enabled:false },
+  { name:'编程辅导', cat:'IT 数码', enabled:true },
+  { name:'英语辅导', cat:'教育培训', enabled:true },
+  { name:'数学辅导', cat:'教育培训', enabled:true },
+  { name:'钢琴陪练', cat:'教育培训', enabled:true },
+  { name:'考研辅导', cat:'教育培训', enabled:false },
+  { name:'家电维修', cat:'维修安装', enabled:true },
+  { name:'水电维修', cat:'维修安装', enabled:true },
+  { name:'空调清洗', cat:'维修安装', enabled:true },
+  { name:'家具组装', cat:'维修安装', enabled:true },
+  { name:'平面设计', cat:'设计创意', enabled:true },
+  { name:'视频剪辑', cat:'设计创意', enabled:true },
+  { name:'PPT制作', cat:'设计创意', enabled:true },
+  { name:'翻译', cat:'设计创意', enabled:false },
+  { name:'搬家', cat:'其他服务', enabled:true },
+  { name:'跑腿', cat:'其他服务', enabled:true },
+  { name:'宠物照看', cat:'其他服务', enabled:true },
+  { name:'代驾', cat:'其他服务', enabled:true },
+];
+
+let editingCatIdx = -1;
+let editingTagIdx = -1;
+let pendingDelete = null;
+
+function renderCategories() {
+  const container = document.getElementById('catList');
+  document.getElementById('catCount').textContent = categories.length + ' 个';
+  container.innerHTML = categories.map((c,i) => {
+    if (editingCatIdx === i) {
+      return `<div class="ct-item">
+        <div class="ct-icon" style="background:${c.enabled?'var(--accent-subtle)':'var(--border-light)'}">${c.icon}</div>
+        <div class="ct-inline-edit" style="flex:1">
+          <input value="${c.name}" id="editCatName_${i}">
+          <button class="ct-save-btn" onclick="saveCatEdit(${i})">保存</button>
+          <button class="ct-cancel-btn" onclick="cancelCatEdit()">取消</button>
+        </div>
+      </div>`;
+    }
+    return `<div class="ct-item">
+      <div class="ct-icon" style="background:${c.enabled?'var(--accent-subtle)':'var(--border-light)'}">${c.icon}</div>
+      <div class="ct-info">
+        <div class="ct-name" style="${c.enabled?'':'text-decoration:line-through;opacity:0.5'}">${c.name}</div>
+        <div class="ct-meta">
+          排序 ${c.order} · ${tags.filter(t=>t.cat===c.name).length} 个标签
+        </div>
+      </div>
+      <span class="ct-toggle ${c.enabled?'on':''}" onclick="toggleCat(${i})"></span>
+      <div class="ct-actions">
+        <button class="ct-btn edit" onclick="editCat(${i})">编辑</button>
+        <button class="ct-btn del" onclick="deleteCat(${i})">删除</button>
+      </div>
+    </div>`;
+  }).join('');
+  updateTagCatSelect();
+}
+
+function renderTags() {
+  const container = document.getElementById('tagGrid');
+  document.getElementById('tagCount').textContent = tags.length + ' 个';
+  container.innerHTML = tags.map((t,i) => {
+    if (editingTagIdx === i) {
+      return `<div style="display:flex;gap:6px;align-items:center;width:100%">
+        <input value="${t.name}" id="editTagName_${i}" style="padding:6px 10px;border-radius:var(--radius-full);border:1.5px solid var(--accent);font-size:13px;outline:none;min-width:0;flex:1">
+        <select id="editTagCat_${i}" style="padding:6px 10px;border-radius:var(--radius-full);border:1.5px solid var(--border);font-size:12px;outline:none">${categories.map(c=>`<option value="${c.name}" ${c.name===t.cat?'selected':''}>${c.name}</option>`).join('')}</select>
+        <button style="padding:6px 14px;border-radius:var(--radius-full);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer" onclick="saveTagEdit(${i})">保存</button>
+        <button style="padding:6px 12px;border-radius:var(--radius-full);border:1px solid var(--border);font-size:12px;cursor:pointer;color:var(--muted)" onclick="cancelTagEdit()">取消</button>
+      </div>`;
+    }
+    return `<span class="ct-tag ${t.enabled?'active':''}" style="${t.enabled?'':'opacity:0.4;text-decoration:line-through'}">
+      ${t.name}
+      <span style="font-size:10px;opacity:0.6">${t.cat.slice(0,4)}</span>
+      <span style="cursor:pointer;margin-left:2px;opacity:0.5" onclick="event.stopPropagation();toggleTag(${i})">${t.enabled?'⊙':'○'}</span>
+    </span>`;
+  }).join('');
+}
+
+function updateTagCatSelect() {
+  const sel = document.getElementById('newTagCat');
+  if (!sel) return;
+  const val = sel.value;
+  sel.innerHTML = categories.filter(c=>c.enabled).map(c=>`<option value="${c.name}" ${c.name===val?'selected':''}>${c.name}</option>`).join('');
+}
+
+function addCategory() {
+  const input = document.getElementById('newCatName');
+  const name = input.value.trim();
+  if (!name) { showToast('请输入类别名称'); return; }
+  if (categories.some(c=>c.name===name)) { showToast('类别已存在'); return; }
+  categories.push({ name, icon:'📁', order:categories.length+1, enabled:true });
+  input.value = '';
+  renderCategories();
+  renderTags();
+  showToast('类别已添加');
+}
+
+function editCat(i) {
+  editingCatIdx = i;
+  renderCategories();
+}
+
+function saveCatEdit(i) {
+  const input = document.getElementById('editCatName_' + i);
+  const name = input.value.trim();
+  if (!name) { showToast('类别名称不能为空'); return; }
+  const oldName = categories[i].name;
+  categories[i].name = name;
+  tags.forEach(t => { if (t.cat === oldName) t.cat = name; });
+  editingCatIdx = -1;
+  renderCategories();
+  renderTags();
+  showToast('类别已更新');
+}
+
+function cancelCatEdit() {
+  editingCatIdx = -1;
+  renderCategories();
+}
+
+function toggleCat(i) {
+  categories[i].enabled = !categories[i].enabled;
+  renderCategories();
+  renderTags();
+  showToast(categories[i].enabled ? '类别已启用' : '类别已禁用');
+}
+
+function deleteCat(i) {
+  const c = categories[i];
+  const tagCount = tags.filter(t=>t.cat===c.name).length;
+  pendingDelete = { type:'cat', idx:i };
+  document.getElementById('confirmTitle').textContent = '确认删除类别？';
+  document.getElementById('confirmBody').textContent = `删除 "${c.name}" 将同时移除其下的 ${tagCount} 个标签，此操作不可恢复。`;
+  document.getElementById('confirmOverlay').classList.add('open');
+  document.getElementById('confirmActionBtn').onclick = function() {
+    const name = categories[pendingDelete.idx].name;
+    tags = tags.filter(t=>t.cat!==name);
+    categories.splice(pendingDelete.idx, 1);
+    renderCategories();
+    renderTags();
+    closeConfirm();
+    showToast(`已删除类别 "${name}"`);
+  };
+}
+
+function addTag() {
+  const nameInput = document.getElementById('newTagName');
+  const name = nameInput.value.trim();
+  if (!name) { showToast('请输入标签名称'); return; }
+  if (tags.some(t=>t.name===name)) { showToast('标签已存在'); return; }
+  const cat = document.getElementById('newTagCat').value;
+  tags.push({ name, cat, enabled:true });
+  nameInput.value = '';
+  renderTags();
+  renderCategories();
+  showToast('标签已添加');
+}
+
+function toggleTag(i) {
+  tags[i].enabled = !tags[i].enabled;
+  renderTags();
+  showToast(tags[i].enabled ? '标签已启用' : '标签已禁用');
+}
+
+function editTag(i) {
+  editingTagIdx = editingTagIdx === i ? -1 : i;
+  renderTags();
+}
+
+function saveTagEdit(i) {
+  const name = document.getElementById('editTagName_' + i).value.trim();
+  const cat = document.getElementById('editTagCat_' + i).value;
+  if (!name) { showToast('标签名称不能为空'); return; }
+  tags[i].name = name;
+  tags[i].cat = cat;
+  editingTagIdx = -1;
+  renderTags();
+  showToast('标签已更新');
+}
+
+function cancelTagEdit() {
+  editingTagIdx = -1;
+  renderTags();
+}
+
+function closeConfirm() {
+  document.getElementById('confirmOverlay').classList.remove('open');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// Init
+renderCategories();
+renderTags();
+
+// Click tag to start editing
+document.getElementById('tagGrid').addEventListener('click', function(e) {
+  const tag = e.target.closest('.ct-tag');
+  if (!tag) return;
+  const idx = Array.from(tag.parentElement.children).indexOf(tag);
+  editTag(idx);
+});
+</script>
+
+</body>
+</html>

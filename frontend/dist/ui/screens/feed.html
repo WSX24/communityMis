@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>首页 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.3cf7927f18de.css">
+<style>
+  /* ===== 顶部导航 ===== */
+  .feed-header {
+    position: sticky; top: 0; z-index: 50;
+    background: oklch(97% 0.005 85 / 0.88);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    padding: var(--space-lg) var(--space-lg) var(--space-md);
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .feed-header.scrolled {
+    border-bottom-color: var(--border-light);
+    box-shadow: var(--shadow-sm);
+  }
+  .feed-header .top-row {
+    display: flex; align-items: center; gap: var(--space-md);
+  }
+  .feed-header h1 {
+    font-family: var(--font-display); font-size: 26px; font-weight: 800;
+    letter-spacing: -0.02em; flex-shrink: 0;
+  }
+  .feed-header h1 span { color: var(--accent); }
+
+  .search-bar {
+    flex: 1; display: flex; align-items: center; gap: var(--space-sm);
+    background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: var(--radius-xl); padding: 10px 16px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .search-bar:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+  }
+  .search-bar input {
+    flex: 1; border: none; outline: none; background: none;
+    font-size: 14px; color: var(--fg);
+  }
+  .search-bar input::placeholder { color: var(--muted); font-size: 14px; }
+
+  .icon-btn {
+    width: 40px; height: 40px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    position: relative; flex-shrink: 0;
+    transition: background 0.2s, transform 0.2s;
+    color: var(--muted);
+  }
+  .icon-btn:hover { background: var(--border-light); color: var(--accent); transform: scale(1.05); }
+  .icon-btn .dot {
+    position: absolute; top: 6px; right: 6px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--danger); border: 2px solid oklch(97% 0.005 85 / 0.88);
+  }
+
+  /* ===== 分类标签 ===== */
+  .category-tabs {
+    display: flex; gap: 8px; margin-top: var(--space-md);
+    overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
+    padding-bottom: 4px;
+  }
+  .category-tabs::-webkit-scrollbar { display: none; }
+
+  .chip {
+    flex-shrink: 0; padding: 7px 16px; border-radius: var(--radius-full);
+    font-size: 13px; font-weight: 600; color: var(--muted);
+    background: var(--surface); border: 1.5px solid var(--border);
+    transition: all 0.2s ease; cursor: pointer; user-select: none;
+  }
+  .chip:hover { border-color: var(--accent-light); color: var(--accent); }
+  .chip.active {
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff; border-color: transparent;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+  }
+
+  /* ===== 内容容器 ===== */
+  .feed-content {
+    padding: var(--space-md) var(--space-lg) calc(var(--space-3xl) + 80px);
+    max-width: 680px; margin: 0 auto;
+  }
+
+  /* ===== 任务卡片 ===== */
+  .task-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+    padding: var(--space-lg);
+    margin-bottom: var(--space-lg);
+    position: relative; overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+  }
+  .task-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--reward-gold), var(--accent));
+  }
+  .task-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+  .task-card .task-top {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: var(--space-sm); margin-bottom: var(--space-sm);
+  }
+  .task-card .task-title {
+    font-size: 16px; font-weight: 700; line-height: 1.4; color: var(--fg);
+  }
+  .reward-tag {
+    display: inline-flex; align-items: center; gap: 3px;
+    background: linear-gradient(135deg, oklch(65% 0.18 82), oklch(58% 0.16 70));
+    color: #fff; padding: 5px 12px; border-radius: var(--radius-full);
+    font-size: 14px; font-weight: 700; flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(217, 119, 87, 0.3);
+  }
+  .task-card .task-desc {
+    font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: var(--space-md);
+  }
+  .task-card .task-meta {
+    display: flex; gap: var(--space-lg); flex-wrap: wrap;
+    font-size: 13px; color: var(--muted);
+    margin-bottom: var(--space-md);
+  }
+  .task-card .task-meta span {
+    display: flex; align-items: center; gap: 4px;
+  }
+  .task-card .task-footer {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .task-card .publisher {
+    display: flex; align-items: center; gap: var(--space-sm);
+    font-size: 13px; color: var(--muted);
+  }
+  .task-card .publisher .avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 12px; font-weight: 700;
+  }
+
+  /* ===== 帖子卡片 ===== */
+  .post-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+    padding: var(--space-lg);
+    margin-bottom: var(--space-lg);
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+  }
+  .post-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+  .post-card .post-header {
+    display: flex; align-items: center; gap: var(--space-md);
+    margin-bottom: var(--space-md);
+  }
+  .post-card .avatar {
+    width: 42px; height: 42px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 16px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .post-card .user-info { flex: 1; min-width: 0; }
+  .post-card .user-name { font-weight: 700; font-size: 15px; color: var(--fg); }
+  .post-card .post-meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .post-card .post-body { font-size: 15px; line-height: 1.7; margin-bottom: var(--space-md); color: var(--text-secondary); }
+  .post-card .post-body .tag-row { display: flex; gap: 6px; margin-bottom: var(--space-sm); }
+
+  .post-card .post-images {
+    display: grid; gap: 6px; margin-bottom: var(--space-md);
+    border-radius: var(--radius-md); overflow: hidden;
+  }
+  .post-card .post-images.col-1 { grid-template-columns: 1fr; }
+  .post-card .post-images.col-2 { grid-template-columns: 1fr 1fr; }
+  .post-card .post-images.col-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .post-card .post-images img {
+    width: 100%; aspect-ratio: 1; object-fit: cover;
+    background: var(--border-light); transition: transform 0.3s;
+  }
+  .post-card:hover .post-images img:hover { transform: scale(1.02); }
+
+  .post-card .post-actions {
+    display: flex; gap: var(--space-xl); padding-top: var(--space-md);
+    border-top: 1px solid var(--border-light);
+  }
+  .post-card .action-btn {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 13px; font-weight: 600; color: var(--muted);
+    transition: all 0.2s; background: none; border: none; cursor: pointer;
+    padding: 4px 8px; border-radius: var(--radius-sm);
+  }
+  .post-card .action-btn:hover {
+    color: var(--accent);
+    background: var(--accent-subtle);
+  }
+  .post-card .action-btn svg { width: 18px; height: 18px; }
+
+  /* ===== 底部导航 ===== */
+  .bottom-nav {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: oklch(98% 0.005 85 / 0.92);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border-light);
+    display: flex; justify-content: space-around; align-items: center;
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+    z-index: 100;
+  }
+  .bottom-nav a {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    transition: color 0.2s; padding: 4px 12px; text-decoration: none;
+  }
+  .bottom-nav a svg { width: 22px; height: 22px; transition: transform 0.2s; }
+  .bottom-nav a:hover { color: var(--accent); }
+  .bottom-nav a:hover svg { transform: translateY(-2px); }
+  .bottom-nav a.active { color: var(--accent); }
+  .bottom-nav a.active svg { transform: translateY(-2px); }
+
+  .publish-btn {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff !important;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+    margin-top: -24px; transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .publish-btn:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 24px rgba(99, 102, 241, 0.45);
+  }
+  .publish-btn svg { width: 24px; height: 24px; }
+
+  /* ===== AI FAB ===== */
+  .ai-fab {
+    position: fixed; right: 20px; bottom: calc(80px + env(safe-area-inset-bottom));
+    width: 56px; height: 56px; border-radius: 50%;
+    background: var(--ai-icon-red, #b43b38);
+    color: #fff; border: 2px solid var(--ai-icon-ring, #bdeff6); cursor: pointer;
+    box-sizing: border-box;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--ai-icon-shadow, 0 8px 22px rgba(67, 118, 128, 0.18));
+    z-index: 90; transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .ai-fab:hover {
+    transform: scale(1.06);
+    box-shadow: 0 10px 28px rgba(67, 118, 128, 0.24);
+  }
+  .ai-fab svg { width: 24px; height: 24px; }
+  .fab-pulse {
+    display: none;
+  }
+  @keyframes fabPulse {
+    0% { transform: scale(1); opacity: 0.6; }
+    100% { transform: scale(1.4); opacity: 0; }
+  }
+
+  /* ===== 通用微件 ===== */
+  .badge {
+    display: inline-flex; align-items: center;
+    padding: 3px 10px; border-radius: var(--radius-full);
+    font-size: 12px; font-weight: 600;
+  }
+  .badge--success { background: oklch(95% 0.05 145); color: oklch(45% 0.12 145); }
+  .badge--accent { background: var(--accent-subtle); color: var(--accent); }
+  .badge--warning { background: oklch(95% 0.05 85); color: oklch(55% 0.12 70); }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: var(--space-sm); border-radius: var(--radius-full);
+    font-weight: 700; border: none; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn--sm { padding: 8px 18px; font-size: 14px; }
+  .btn--primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+  }
+  .btn--primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+  }
+
+  /* 响应式 */
+  @media (max-width: 480px) {
+    .feed-content { padding: var(--space-sm) var(--space-md) calc(var(--space-3xl) + 80px); }
+    .feed-header { padding: var(--space-md) var(--space-md) var(--space-sm); }
+    .task-card, .post-card { padding: var(--space-md); }
+  }
+
+@media(max-width:768px){}
+.feed-col{padding:0 4px}
+.feed-col-title{font-size:16px;font-weight:700;margin:0 0 10px;padding:0 4px;color:var(--accent)}
+.feed-empty{color:var(--muted);font-size:13px;text-align:center;padding:30px 0}
+.feed-col .task-card,.feed-col .community-post-card{margin-bottom:10px;border-radius:12px;background:var(--surface);box-shadow:0 1px 4px rgba(0,0,0,.06);overflow:hidden}
+.feed-col .task-top{padding:12px 14px 0}
+.feed-col .task-title{font-size:15px;font-weight:700;line-height:1.4}
+.feed-col .task-desc{font-size:13px;color:var(--muted);padding:6px 14px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.feed-col .task-meta{padding:8px 14px;font-size:12px;display:flex;gap:10px;flex-wrap:wrap;color:var(--muted)}
+.feed-col .task-footer{padding:10px 14px;border-top:1px solid var(--border-light);display:flex;align-items:center;justify-content:space-between}
+.feed-col .publisher{display:flex;align-items:center;gap:6px;font-size:12px;text-decoration:none;color:inherit}
+.feed-col .publisher .avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700}
+.feed-col .reward-tag{font-size:16px;font-weight:700;color:var(--accent)}
+.feed-col .post-images-detail{margin:6px 14px!important;border-radius:10px;overflow:hidden}
+.feed-col .post-images-detail img{width:100%;height:180px;object-fit:cover}
+.feed-col .btn--sm{padding:6px 14px;font-size:12px;border-radius:16px}
+.feed-runtime-summary{padding:0 4px 10px;margin-bottom:4px;font-size:13px;color:var(--muted)}
+.feed-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:1200px;margin:0 auto}
+@media(max-width:768px){.feed-grid{grid-template-columns:1fr;gap:12px}}
+.feed-col-title{font-size:16px;font-weight:700;color:#8b4513;margin:0 0 10px;padding-bottom:6px;border-bottom:2px solid #e8d5c4}
+.feed-empty{color:#999;font-size:13px;text-align:center;padding:20px 0}
+.feed-col .task-card,.feed-col .community-post-card{margin-bottom:14px;border-radius:10px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.04);border:1px solid #f0ebe3;overflow:hidden}
+.feed-col .task-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.feed-col .task-top{padding:10px 12px 0;display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.feed-col .task-title{font-size:14px;font-weight:700;line-height:1.35;flex:1}
+.feed-col .task-desc{font-size:12px;color:#777;padding:4px 12px 0;margin:0;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.feed-col .task-meta{padding:6px 12px;font-size:11px;display:flex;gap:8px;flex-wrap:wrap;color:#999;align-items:center}
+.feed-col .task-footer{padding:8px 12px;border-top:1px solid #f5f0eb;display:flex;align-items:center;justify-content:space-between}
+.feed-col .publisher{display:flex;align-items:center;gap:6px;font-size:11px;text-decoration:none;color:inherit}
+.feed-col .publisher .avatar{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;flex-shrink:0}
+.feed-col .reward-tag{font-size:15px;font-weight:700;color:#1a1a1a;white-space:nowrap;flex-shrink:0}
+.feed-col .post-images-detail{margin:4px 12px!important;border-radius:8px;overflow:hidden}
+.feed-col .post-images-detail img{width:100%;height:150px;object-fit:cover}
+.feed-col .btn--sm{padding:5px 12px;font-size:11px;border-radius:14px}
+.feed-col .badge{font-size:10px;padding:2px 6px;border-radius:8px}
+.feed-runtime-summary{font-size:12px;color:#999;padding:0 0 6px;margin:0}
+.feed-content{max-width:1200px;margin:0 auto;padding:0 8px}
+.feed-col .community-post-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.08)}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="feed" data-route-title="首页信息流" data-route-source="screens/feed.html" data-route-path="/feed" data-route-current-path="/feed" data-route-surface="user" data-route-layout="userShell">
+
+<!-- 顶部 Header -->
+<div class="feed-header" id="feedHeader">
+  <div class="top-row">
+    <h1><span>邻帮</span></h1>
+    <div class="search-bar">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" placeholder="搜帖子、找任务…">
+    </div>
+    <a class="icon-btn" href="/notifications" aria-label="通知">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span class="dot"></span>
+    </a>
+  </div>
+  <div class="category-tabs">
+    <button class="chip active">全部</button>
+    <button class="chip">日常分享</button>
+    <button class="chip">求助问答</button>
+    <button class="chip">跑腿任务</button>
+    <button class="chip">闲置交易</button>
+    <button class="chip">社区公告</button>
+  </div>
+</div>
+
+<!-- 内容流 -->
+<div class="feed-content">
+<div data-runtime-placeholder class="runtime-placeholder">正在加载真实社区动态。</div>
+</div>
+
+<!-- AI 助手 FAB -->
+<button class="ai-fab" aria-label="AI 助手" data-ai-modal-scene="all">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  <span class="fab-pulse"></span>
+</button>
+
+<!-- 底部导航 -->
+<nav class="bottom-nav">
+  <a href="/feed" class="active">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    首页
+  </a>
+  <a href="/tasks">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    任务
+  </a>
+  <a href="/post" class="publish-btn" aria-label="发布">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </a>
+  <a href="/messages">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    消息
+  </a>
+  <a href="/profile">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    我的
+  </a>
+</nav>
+
+<script src="../js/ai-modal.js"></script>
+<script>
+  // 分类切换 — 仅处理视觉反馈，实际筛选逻辑由运行时 prototype-shell 控制
+  // 跳过没有 data-filter 属性的静态占位按钮，避免与动态渲染冲突
+  document.querySelectorAll('.category-tabs .chip[data-filter]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.category-tabs .chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+    });
+  });
+
+  // Header 滚动阴影
+  const header = document.getElementById('feedHeader');
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 10) {
+      header.classList.add('scrolled');
+    } else {
+      header.classList.remove('scrolled');
+    }
+  });
+</script>
+<script type="module" src="/assets/app/main.mjs"></script>
+<script src="/assets/app/jury-nav.js"></script>
+
+</body>
+</html>

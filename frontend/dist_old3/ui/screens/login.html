@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  body {
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    padding: var(--space-xl);
+    background:
+      radial-gradient(circle at 50% 28%, var(--accent-subtle), transparent 38%),
+      var(--bg);
+  }
+
+  .auth-card {
+    width: min(100%, 420px);
+    background: var(--surface);
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--border-light);
+    box-shadow: var(--shadow-md);
+    overflow: hidden;
+  }
+
+  .auth-header {
+    text-align: center;
+    padding: var(--space-3xl) var(--space-2xl) var(--space-xl);
+  }
+
+  .auth-brand-mark {
+    width: 56px; height: 56px;
+    margin: 0 auto var(--space-lg);
+    border-radius: var(--radius-lg);
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--accent), oklch(48% 0.16 28));
+    color: #fff;
+    box-shadow: 0 4px 16px oklch(54% 0.15 28 / 0.25);
+  }
+
+  .auth-header h1 {
+    font-family: var(--font-display);
+    font-size: 28px; font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+  }
+
+  .auth-header .sub {
+    font-size: 14px; color: var(--muted);
+  }
+
+  /* Tab switcher */
+  .auth-tabs {
+    display: flex; gap: 0; margin: 0 var(--space-2xl);
+    background: var(--border-light); border-radius: var(--radius-md);
+    padding: 4px;
+  }
+
+  .auth-tabs button {
+    flex: 1; padding: 10px; border-radius: var(--radius-sm);
+    font-size: 15px; font-weight: 600; color: var(--muted);
+    transition: all 0.2s;
+  }
+
+  .auth-tabs button.active {
+    background: var(--surface); color: var(--fg);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Form body */
+  .auth-body {
+    padding: var(--space-2xl);
+  }
+
+  .auth-panel { display: none; }
+  .auth-panel.active { display: block; }
+
+  .field-group {
+    margin-bottom: var(--space-lg);
+  }
+
+  .field-group label {
+    display: block; font-size: 13px; font-weight: 600;
+    color: var(--muted); margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+
+  .field-group .input {
+    width: 100%; padding: 12px 16px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); background: var(--bg);
+    font-size: 15px; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  .field-group .input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+  }
+
+  .field-group .input::placeholder { color: var(--muted); }
+
+  .field-hint {
+    font-size: 12px; color: var(--muted); margin-top: 4px;
+  }
+
+  /* Skill tag selector */
+  .skill-tags-grid {
+    display: flex; flex-wrap: wrap; gap: 8px;
+  }
+
+  .skill-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 7px 14px; border-radius: var(--radius-full);
+    font-size: 13px; font-weight: 500;
+    border: 1.5px solid var(--border); color: var(--muted);
+    cursor: pointer; transition: all 0.15s; user-select: none;
+  }
+
+  .skill-tag:hover { border-color: var(--accent-light); color: var(--fg); }
+
+  .skill-tag.selected {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+  }
+
+  /* New user bonus banner */
+  .bonus-banner {
+    display: flex; align-items: center; gap: var(--space-md);
+    margin-top: var(--space-lg); padding: var(--space-md) var(--space-lg);
+    background: linear-gradient(135deg, oklch(94% 0.05 82), oklch(96% 0.03 82));
+    border-radius: var(--radius-md); border: 1px solid oklch(88% 0.08 82);
+  }
+
+  .bonus-banner .bonus-icon {
+    width: 40px; height: 40px; border-radius: var(--radius-full);
+    background: linear-gradient(135deg, oklch(65% 0.18 82), oklch(56% 0.16 70));
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .bonus-banner .bonus-text {
+    font-size: 13px; line-height: 1.5;
+  }
+
+  .bonus-banner .bonus-text strong {
+    color: oklch(48% 0.14 70); font-size: 15px;
+  }
+
+  /* Submit button */
+  .auth-submit {
+    width: 100%; padding: 13px; border-radius: var(--radius-md);
+    background: var(--accent); color: #fff; font-size: 16px;
+    font-weight: 700; margin-top: var(--space-xl);
+    transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+    box-shadow: 0 2px 8px oklch(54% 0.15 28 / 0.2);
+  }
+
+  .auth-submit:hover { background: var(--accent-hover); }
+  .auth-submit:active { transform: scale(0.98); }
+
+  /* Footer links */
+  .auth-footer {
+    text-align: center; padding: 0 var(--space-2xl) var(--space-2xl);
+    font-size: 13px; color: var(--muted);
+  }
+
+  .auth-footer a {
+    color: var(--accent); font-weight: 600;
+    transition: color 0.15s;
+  }
+
+  .auth-footer a:hover { color: var(--accent-hover); }
+
+  .auth-separator { margin: 0 var(--space-sm); color: var(--border); }
+
+  /* Validation feedback */
+  .input.error { border-color: var(--danger); }
+
+  .field-error {
+    font-size: 12px; color: var(--danger); margin-top: 4px; display: none;
+  }
+
+  .field-error.visible { display: block; }
+
+  /* Responsive */
+  @media (max-width: 480px) {
+    body { padding: var(--space-md); align-items: flex-start; padding-top: 10dvh; }
+    .auth-card { border-radius: var(--radius-lg); }
+    .auth-header { padding: var(--space-2xl) var(--space-xl) var(--space-lg); }
+    .auth-body { padding: var(--space-xl); }
+    .auth-tabs { margin: 0 var(--space-xl); }
+    .auth-footer { padding: 0 var(--space-xl) var(--space-xl); }
+  }
+</style>
+</head>
+<body>
+
+<div class="auth-card">
+  <div class="auth-header">
+    <div class="auth-brand-mark" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 11.5 12 4l9 7.5"/>
+        <path d="M5 10.5V20h14v-9.5"/>
+        <path d="M9 20v-5.5h6V20"/>
+      </svg>
+    </div>
+    <h1>邻帮</h1>
+    <p class="sub">邻里互助 · 时间银行</p>
+  </div>
+
+  <div class="auth-tabs" id="auth-tabs">
+    <button class="active" data-panel="login-panel">登录</button>
+    <button data-panel="register-panel">注册</button>
+  </div>
+
+  <div class="auth-body">
+    <!-- Login panel -->
+    <div class="auth-panel active" id="login-panel">
+      <div class="field-group">
+        <label for="login-username">用户名</label>
+        <input class="input" id="login-username" type="text" placeholder="请输入用户名" autocomplete="username" required>
+      </div>
+      <div class="field-group">
+        <label for="login-password">密码</label>
+        <input class="input" id="login-password" type="password" placeholder="请输入密码" autocomplete="current-password" required>
+      </div>
+      <button class="auth-submit" id="login-submit">登录</button>
+    </div>
+
+    <!-- Register panel -->
+    <div class="auth-panel" id="register-panel">
+      <div class="field-group">
+        <label for="reg-username">用户名</label>
+        <input class="input" id="reg-username" type="text" placeholder="3-50 位英文、数字或下划线" autocomplete="off" required>
+        <div class="field-error" id="reg-username-error">用户名需 3-50 位英文、数字或下划线</div>
+      </div>
+      <div class="field-group">
+        <label for="reg-phone">手机号</label>
+        <input class="input" id="reg-phone" type="tel" placeholder="选填，便于邻居联系" autocomplete="tel">
+      </div>
+      <div class="field-group">
+        <label for="reg-password">密码</label>
+        <input class="input" id="reg-password" type="password" placeholder="至少 8 位" autocomplete="new-password" required>
+        <div class="field-error" id="reg-password-error">密码需至少 8 位</div>
+      </div>
+      <div class="field-group">
+        <label for="reg-confirm">确认密码</label>
+        <input class="input" id="reg-confirm" type="password" placeholder="请再次输入密码" autocomplete="new-password" required>
+        <div class="field-error" id="reg-confirm-error">两次输入的密码不一致</div>
+      </div>
+      <div class="field-group">
+        <label>我的技能（可多选）</label>
+        <div class="skill-tags-grid" id="skill-tags">
+          <span class="skill-tag" data-tag="维修">维修</span>
+          <span class="skill-tag" data-tag="保洁">保洁</span>
+          <span class="skill-tag" data-tag="烹饪">烹饪</span>
+          <span class="skill-tag" data-tag="辅导">辅导</span>
+          <span class="skill-tag" data-tag="陪伴">陪伴</span>
+          <span class="skill-tag" data-tag="跑腿">跑腿</span>
+          <span class="skill-tag" data-tag="遛宠">遛宠</span>
+          <span class="skill-tag" data-tag="摄影">摄影</span>
+          <span class="skill-tag" data-tag="园艺">园艺</span>
+          <span class="skill-tag" data-tag="手工">手工</span>
+          <span class="skill-tag" data-tag="IT">IT</span>
+          <span class="skill-tag" data-tag="翻译">翻译</span>
+        </div>
+        <div class="field-hint">选择你擅长的技能，方便邻居找到你</div>
+      </div>
+
+      <div class="bonus-banner">
+        <div class="bonus-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </div>
+        <div class="bonus-text">
+          新用户注册即送 <strong>5 时间币</strong><br>开启你的邻里互助之旅
+        </div>
+      </div>
+
+      <button class="auth-submit" id="register-submit">注册并领取 5 时间币</button>
+    </div>
+  </div>
+
+  <div class="auth-footer">
+    <a href="../index.html">返回首页</a>
+    <span class="auth-separator">·</span>
+    <a href="feed.html">先看看</a>
+  </div>
+</div>
+
+<script>
+  /* Tab switching */
+  document.querySelectorAll('#auth-tabs button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#auth-tabs button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.auth-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById(btn.dataset.panel).classList.add('active');
+    });
+  });
+
+  /* Skill tag selection */
+  document.querySelectorAll('#skill-tags .skill-tag').forEach(tag => {
+    tag.addEventListener('click', () => tag.classList.toggle('selected'));
+  });
+
+  /* ─── Validation ─── */
+
+  function showError(fieldId, msgId) {
+    var input = document.getElementById(fieldId);
+    var msg = document.getElementById(msgId);
+    input.classList.add('error');
+    if (msg) msg.classList.add('visible');
+  }
+
+  function clearError(fieldId, msgId) {
+    var input = document.getElementById(fieldId);
+    var msg = document.getElementById(msgId);
+    input.classList.remove('error');
+    if (msg) msg.classList.remove('visible');
+  }
+
+  function shake(el) {
+    el.style.animation = 'none';
+    el.offsetHeight;
+    el.style.animation = 'shake 0.4s ease';
+  }
+
+  // shake keyframes
+  var shakeStyle = document.createElement('style');
+  shakeStyle.textContent = '@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}';
+  document.head.appendChild(shakeStyle);
+
+  /* Login submit */
+  document.getElementById('login-submit').addEventListener('click', function() {
+    var u = document.getElementById('login-username').value.trim();
+    var p = document.getElementById('login-password').value;
+
+    if (!u) {
+      shake(document.getElementById('login-username'));
+      return;
+    }
+    if (!p) {
+      shake(document.getElementById('login-password'));
+      return;
+    }
+
+    // Simulate login — redirect to feed
+    this.textContent = '登录中…';
+    this.disabled = true;
+    setTimeout(function() {
+      window.location.href = 'feed.html';
+    }, 600);
+  });
+
+  // Enter key to submit login
+  document.getElementById('login-password').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') document.getElementById('login-submit').click();
+  });
+  document.getElementById('login-username').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') document.getElementById('login-password').focus();
+  });
+
+  /* Register submit */
+  document.getElementById('register-submit').addEventListener('click', function() {
+    var userOk = true, passOk = true, confirmOk = true;
+
+    var username = document.getElementById('reg-username').value.trim();
+    if (username.length < 2 || username.length > 20) {
+      showError('reg-username', 'reg-username-error');
+      shake(document.getElementById('reg-username'));
+      userOk = false;
+    } else {
+      clearError('reg-username', 'reg-username-error');
+    }
+
+    var password = document.getElementById('reg-password').value;
+    var hasLetter = /[a-zA-Z]/.test(password);
+    var hasDigit = /\d/.test(password);
+    if (password.length < 6 || !hasLetter || !hasDigit) {
+      showError('reg-password', 'reg-password-error');
+      shake(document.getElementById('reg-password'));
+      passOk = false;
+    } else {
+      clearError('reg-password', 'reg-password-error');
+    }
+
+    var confirm = document.getElementById('reg-confirm').value;
+    if (confirm !== password) {
+      showError('reg-confirm', 'reg-confirm-error');
+      shake(document.getElementById('reg-confirm'));
+      confirmOk = false;
+    } else {
+      clearError('reg-confirm', 'reg-confirm-error');
+    }
+
+    if (!userOk || !passOk || !confirmOk) return;
+
+    // Collect selected skills
+    var selected = [];
+    document.querySelectorAll('#skill-tags .skill-tag.selected').forEach(t => selected.push(t.dataset.tag));
+
+    // Simulate registration — redirect to feed
+    this.textContent = '注册中…';
+    this.disabled = true;
+    setTimeout(function() {
+      window.location.href = 'feed.html';
+    }, 800);
+  });
+</script>
+
+</body>
+</html>

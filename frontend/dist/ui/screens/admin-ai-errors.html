@@ -1,0 +1,1015 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 异常调用 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<link rel="stylesheet" href="../css/admin-p1.css">
+<style>
+  /* ===== 全局动画与过渡 ===== */
+  * {
+    transition-property: background-color, border-color, box-shadow, transform, opacity;
+    transition-duration: 0.2s;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* ===== 页面头部美化 ===== */
+  .page-head {
+    position: relative;
+    padding-bottom: 24px;
+    margin-bottom: 20px;
+  }
+
+  .page-head::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border) 0%, transparent 100%);
+  }
+
+  .head-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--primary);
+    opacity: 0.7;
+    margin-bottom: 6px;
+  }
+
+  .page-head h1 {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, var(--text) 0%, var(--muted) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .page-head p {
+    color: var(--muted);
+    font-size: 13.5px;
+    line-height: 1.7;
+    max-width: 640px;
+  }
+
+  .head-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .head-actions .btn {
+    position: relative;
+    overflow: hidden;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    border: none;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+
+  .head-actions .btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    background: rgba(255,255,255,0.2);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    transition: width 0.4s, height 0.4s;
+  }
+
+  .head-actions .btn:active::before {
+    width: 200px;
+    height: 200px;
+  }
+
+  .btn--primary {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, var(--primary)) 100%);
+    color: white;
+  }
+
+  .btn--primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  }
+
+  .btn--secondary {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border) !important;
+  }
+
+  .btn--secondary:hover {
+    background: var(--bg);
+    border-color: var(--primary) !important;
+    color: var(--primary);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  }
+
+  /* ===== 指标卡片美化 ===== */
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    padding: 20px 18px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+
+  .metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--primary) 0%, var(--primary-light, var(--primary)) 100%);
+    opacity: 0.6;
+    transition: opacity 0.3s;
+  }
+
+  .metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    border-color: var(--border);
+  }
+
+  .metric-card:hover::before {
+    opacity: 1;
+  }
+
+  .metric-card .label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+
+  .metric-card .value {
+    font-size: 32px;
+    font-weight: 800;
+    color: var(--text);
+    letter-spacing: -1px;
+    line-height: 1.1;
+    margin-bottom: 6px;
+  }
+
+  .metric-card .hint {
+    font-size: 11.5px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  /* ===== 子导航美化 ===== */
+  .subnav {
+    display: flex;
+    gap: 4px;
+    padding: 6px;
+    background: var(--bg);
+    border-radius: var(--radius-lg);
+    margin-bottom: 20px;
+    border: 1px solid var(--border-light);
+  }
+
+  .subnav a {
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    text-decoration: none;
+    border-radius: var(--radius-md);
+    transition: all 0.2s;
+    position: relative;
+  }
+
+  .subnav a:hover {
+    color: var(--text);
+    background: var(--surface);
+  }
+
+  .subnav a.active {
+    color: var(--primary);
+    background: var(--surface);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+
+  .subnav a.active::after {
+    content: '';
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 20px;
+    height: 2px;
+    background: var(--primary);
+    border-radius: 1px;
+  }
+
+  /* ===== 筛选栏美化 ===== */
+  .filter-bar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  }
+
+  .search-box {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    transition: all 0.2s;
+  }
+
+  .search-box:focus-within {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.04);
+  }
+
+  .search-box svg {
+    width: 16px;
+    height: 16px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+
+  .search-box input {
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 13px;
+    color: var(--text);
+    width: 100%;
+  }
+
+  .search-box input::placeholder {
+    color: var(--muted);
+    opacity: 0.6;
+  }
+
+  .select {
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    outline: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 120px;
+  }
+
+  .select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.04);
+  }
+
+  /* ===== 表格美化 ===== */
+  .data-shell {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  }
+
+  .table-scroll {
+    overflow-x: auto;
+  }
+
+  .data-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+  }
+
+  .data-table thead {
+    background: var(--bg);
+  }
+
+  .data-table thead th {
+    padding: 14px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--muted);
+    text-align: left;
+    border-bottom: 1px solid var(--border-light);
+    white-space: nowrap;
+  }
+
+  .data-table tbody tr {
+    transition: background-color 0.15s;
+  }
+
+  .data-table tbody tr:hover {
+    background: var(--bg);
+  }
+
+  .data-table tbody td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-light);
+    vertical-align: middle;
+  }
+
+  .data-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.3px;
+  }
+
+  .muted {
+    color: var(--muted);
+  }
+
+  .small {
+    font-size: 11.5px;
+  }
+
+  /* ===== 严重级别标签 ===== */
+  .severity {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 800;
+    white-space: nowrap;
+    letter-spacing: 0.3px;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.04);
+  }
+
+  .severity.low {
+    color: var(--muted);
+    background: var(--border-light);
+  }
+
+  .severity.medium {
+    color: var(--warning);
+    background: var(--warning-light);
+  }
+
+  .severity.high,
+  .severity.critical {
+    color: var(--danger);
+    background: var(--danger-light);
+  }
+
+  .severity.critical {
+    animation: pulse-critical 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-critical {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(var(--danger-rgb, 239, 68, 68), 0.2); }
+    50% { box-shadow: 0 0 0 4px rgba(var(--danger-rgb, 239, 68, 68), 0); }
+  }
+
+  /* ===== 状态标签 ===== */
+  .badge-state {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+  }
+
+  .badge-state.success {
+    color: var(--success);
+    background: var(--success-light);
+  }
+
+  .badge-state.neutral {
+    color: var(--muted);
+    background: var(--border-light);
+  }
+
+  .badge-state.danger {
+    color: var(--danger);
+    background: var(--danger-light);
+  }
+
+  .badge-state.warning {
+    color: var(--warning);
+    background: var(--warning-light);
+  }
+
+  /* ===== 用户头像单元格 ===== */
+  .person-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .avatar-mini {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light, var(--primary)) 100%);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  }
+
+  /* ===== 链接按钮 ===== */
+  .link-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--primary);
+    text-decoration: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .link-btn:hover {
+    background: var(--primary-light);
+    color: var(--primary-dark, var(--primary));
+  }
+
+  .link-btn.active {
+    background: var(--primary);
+    color: white;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  }
+
+  /* ===== 详情面板美化 ===== */
+  .panel {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    position: sticky;
+    top: 20px;
+  }
+
+  .panel h2 {
+    font-size: 18px;
+    font-weight: 800;
+    margin-bottom: 20px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text);
+    letter-spacing: -0.3px;
+  }
+
+  .detail-list {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .detail-item .label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--muted);
+  }
+
+  .detail-item .value {
+    font-size: 13.5px;
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* ===== 轨迹代码块 ===== */
+  .trace-block {
+    max-height: 220px;
+    overflow: auto;
+    padding: 16px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    background: var(--bg);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.8;
+    white-space: pre-wrap;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .trace-block::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .trace-block::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .trace-block::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+  }
+
+  /* ===== 防护提示框 ===== */
+  .guardrail {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+    background: color-mix(in oklch, var(--warning-light), var(--surface) 64%);
+    font-size: 13px;
+    line-height: 1.6;
+    position: relative;
+  }
+
+  .guardrail::before {
+    content: '⚡';
+    font-size: 16px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .guardrail strong {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--warning);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* ===== 操作按钮行 ===== */
+  .row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .row-actions .link-btn {
+    padding: 6px 14px;
+    border: 1px solid var(--border-light);
+    background: var(--bg);
+    font-size: 12px;
+  }
+
+  .row-actions .link-btn:hover {
+    border-color: var(--primary);
+    background: var(--primary-light);
+  }
+
+  /* ===== Toast 通知美化 ===== */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 12px 20px;
+    background: var(--text);
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    transform: translateY(20px);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1000;
+    pointer-events: none;
+  }
+
+  .toast.show {
+    transform: translateY(0);
+    opacity: 1;
+  }
+
+  /* ===== 布局结构 ===== */
+  .detail-layout {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 20px;
+    align-items: start;
+  }
+
+  /* ===== 移动端适配 ===== */
+  @media (max-width: 1024px) {
+    .detail-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .panel {
+      position: static;
+    }
+
+    .metric-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 640px) {
+    .metric-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .filter-bar {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .search-box,
+    .select {
+      width: 100%;
+    }
+
+    .head-actions {
+      flex-direction: column;
+      width: 100%;
+    }
+
+    .head-actions .btn {
+      width: 100%;
+      text-align: center;
+    }
+  }
+
+  /* ===== 空状态 ===== */
+  .data-table tbody tr td[colspan] {
+    text-align: center;
+    padding: 48px 20px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  /* ===== 选中行高亮 ===== */
+  .data-table tbody tr:has(.link-btn.active) {
+    background: color-mix(in oklch, var(--primary-light), var(--surface) 80%);
+  }
+
+  .data-table tbody tr:has(.link-btn.active) td {
+    border-bottom-color: var(--primary-light);
+  }
+</style>
+</head>
+<body>
+<header class="mobile-admin-bar" aria-label="移动端管理导航">
+  <div class="mobile-admin-top">
+    <div class="mobile-admin-title"><span class="shield">⏂</span><span>邻帮·管理后台</span></div>
+    <a class="mobile-admin-home" href="../screens/feed.html">返回社区</a>
+  </div>
+  <nav class="mobile-admin-links" aria-label="后台页面">
+    <a href="admin-dashboard.html">仪表盘</a>
+    <a href="admin-risk-content.html">内容审核</a>
+    <a href="admin-ai-conversations.html">AI 会话</a>
+    <a href="admin-ai-feedback.html">AI 反馈</a>
+    <a class="active" href="admin-ai-errors.html">AI 异常</a>
+    <a href="admin-ai-config.html">AI 配置</a>
+    <a href="admin-audit-log.html">审计日志</a>
+  </nav>
+</header>
+<div class="admin-page">
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="admin-dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="admin-users.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="admin-transactions.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><path d="M7 15h3M14 15h3"/></svg>交易流水</a>
+      <a href="admin-disputes.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理</a>
+      <a href="admin-risk-content.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>内容审核</a>
+      <a href="admin-ai-logs.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="admin-ai-conversations.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>AI 会话</a>
+      <a href="admin-ai-feedback.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 11v8a2 2 0 0 0 2 2h7.5a2 2 0 0 0 2-1.6l1.2-6A2 2 0 0 0 17.8 11H14V5.5A2.5 2.5 0 0 0 11.5 3L7 11z"/><path d="M3 11h4v10H3z"/></svg>AI 反馈</a>
+      <a class="active" href="admin-ai-errors.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>AI 异常</a>
+      <a href="admin-ai-config.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      <a href="admin-sensitive-words.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+      <a href="admin-stats.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+      <a href="admin-audit-log.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="../screens/feed.html">返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <header class="page-head">
+      <div>
+        <div class="head-kicker">AI Incident Audit</div>
+        <h1>AI 异常调用记录</h1>
+        <p>记录超时、模型失败、越权尝试、高风险请求与防护命中，并关联审计日志。这里的动作只处理技术与风控状态，不自动修改订单、冻结时间币或裁决纠纷。</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn btn--secondary btn--sm" data-action="retry">重试低风险失败</button>
+        <button class="btn btn--primary btn--sm" data-action="incident">创建事件单</button>
+      </div>
+    </header>
+
+    <section class="metric-grid" aria-label="异常概览">
+      <div class="metric-card"><div class="label">今日异常</div><div class="value mono">67</div><div class="hint">含超时、失败、策略拒绝</div></div>
+      <div class="metric-card"><div class="label">高风险请求</div><div class="value mono">8</div><div class="hint">越权、资金裁决、隐私字段</div></div>
+      <div class="metric-card"><div class="label">平均恢复</div><div class="value mono">4m</div><div class="hint">从异常到自动恢复的中位数</div></div>
+      <div class="metric-card"><div class="label">审计关联</div><div class="value mono">100%</div><div class="hint">高风险异常均写入审计日志</div></div>
+    </section>
+
+    <nav class="subnav" aria-label="AI 管理子页">
+      <a href="admin-ai-conversations.html">会话管理</a>
+      <a href="admin-ai-feedback.html">用户反馈</a>
+      <a class="active" href="admin-ai-errors.html">异常调用</a>
+      <a href="admin-ai-logs.html">原始日志</a>
+      <a href="admin-ai-config.html">AI 配置</a>
+    </nav>
+
+    <div class="filter-bar">
+      <label class="search-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input id="searchInput" type="search" placeholder="搜索异常 ID、用户、失败原因、审计号">
+      </label>
+      <select class="select" id="typeFilter" aria-label="异常类型">
+        <option value="">全部类型</option>
+        <option value="超时">超时</option>
+        <option value="模型失败">模型失败</option>
+        <option value="越权尝试">越权尝试</option>
+        <option value="高风险请求">高风险请求</option>
+        <option value="策略拒绝">策略拒绝</option>
+      </select>
+      <select class="select" id="severityFilter" aria-label="严重级别">
+        <option value="">全部级别</option>
+        <option value="低">低</option>
+        <option value="中">中</option>
+        <option value="高">高</option>
+        <option value="严重">严重</option>
+      </select>
+    </div>
+
+    <section class="detail-layout" aria-label="异常列表与详情">
+      <div class="data-shell">
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>异常</th>
+                <th>用户 / 角色</th>
+                <th>类型</th>
+                <th>级别</th>
+                <th>状态</th>
+                <th>审计关联</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="errorRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <aside class="panel" id="detailPanel" aria-live="polite"></aside>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const errors = [
+  {
+    id: "ERROR",
+    user: "用户丙",
+    role: "服务者",
+    type: "越权尝试",
+    severity: "严重",
+    status: "已阻断",
+    audit: "AUDIT-410",
+    time: "2026-06-05 14:58",
+    reason: "用户要求 AI 修改对方评价与订单结算状态。",
+    guardrail: "AI 已拒绝执行，并提示平台只允许用户在订单页发起纠纷或联系管理员。",
+    trace: `policy.guardrail=permission_boundary
+intent=modify_review_and_settlement
+result=blocked
+request_id=req_ai_6f28a
+latency=0.42s`
+  },
+  {
+    id: "ERROR",
+    user: "用户己",
+    role: "需求发布者",
+    type: "高风险请求",
+    severity: "高",
+    status: "待复核",
+    audit: "AUDIT-389",
+    time: "2026-06-05 13:33",
+    reason: "纠纷摘要请求包含完整地址与证据图片描述。",
+    guardrail: "已脱敏地址，仅保留街道级别；图片内容只生成事实性描述。",
+    trace: `policy.pii_mask=enabled
+scene=dispute_summary
+fields_masked=phone,address,exact_room
+result=allowed_with_redaction`
+  },
+  {
+    id: "ERROR",
+    user: "周老师",
+    role: "求助者",
+    type: "超时",
+    severity: "中",
+    status: "已恢复",
+    audit: "AUDIT-372",
+    time: "2026-06-05 12:48",
+    reason: "智能筛选调用超过 3 秒阈值，第二次重试成功。",
+    guardrail: "未返回空结果，前端展示“正在重试”并保持原筛选条件。",
+    trace: `timeout=3.0s
+retry=1
+fallback=cache_last_filters
+result=success
+latency=4.91s`
+  },
+  {
+    id: "ERROR",
+    user: "用户丁",
+    role: "需求发布者",
+    type: "模型失败",
+    severity: "低",
+    status: "已归档",
+    audit: "AUDIT-219",
+    time: "2026-06-04 18:19",
+    reason: "发布辅助生成草稿时模型服务返回 500。",
+    guardrail: "已提示稍后重试，表单草稿未丢失。",
+    trace: `provider_status=500
+scene=post_assist
+retry=0
+fallback=manual_edit_hint
+result=failed_safe`
+  },
+  {
+    id: "ERROR",
+    user: "匿名访客",
+    role: "未登录",
+    type: "策略拒绝",
+    severity: "中",
+    status: "已阻断",
+    audit: "AUDIT-198",
+    time: "2026-06-04 16:42",
+    reason: "未登录用户尝试查询他人订单冻结金额。",
+    guardrail: "AI 拒绝展示订单信息，仅返回公开规则说明。",
+    trace: `auth=guest
+requested_scope=order_private
+policy=public_rules_only
+result=blocked`
+  }
+];
+
+let selectedId = errors[0].id;
+const severityClass = { "低": "low", "中": "medium", "高": "high", "严重": "critical" };
+const statusClass = { "已恢复": "success", "已归档": "neutral", "已阻断": "danger", "待复核": "warning" };
+
+function matches(item) {
+  const q = document.getElementById("searchInput").value.trim().toLowerCase();
+  const type = document.getElementById("typeFilter").value;
+  const severity = document.getElementById("severityFilter").value;
+  const haystack = [item.id, item.user, item.role, item.type, item.severity, item.status, item.audit, item.reason, item.guardrail, item.trace].join(" ").toLowerCase();
+  return (!q || haystack.includes(q)) && (!type || item.type === type) && (!severity || item.severity === severity);
+}
+
+function renderRows() {
+  const rows = errors.filter(matches);
+  document.getElementById("errorRows").innerHTML = rows.map(item => `
+    <tr>
+      <td><div class="mono">${item.id}</div><div class="muted small">${item.time}</div></td>
+      <td><div class="person-cell"><div class="avatar-mini">${item.user.slice(0, 1)}</div><div><strong>${item.user}</strong><div class="muted small">${item.role}</div></div></div></td>
+      <td>${item.type}</td>
+      <td><span class="severity ${severityClass[item.severity]}">${item.severity}</span></td>
+      <td><span class="badge-state ${statusClass[item.status]}">${item.status}</span></td>
+      <td><a class="link-btn" href="admin-audit-log.html">${item.audit}</a></td>
+      <td><button class="link-btn ${item.id === selectedId ? "active" : ""}" onclick="selectError('${item.id}')">查看</button></td>
+    </tr>
+  `).join("") || `<tr><td colspan="7" class="muted">没有匹配的异常记录。</td></tr>`;
+}
+
+function renderDetail() {
+  const item = errors.find(e => e.id === selectedId) || errors[0];
+  document.getElementById("detailPanel").innerHTML = `
+    <h2>异常详情</h2>
+    <div class="detail-list">
+      <div class="detail-item"><div class="label">异常原因</div><div class="value">${item.reason}</div></div>
+      <div class="detail-item"><div class="label">防护结果</div><div class="value guardrail"><div><strong>已执行边界控制</strong><span>${item.guardrail}</span></div></div></div>
+      <div class="detail-item"><div class="label">审计关联</div><div class="value"><a class="link-btn" href="admin-audit-log.html">${item.audit}</a></div></div>
+      <div class="detail-item"><div class="label">调用轨迹</div><div class="value"><pre class="trace-block">${item.trace}</pre></div></div>
+      <div class="detail-item"><div class="label">处理动作</div><div class="value row-actions"><button class="link-btn" data-action="retry-one">安全重试</button><button class="link-btn" data-action="block">加入阻断规则</button><button class="link-btn" data-action="assign">指派处理人</button><button class="link-btn" data-action="close">关闭异常</button></div></div>
+    </div>
+  `;
+}
+
+function selectError(id) {
+  selectedId = id;
+  renderRows();
+  renderDetail();
+}
+
+function showToast(text) {
+  const toast = document.getElementById("toast");
+  toast.textContent = text;
+  toast.classList.add("show");
+  window.setTimeout(() => toast.classList.remove("show"), 1800);
+}
+
+document.querySelectorAll("#searchInput,#typeFilter,#severityFilter").forEach(el => el.addEventListener("input", renderRows));
+document.addEventListener("click", event => {
+  const action = event.target.closest("[data-action]")?.dataset.action;
+  if (!action) return;
+  const copy = {
+    retry: "已重试符合条件的低风险失败请求",
+    incident: "已创建 AI 异常事件单",
+    "retry-one": "已提交安全重试任务",
+    block: "已加入策略阻断候选规则",
+    assign: "已指派给值班管理员",
+    close: "异常已关闭并保留审计记录"
+  };
+  const item = errors.find(e => e.id === selectedId);
+  if (action === "retry-one" && item) {
+    item.status = "已恢复";
+    item.trace = item.trace + `
+manual_retry=queued_by_admin
+result=recovered`;
+    renderRows();
+    renderDetail();
+  }
+  if (action === "block" && item) {
+    item.status = "已阻断";
+    item.guardrail = item.guardrail + " 已加入策略阻断候选规则，等待安全复核后生效。";
+    renderRows();
+    renderDetail();
+  }
+  if (action === "assign" && item) {
+    item.status = "待复核";
+    item.reason = item.reason + " 已指派给值班管理员继续排查。";
+    renderRows();
+    renderDetail();
+  }
+  if (action === "close" && item) {
+    item.status = "已归档";
+    item.trace = item.trace + `
+closed_by=admin
+retention=audit_log_only`;
+    renderRows();
+    renderDetail();
+  }
+  showToast(copy[action] || "操作已记录");
+});
+
+renderRows();
+renderDetail();
+</script>
+</body>
+</html>

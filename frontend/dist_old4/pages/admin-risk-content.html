@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN" data-auth-state="checking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>内容风险审核 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.bc017e3cf60e.css">
+<link rel="stylesheet" href="/css/admin-p1.46416840170f.css">
+<style>
+  .risk-score {
+    display: inline-grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border-radius: var(--radius-full);
+    background: var(--danger-light);
+    color: var(--danger);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 900;
+  }
+
+  .risk-score.medium {
+    background: var(--warning-light);
+    color: var(--warning);
+  }
+
+  .risk-score.low {
+    background: var(--border-light);
+    color: var(--muted);
+  }
+
+  .content-card {
+    padding: var(--space-md);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    background: var(--bg);
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
+  .hit-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+  }
+
+  .hit {
+    display: inline-flex;
+    padding: 4px 9px;
+    border-radius: var(--radius-full);
+    background: var(--danger-light);
+    color: var(--danger);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .decision-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-sm);
+  }
+
+  @media (max-width: 520px) {
+    .decision-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<style>
+html[data-auth-state="checking"] body>*{visibility:hidden}
+html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9998;background:var(--bg,#f8f9fa)}
+html[data-auth-state="checking"] body::before{content:"加载中...";position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--fg-secondary,#888);font-family:system-ui,sans-serif}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="admin-risk-content" data-route-title="内容风险审核" data-route-source="screens/admin-risk-content.html" data-route-path="/admin/risk-content" data-route-current-path="/admin/risk-content" data-route-surface="admin" data-route-layout="adminShell">
+<header class="mobile-admin-bar" aria-label="移动端管理导航">
+  <div class="mobile-admin-top">
+    <div class="mobile-admin-title"><span class="shield">⏂</span><span>邻帮·管理后台</span></div>
+    <a class="mobile-admin-home" href="/feed">返回社区</a>
+  </div>
+  <nav class="mobile-admin-links" aria-label="后台页面">
+    <a href="/admin/dashboard">仪表盘</a>
+    <a class="active" href="/admin/risk-content">内容审核</a>
+    <a href="/admin/ai/conversations">AI 会话</a>
+    <a href="/admin/ai/feedback">AI 反馈</a>
+    <a href="/admin/ai/errors">AI 异常</a>
+    <a href="/admin/sensitive-words">敏感词</a>
+    <a href="/admin/audit-log">审计日志</a>
+  </nav>
+</header>
+<div class="admin-page">
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="/admin/dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="/admin/users"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="/admin/transactions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><path d="M7 15h3M14 15h3"/></svg>交易流水</a>
+      <a href="/admin/disputes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理</a>
+      <a class="active" href="/admin/risk-content"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>内容审核</a>
+      <a href="/admin/ai/logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="/admin/ai/conversations"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>AI 会话</a>
+      <a href="/admin/ai/feedback"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 11v8a2 2 0 0 0 2 2h7.5a2 2 0 0 0 2-1.6l1.2-6A2 2 0 0 0 17.8 11H14V5.5A2.5 2.5 0 0 0 11.5 3L7 11z"/><path d="M3 11h4v10H3z"/></svg>AI 反馈</a>
+      <a href="/admin/ai/errors"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>AI 异常</a>
+      <a href="/admin/ai/config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      <a href="/admin/sensitive-words"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+      <a href="/admin/stats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+      <a href="/admin/audit-log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="/feed">返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <header class="page-head">
+      <div>
+        <div class="head-kicker">Trust & Safety</div>
+        <h1>内容风险审核</h1>
+        <p>审核异常需求、疑似违规沟通、重复投诉和敏感词命中。AI 只提供风险提示和证据整理，最终通过、下架、限流或转纠纷必须由管理员确认。</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn btn--secondary btn--sm" data-action="refresh">刷新队列</button>
+        <button class="btn btn--primary btn--sm" data-action="batch-review">批量进入复核</button>
+      </div>
+    </header>
+
+    <section class="metric-grid" aria-label="风险概览">
+      <div class="metric-card"><div class="label">待审核</div><div class="value mono">31</div><div class="hint">需求、沟通、评价三类内容</div></div>
+      <div class="metric-card"><div class="label">高风险</div><div class="value mono">6</div><div class="hint">违法违规、资金诱导、人身攻击</div></div>
+      <div class="metric-card"><div class="label">重复投诉</div><div class="value mono">4</div><div class="hint">同一用户近 7 天被多次举报</div></div>
+      <div class="metric-card"><div class="label">今日处理</div><div class="value mono">58</div><div class="hint">通过 39，下架 8，转纠纷 11</div></div>
+    </section>
+
+    <nav class="subnav" aria-label="内容安全子页">
+      <a class="active" href="/admin/risk-content">风险内容</a>
+      <a href="/admin/sensitive-words">敏感词规则</a>
+      <a href="/admin/disputes">争议处理</a>
+      <a href="/admin/audit-log">审计日志</a>
+    </nav>
+
+    <div class="filter-bar">
+      <label class="search-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input id="searchInput" type="search" placeholder="搜索内容 ID、用户、敏感词、风险提示">
+      </label>
+      <select class="select" id="sourceFilter" aria-label="内容来源">
+        <option value="">全部来源</option>
+        <option value="需求发布">需求发布</option>
+        <option value="订单沟通">订单沟通</option>
+        <option value="评价">评价</option>
+        <option value="用户资料">用户资料</option>
+      </select>
+      <select class="select" id="riskFilter" aria-label="风险等级">
+        <option value="">全部风险</option>
+        <option value="高">高风险</option>
+        <option value="中">中风险</option>
+        <option value="低">低风险</option>
+      </select>
+    </div>
+
+    <section class="detail-layout" aria-label="风险内容列表与详情">
+      <div class="data-shell">
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>风险</th>
+                <th>内容来源</th>
+                <th>发布者</th>
+                <th>命中项</th>
+                <th>状态</th>
+                <th>时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="riskRows">
+<tr data-runtime-placeholder><td colspan="7">正在加载真实风险内容。</td></tr>
+</tbody>
+          </table>
+        </div>
+      </div>
+
+      <aside class="panel" id="detailPanel" aria-live="polite"></aside>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+
+<script type="module" src="/assets/app/main.mjs?v=1781617182554"></script>
+</body>
+</html>

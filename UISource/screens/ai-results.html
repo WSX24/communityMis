@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 筛选结果 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  .results-header {
+    position: sticky; top: 0; z-index: 50;
+    background: oklch(97% 0.005 85 / 0.88);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    padding: var(--space-lg); display: flex; align-items: center; gap: var(--space-lg);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .results-header .back-btn {
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .results-header .back-btn:hover { background: var(--border-light); }
+  .results-header h2 {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+  }
+
+  /* Search prompt display */
+  .search-prompt-bar {
+    margin: var(--space-lg); padding: var(--space-lg);
+    background: var(--surface); border: 1.5px solid var(--secondary-light);
+    border-radius: var(--radius-lg);
+  }
+  .search-prompt-bar .prompt-label {
+    font-size: 12px; font-weight: 600; color: var(--secondary);
+    text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--space-sm);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .search-prompt-bar .prompt-label svg { width: 16px; height: 16px; }
+  .search-prompt-bar .prompt-text {
+    font-size: 15px; font-weight: 500; color: var(--fg); margin-bottom: var(--space-md);
+  }
+  .search-prompt-bar .parsed-tags {
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+
+  /* Result count */
+  .result-summary {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 var(--space-lg) var(--space-md);
+  }
+  .result-summary .count {
+    font-size: 14px; color: var(--muted);
+  }
+  .result-summary .count strong { color: var(--accent); }
+  .result-summary .sort-select {
+    padding: 6px 12px; border-radius: var(--radius-sm);
+    border: 1.5px solid var(--border); font-size: 13px;
+    color: var(--fg); background: var(--surface);
+  }
+
+  /* Task card with match score */
+  .task-result-card {
+    margin: 0 var(--space-lg) var(--space-md);
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg); padding: var(--space-lg);
+    transition: box-shadow 0.2s; cursor: pointer;
+  }
+  .task-result-card:hover { box-shadow: var(--shadow-md); }
+  .task-result-card.high-match {
+    border-left: 3px solid var(--success);
+  }
+  .task-result-card.medium-match {
+    border-left: 3px solid var(--warning);
+  }
+
+  .task-result-card .result-top {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-sm);
+  }
+  .task-result-card .match-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 10px; border-radius: var(--radius-full);
+    font-size: 12px; font-weight: 600;
+  }
+  .match-high { background: var(--success-light); color: var(--success); }
+  .match-medium { background: var(--warning-light); color: var(--warning); }
+
+  .task-result-card .result-title {
+    font-size: 16px; font-weight: 600; margin-bottom: var(--space-sm);
+  }
+  .task-result-card .result-meta {
+    display: flex; flex-wrap: wrap; gap: var(--space-md);
+    font-size: 13px; color: var(--muted); margin-bottom: var(--space-sm);
+  }
+  .task-result-card .result-meta span {
+    display: flex; align-items: center; gap: 4px;
+  }
+  .task-result-card .result-credit {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: var(--radius-sm);
+    font-size: 12px; font-weight: 600;
+    background: oklch(94% 0.04 82); color: var(--reward-gold);
+  }
+  .task-result-card .match-reasons {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--space-sm);
+    padding-top: var(--space-md); border-top: 1px solid var(--border-light);
+  }
+  .task-result-card .match-reason {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 12px; padding: 4px 10px; border-radius: var(--radius-full);
+    background: var(--secondary-light); color: var(--secondary);
+    font-weight: 500;
+  }
+  .task-result-card .match-reason.match-key {
+    background: var(--accent-subtle); color: var(--accent);
+  }
+
+  .result-list {
+    padding-bottom: calc(var(--bottom-nav-height) + var(--space-2xl));
+  }
+  @media (min-width: 1024px) {
+    .result-list { max-width: 680px; margin: 0 auto; padding-bottom: var(--space-4xl); }
+  }
+
+  /* No results */
+  .no-results {
+    text-align: center; padding: var(--space-4xl) var(--space-xl); color: var(--muted);
+  }
+  .no-results svg { width: 56px; height: 56px; opacity: 0.25; margin-bottom: var(--space-lg); }
+  .no-results p { font-size: 14px; margin-bottom: var(--space-md); line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<div class="results-header">
+  <a href="tasks.html" class="back-btn">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </a>
+  <h2>AI 智能筛选</h2>
+</div>
+
+<!-- Prompt display -->
+<div class="search-prompt-bar">
+  <div class="prompt-label">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    AI 解析的筛选条件
+  </div>
+  <p class="prompt-text">「找信用高的英语辅导需求」</p>
+  <div class="parsed-tags">
+    <span class="filter-tag">类别: 辅导</span>
+    <span class="filter-tag">子类: 英语</span>
+    <span class="filter-tag">信用 ≥ 4.0</span>
+    <span class="filter-tag">状态: 待接单</span>
+  </div>
+  <div style="margin-top:var(--space-md);">
+    <button class="apply-filter-btn" onclick="document.getElementById('filter-applied-toast').style.display='flex';setTimeout(()=>document.getElementById('filter-applied-toast').style.display='none',2000);">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+      应用筛选条件
+    </button>
+  </div>
+</div>
+
+<!-- Applied toast -->
+<div id="filter-applied-toast" style="display:none;position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:200;
+  background:var(--fg);color:#fff;padding:10px 24px;border-radius:var(--radius-full);font-size:13px;font-weight:600;
+  box-shadow:var(--shadow-lg);pointer-events:none;">
+  ✅ 筛选条件已应用到需求大厅
+</div>
+
+<!-- Results summary -->
+<div class="result-summary">
+  <span class="count">共找到 <strong>3</strong> 个匹配结果</span>
+  <select class="sort-select" onchange="sortResults(this.value)">
+    <option value="match">按匹配度排序</option>
+    <option value="newest">按发布时间排序</option>
+    <option value="credit">按信用分排序</option>
+  </select>
+</div>
+
+<!-- Results -->
+<div class="result-list">
+  <!-- Match 1 — High -->
+  <div class="task-result-card high-match" onclick="location.href='post-detail.html'">
+    <div class="result-top">
+      <span class="badge badge--accent">辅导</span>
+      <span class="match-badge match-high">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        匹配度 94%
+      </span>
+    </div>
+    <div class="result-title">找英语口语陪练，每周两次</div>
+    <div class="result-meta">
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 1.5 小时/次</span>
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> 陈老师教画画</span>
+      <span class="result-credit">★ 4.8</span>
+    </div>
+    <div class="match-reasons">
+      <span class="match-reason match-key">⿡ 关键词「英语」精确匹配</span>
+      <span class="match-reason">类型「辅导」</span>
+      <span class="match-reason">信用 4.8 ≥ 筛选要求</span>
+      <span class="match-reason">2 小时前发布</span>
+    </div>
+  </div>
+
+  <!-- Match 2 — High -->
+  <div class="task-result-card high-match" onclick="location.href='post-detail.html'">
+    <div class="result-top">
+      <span class="badge badge--accent">辅导</span>
+      <span class="match-badge match-high">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        匹配度 87%
+      </span>
+    </div>
+    <div class="result-title">需要一位英语好的邻居帮忙辅导初中生</div>
+    <div class="result-meta">
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 2 小时/次</span>
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> 赵姐</span>
+      <span class="result-credit">★ 4.6</span>
+    </div>
+    <div class="match-reasons">
+      <span class="match-reason match-key">⿡ 关键词「英语」匹配标题</span>
+      <span class="match-reason">类型「辅导」</span>
+      <span class="match-reason">信用 4.6 ≥ 筛选要求</span>
+    </div>
+  </div>
+
+  <!-- Match 3 — Medium -->
+  <div class="task-result-card medium-match" onclick="location.href='post-detail.html'">
+    <div class="result-top">
+      <span class="badge badge--success">陪伴</span>
+      <span class="match-badge match-medium">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        匹配度 62%
+      </span>
+    </div>
+    <div class="result-title">寻找英语学习搭子，一起打卡</div>
+    <div class="result-meta">
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 灵活安排</span>
+      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> 李阿姨</span>
+      <span class="result-credit">★ 4.9</span>
+    </div>
+    <div class="match-reasons">
+      <span class="match-reason match-key">⿡ 关键词「英语」部分匹配</span>
+      <span class="match-reason">类型为「陪伴」非严格匹配</span>
+      <span class="match-reason">信用 4.9 ≥ 筛选要求</span>
+    </div>
+  </div>
+</div>
+
+<!-- AI FAB -->
+<button class="ai-fab" aria-label="AI 助手" data-ai-modal-scene="request_filter">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  <span class="fab-pulse"></span>
+</button>
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav">
+  <a href="feed.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    首页
+  </a>
+  <a href="tasks.html" class="active">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    任务
+  </a>
+  <a href="post.html" class="publish-btn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </a>
+  <a href="messages.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    消息
+  </a>
+  <a href="profile.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    我的
+  </a>
+</nav>
+
+<script src="../js/ai-modal.js"></script>
+<script>
+  function sortResults(by) {
+    const list = document.querySelector('.result-list');
+    const cards = Array.from(list.querySelectorAll('.task-result-card'));
+    cards.sort((a, b) => {
+      if (by === 'match') {
+        const aPct = parseInt(a.querySelector('.match-badge').textContent.match(/\d+/)[0]);
+        const bPct = parseInt(b.querySelector('.match-badge').textContent.match(/\d+/)[0]);
+        return bPct - aPct;
+      }
+      if (by === 'credit') {
+        const aCredit = parseFloat(a.querySelector('.result-credit').textContent.replace('★ ', ''));
+        const bCredit = parseFloat(b.querySelector('.result-credit').textContent.replace('★ ', ''));
+        return bCredit - aCredit;
+      }
+      return 0;
+    });
+    cards.forEach(c => list.appendChild(c));
+  }
+</script>
+<script src="/assets/app/jury-nav.js"></script>
+
+</body>
+</html>

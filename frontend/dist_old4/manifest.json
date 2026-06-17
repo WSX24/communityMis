@@ -1,0 +1,274 @@
+{
+  "buildVersion": "dev",
+  "environment": "production",
+  "builtAt": "2026-06-16T13:39:42.565Z",
+  "type": "vite-react-spa",
+  "assets": {
+    "/assets/app/api/client.mjs": "/assets/app/api/client.mjs",
+    "/assets/app/api-client.mjs": "/assets/app/api-client.mjs",
+    "/assets/app/auth.mjs": "/assets/app/auth.mjs",
+    "/assets/app/main.mjs": "/assets/app/main.mjs",
+    "/assets/app/modules/admin.mjs": "/assets/app/modules/admin.mjs",
+    "/assets/app/modules/ai.mjs": "/assets/app/modules/ai.mjs",
+    "/assets/app/modules/auth.mjs": "/assets/app/modules/auth.mjs",
+    "/assets/app/modules/disputes.mjs": "/assets/app/modules/disputes.mjs",
+    "/assets/app/modules/feed.mjs": "/assets/app/modules/feed.mjs",
+    "/assets/app/modules/messages.mjs": "/assets/app/modules/messages.mjs",
+    "/assets/app/modules/orders.mjs": "/assets/app/modules/orders.mjs",
+    "/assets/app/modules/shared-ui.mjs": "/assets/app/modules/shared-ui.mjs",
+    "/assets/app/modules/tasks.mjs": "/assets/app/modules/tasks.mjs",
+    "/assets/app/modules/wallet.mjs": "/assets/app/modules/wallet.mjs",
+    "/assets/app/prototype-shell.mjs": "/assets/app/prototype-shell.mjs",
+    "/assets/index.Bl_C3GV8.css": "/assets/index.Bl_C3GV8.css",
+    "/assets/index.dMMrnR7W.js": "/assets/index.dMMrnR7W.js",
+    "/assets/index.dMMrnR7W.js.map": "/assets/index.dMMrnR7W.js.map",
+    "/assets/styles/shell.7f7535f9d74b.css": "/assets/styles/shell.7f7535f9d74b.css",
+    "/assets/styles/theme.c8369c3e6906.css": "/assets/styles/theme.c8369c3e6906.css",
+    "/css/admin-p1.46416840170f.css": "/css/admin-p1.46416840170f.css",
+    "/css/common.bc017e3cf60e.css": "/css/common.bc017e3cf60e.css",
+    "/css/tokens.9237d5c336cf.css": "/css/tokens.9237d5c336cf.css",
+    "/js/ai-modal.3985de9eb7ef.js": "/js/ai-modal.3985de9eb7ef.js"
+  },
+  "prototypeAssets": {
+    "/DESIGN-MANIFEST.json": "/DESIGN-MANIFEST.5fe3cb2c7eed.json",
+    "/css/admin-p1.css": "/css/admin-p1.46416840170f.css",
+    "/css/common.css": "/css/common.bc017e3cf60e.css",
+    "/css/tokens.css": "/css/tokens.9237d5c336cf.css",
+    "/js/ai-modal.js": "/js/ai-modal.3985de9eb7ef.js",
+    "/assets/styles/shell.css": "/assets/styles/shell.7f7535f9d74b.css",
+    "/assets/styles/theme.css": "/assets/styles/theme.c8369c3e6906.css",
+    "/assets/app/api/client.mjs": "/assets/app/api/client.mjs",
+    "/assets/app/api-client.mjs": "/assets/app/api-client.mjs",
+    "/assets/app/auth.mjs": "/assets/app/auth.mjs",
+    "/assets/app/prototype-shell.mjs": "/assets/app/prototype-shell.mjs",
+    "/assets/app/main.mjs": "/assets/app/main.mjs",
+    "/assets/app/modules/shared-ui.mjs": "/assets/app/modules/shared-ui.mjs",
+    "/assets/app/modules/auth.mjs": "/assets/app/modules/auth.mjs",
+    "/assets/app/modules/feed.mjs": "/assets/app/modules/feed.mjs",
+    "/assets/app/modules/tasks.mjs": "/assets/app/modules/tasks.mjs",
+    "/assets/app/modules/orders.mjs": "/assets/app/modules/orders.mjs",
+    "/assets/app/modules/wallet.mjs": "/assets/app/modules/wallet.mjs",
+    "/assets/app/modules/disputes.mjs": "/assets/app/modules/disputes.mjs",
+    "/assets/app/modules/messages.mjs": "/assets/app/modules/messages.mjs",
+    "/assets/app/modules/ai.mjs": "/assets/app/modules/ai.mjs",
+    "/assets/app/modules/admin.mjs": "/assets/app/modules/admin.mjs"
+  },
+  "vite": {
+    "index.html": {
+      "file": "assets/index.dMMrnR7W.js",
+      "name": "index",
+      "src": "index.html",
+      "isEntry": true,
+      "css": [
+        "assets/index.Bl_C3GV8.css"
+      ]
+    }
+  },
+  "routes": {
+    "entry": {
+      "path": "/",
+      "entryPath": "/",
+      "file": "/pages/entry.html"
+    },
+    "login": {
+      "path": "/login",
+      "entryPath": "/login",
+      "file": "/pages/login.html"
+    },
+    "register": {
+      "path": "/register",
+      "entryPath": "/register",
+      "file": "/pages/register.html"
+    },
+    "feed": {
+      "path": "/feed",
+      "entryPath": "/feed",
+      "file": "/pages/feed.html"
+    },
+    "tasks": {
+      "path": "/tasks",
+      "entryPath": "/tasks",
+      "file": "/pages/tasks.html"
+    },
+    "post": {
+      "path": "/post",
+      "entryPath": "/post",
+      "file": "/pages/post.html"
+    },
+    "messages": {
+      "path": "/messages",
+      "entryPath": "/messages",
+      "file": "/pages/messages.html"
+    },
+    "profile": {
+      "path": "/profile",
+      "entryPath": "/profile",
+      "file": "/pages/profile.html"
+    },
+    "post-detail": {
+      "path": "/posts/:id",
+      "entryPath": "/posts/demo",
+      "file": "/pages/post-detail.html"
+    },
+    "user-public": {
+      "path": "/users/:id",
+      "entryPath": "/users/demo",
+      "file": "/pages/user-public.html"
+    },
+    "notifications": {
+      "path": "/notifications",
+      "entryPath": "/notifications",
+      "file": "/pages/notifications.html"
+    },
+    "settings": {
+      "path": "/settings",
+      "entryPath": "/settings",
+      "file": "/pages/settings.html"
+    },
+    "credit": {
+      "path": "/credit",
+      "entryPath": "/credit",
+      "file": "/pages/credit.html"
+    },
+    "wallet": {
+      "path": "/wallet",
+      "entryPath": "/wallet",
+      "file": "/pages/wallet.html"
+    },
+    "wallet-freeze": {
+      "path": "/wallet/freeze",
+      "entryPath": "/wallet/freeze",
+      "file": "/pages/wallet-freeze.html"
+    },
+    "orders": {
+      "path": "/orders",
+      "entryPath": "/orders",
+      "file": "/pages/orders.html"
+    },
+    "order-detail": {
+      "path": "/orders/:id",
+      "entryPath": "/orders/demo",
+      "file": "/pages/order-detail.html"
+    },
+    "review": {
+      "path": "/reviews/new",
+      "entryPath": "/reviews/new",
+      "file": "/pages/review.html"
+    },
+    "dispute-create": {
+      "path": "/disputes/new",
+      "entryPath": "/disputes/new",
+      "file": "/pages/dispute-create.html"
+    },
+    "dispute-detail": {
+      "path": "/disputes/:id",
+      "entryPath": "/disputes/demo",
+      "file": "/pages/dispute-detail.html"
+    },
+    "jury-voting": {
+      "path": "/jury/voting",
+      "entryPath": "/jury/voting",
+      "file": "/pages/jury-voting.html"
+    },
+    "help": {
+      "path": "/help",
+      "entryPath": "/help",
+      "file": "/pages/help.html"
+    },
+    "ai-assistant": {
+      "path": "/ai/assistant",
+      "entryPath": "/ai/assistant",
+      "file": "/pages/ai-assistant.html"
+    },
+    "ai-results": {
+      "path": "/ai/results",
+      "entryPath": "/ai/results",
+      "file": "/pages/ai-results.html"
+    },
+    "admin-login": {
+      "path": "/admin/login",
+      "entryPath": "/admin/login",
+      "file": "/pages/admin-login.html"
+    },
+    "admin-dashboard": {
+      "path": "/admin/dashboard",
+      "entryPath": "/admin/dashboard",
+      "file": "/pages/admin-dashboard.html"
+    },
+    "admin-users": {
+      "path": "/admin/users",
+      "entryPath": "/admin/users",
+      "file": "/pages/admin-users.html"
+    },
+    "admin-transactions": {
+      "path": "/admin/transactions",
+      "entryPath": "/admin/transactions",
+      "file": "/pages/admin-transactions.html"
+    },
+    "admin-disputes": {
+      "path": "/admin/disputes",
+      "entryPath": "/admin/disputes",
+      "file": "/pages/admin-disputes.html"
+    },
+    "admin-dispute-final": {
+      "path": "/admin/disputes/final",
+      "entryPath": "/admin/disputes/final",
+      "file": "/pages/admin-dispute-final.html"
+    },
+    "admin-stats": {
+      "path": "/admin/stats",
+      "entryPath": "/admin/stats",
+      "file": "/pages/admin-stats.html"
+    },
+    "admin-ai-logs": {
+      "path": "/admin/ai/logs",
+      "entryPath": "/admin/ai/logs",
+      "file": "/pages/admin-ai-logs.html"
+    },
+    "admin-ai-conversations": {
+      "path": "/admin/ai/conversations",
+      "entryPath": "/admin/ai/conversations",
+      "file": "/pages/admin-ai-conversations.html"
+    },
+    "admin-ai-feedback": {
+      "path": "/admin/ai/feedback",
+      "entryPath": "/admin/ai/feedback",
+      "file": "/pages/admin-ai-feedback.html"
+    },
+    "admin-ai-errors": {
+      "path": "/admin/ai/errors",
+      "entryPath": "/admin/ai/errors",
+      "file": "/pages/admin-ai-errors.html"
+    },
+    "admin-ai-config": {
+      "path": "/admin/ai/config",
+      "entryPath": "/admin/ai/config",
+      "file": "/pages/admin-ai-config.html"
+    },
+    "admin-categories": {
+      "path": "/admin/categories",
+      "entryPath": "/admin/categories",
+      "file": "/pages/admin-categories.html"
+    },
+    "admin-sensitive-words": {
+      "path": "/admin/sensitive-words",
+      "entryPath": "/admin/sensitive-words",
+      "file": "/pages/admin-sensitive-words.html"
+    },
+    "admin-risk-content": {
+      "path": "/admin/risk-content",
+      "entryPath": "/admin/risk-content",
+      "file": "/pages/admin-risk-content.html"
+    },
+    "admin-audit-log": {
+      "path": "/admin/audit-log",
+      "entryPath": "/admin/audit-log",
+      "file": "/pages/admin-audit-log.html"
+    },
+    "admin-system": {
+      "path": "/admin/system",
+      "entryPath": "/admin/system",
+      "file": "/pages/admin-system.html"
+    }
+  }
+}

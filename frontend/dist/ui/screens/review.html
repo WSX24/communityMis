@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>评价 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  .review-header {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--surface); border-bottom: 1px solid var(--border-light);
+    padding: var(--space-lg); display: flex; align-items: center; gap: var(--space-md);
+  }
+  .review-back {
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    background: var(--border-light); display: flex; align-items: center;
+    justify-content: center; transition: background 0.15s; flex-shrink: 0;
+  }
+  .review-back:hover { background: var(--border); }
+  .review-title { flex: 1; font-family: var(--font-display); font-size: 18px; font-weight: 700; }
+
+  .review-body {
+    padding: var(--space-lg); padding-bottom: calc(var(--bottom-nav-height) + var(--space-2xl));
+    max-width: 520px; margin: 0 auto;
+  }
+  @media (min-width: 1024px) { .review-body { padding-bottom: var(--space-4xl); } }
+
+  /* Target card */
+  .target-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+    text-align: center; margin-bottom: var(--space-xl);
+  }
+  .target-card .target-label {
+    font-size: 12px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.05em; margin-bottom: var(--space-lg);
+  }
+  .target-card .target-order {
+    font-size: 13px; color: var(--muted); margin-top: var(--space-sm);
+    font-family: var(--font-mono);
+  }
+
+  /* Star rating */
+  .star-section {
+    text-align: center; margin: var(--space-2xl) 0;
+  }
+  .star-section .star-label {
+    font-size: 14px; font-weight: 600; margin-bottom: var(--space-lg);
+  }
+  .star-rating {
+    display: flex; justify-content: center; gap: 8px;
+  }
+  .star-rating button {
+    width: 48px; height: 48px; display: flex; align-items: center;
+    justify-content: center; transition: transform 0.15s, color 0.15s;
+    cursor: pointer;
+  }
+  .star-rating button svg { width: 40px; height: 40px; }
+  .star-rating button:hover { transform: scale(1.15); }
+  .star-rating button.empty svg { color: var(--border); }
+  .star-rating button.filled svg { color: var(--reward-gold); }
+  .star-rating button:active { transform: scale(0.92); }
+
+  .star-hint {
+    font-size: 15px; font-weight: 700; margin-top: var(--space-md);
+    min-height: 24px; transition: color 0.2s;
+  }
+  .star-hint.c1 { color: var(--danger); }
+  .star-hint.c2 { color: var(--warning); }
+  .star-hint.c3 { color: var(--warning); }
+  .star-hint.c4 { color: var(--success); }
+  .star-hint.c5 { color: var(--reward-gold); }
+
+  /* Review form */
+  .review-form {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+    margin: var(--space-lg) 0;
+  }
+  .review-form label {
+    display: block; font-size: 14px; font-weight: 600; margin-bottom: var(--space-md);
+  }
+  .review-form textarea {
+    width: 100%; padding: 12px 16px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); background: var(--bg);
+    font-size: 14px; line-height: 1.6; resize: vertical; min-height: 120px;
+    outline: none; transition: border-color 0.15s;
+    font-family: var(--font-body);
+  }
+  .review-form textarea:focus { border-color: var(--accent); }
+  .review-form .char-count {
+    text-align: right; font-size: 12px; color: var(--muted); margin-top: 6px;
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  }
+  .review-form .char-count.warn { color: var(--warning); }
+
+  /* Quick tags */
+  .quick-tags { margin: var(--space-lg) 0; }
+  .quick-tags .qt-label {
+    font-size: 13px; font-weight: 600; margin-bottom: var(--space-md);
+  }
+  .quick-tags .qt-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  /* Submit */
+  .submit-section { margin: var(--space-xl) 0; }
+  .submit-section .note {
+    font-size: 12px; color: var(--muted); text-align: center;
+    margin-top: var(--space-md); line-height: 1.6;
+  }
+
+  /* Success state */
+  .success-card {
+    background: var(--success-light); border-radius: var(--radius-lg);
+    padding: var(--space-3xl) var(--space-xl); text-align: center;
+    margin: var(--space-2xl) 0;
+  }
+  .success-card svg { width: 56px; height: 56px; color: var(--success); margin-bottom: var(--space-lg); }
+  .success-card h3 { font-size: 20px; font-weight: 700; margin-bottom: var(--space-sm); }
+  .success-card p { font-size: 14px; color: var(--muted); }
+
+  @media (max-width: 480px) {
+    .star-rating button { width: 40px; height: 40px; }
+    .star-rating button svg { width: 34px; height: 34px; }
+    .star-rating { gap: 4px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="review-header">
+  <button class="review-back" onclick="history.back()" aria-label="返回">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
+  <div class="review-title">发表评价</div>
+</div>
+
+<div class="review-body">
+
+  <!-- Target info -->
+  <div class="target-card">
+    <div class="target-label">评价对象</div>
+    <div class="avatar lg" style="background:oklch(50% 0.12 255);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:24px;font-weight:700;width:64px;height:64px;">刘</div>
+    <div style="font-weight:700;font-size:18px;margin-top:var(--space-sm);">用户戊</div>
+    <div style="font-size:12px;color:var(--reward-gold);margin-top:2px;">★★★★☆ 4.6</div>
+    <div class="target-order">订单 #ORD-LIVE603-042 · 帮用户乙代购日用品</div>
+  </div>
+
+  <!-- Star rating -->
+  <div class="star-section" id="star-section">
+    <div class="star-label">为这次服务打分</div>
+    <div class="star-rating" id="star-rating">
+      <button class="empty" data-star="1"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>
+      <button class="empty" data-star="2"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>
+      <button class="empty" data-star="3"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>
+      <button class="empty" data-star="4"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>
+      <button class="empty" data-star="5"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>
+    </div>
+    <div class="star-hint" id="star-hint">&nbsp;</div>
+  </div>
+
+  <!-- Quick tags -->
+  <div class="quick-tags">
+    <div class="qt-label">快捷标签（可选）</div>
+    <div class="qt-grid" id="qt-grid">
+      <button class="chip" data-tag="热心肠">热心肠</button>
+      <button class="chip" data-tag="响应快">响应快</button>
+      <button class="chip" data-tag="细致周到">细致周到</button>
+      <button class="chip" data-tag="准时">准时</button>
+      <button class="chip" data-tag="技术过硬">技术过硬</button>
+      <button class="chip" data-tag="沟通愉快">沟通愉快</button>
+      <button class="chip" data-tag="超出预期">超出预期</button>
+      <button class="chip" data-tag="耐心">耐心</button>
+    </div>
+  </div>
+
+  <!-- Review form -->
+  <div class="review-form">
+    <label for="review-text">文字评价</label>
+    <textarea id="review-text" placeholder="写下你的评价，帮助其他邻居了解这次服务体验…" maxlength="500"></textarea>
+    <div class="char-count" id="char-count">0 / 500</div>
+  </div>
+
+  <!-- Submit -->
+  <div class="submit-section">
+    <button class="btn btn--primary btn--lg btn--full" id="submit-btn" disabled>提交评价</button>
+    <p class="note">评价提交后不可修改。双方互评后才能看到对方的评价内容。</p>
+  </div>
+</div>
+
+<script>
+  var rating = 0;
+  var selectedTags = [];
+
+  // Star hover and click
+  document.querySelectorAll('#star-rating button').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      rating = parseInt(this.dataset.star);
+      updateStars();
+    });
+    btn.addEventListener('mouseenter', function() {
+      var s = parseInt(this.dataset.star);
+      document.querySelectorAll('#star-rating button').forEach(function(b, i) {
+        b.className = (i < s) ? 'filled' : 'empty';
+      });
+    });
+  });
+
+  document.getElementById('star-rating').addEventListener('mouseleave', function() {
+    updateStars();
+  });
+
+  function updateStars() {
+    var hints = ['', '非常不满意', '比较不满意', '一般', '满意', '非常满意'];
+    var colors = ['', 'c1', 'c2', 'c3', 'c4', 'c5'];
+    document.querySelectorAll('#star-rating button').forEach(function(b, i) {
+      b.className = (i < rating) ? 'filled' : 'empty';
+    });
+    var hint = document.getElementById('star-hint');
+    if (rating > 0) {
+      hint.textContent = rating + ' 星 · ' + hints[rating];
+      hint.className = 'star-hint ' + colors[rating];
+    } else {
+      hint.textContent = ' ';
+      hint.className = 'star-hint';
+    }
+    checkSubmit();
+  }
+
+  // Quick tags
+  document.querySelectorAll('#qt-grid .chip').forEach(function(chip) {
+    chip.addEventListener('click', function() {
+      var tag = this.dataset.tag;
+      if (this.classList.contains('active')) {
+        this.classList.remove('active');
+        selectedTags = selectedTags.filter(function(t) { return t !== tag; });
+      } else {
+        this.classList.add('active');
+        selectedTags.push(tag);
+      }
+    });
+  });
+
+  // Character count
+  var textarea = document.getElementById('review-text');
+  textarea.addEventListener('input', function() {
+    var len = this.value.length;
+    var countEl = document.getElementById('char-count');
+    countEl.textContent = len + ' / 500';
+    countEl.className = 'char-count' + (len > 450 ? ' warn' : '');
+    checkSubmit();
+  });
+
+  function checkSubmit() {
+    var btn = document.getElementById('submit-btn');
+    btn.disabled = !(rating > 0 && textarea.value.trim().length >= 5);
+    btn.style.opacity = (rating > 0 && textarea.value.trim().length >= 5) ? '1' : '0.45';
+  }
+
+  // Submit
+  document.getElementById('submit-btn').addEventListener('click', function() {
+    if (rating === 0 || textarea.value.trim().length < 5) return;
+    this.textContent = '提交中…';
+    this.disabled = true;
+
+    setTimeout(function() {
+      var body = document.querySelector('.review-body');
+      body.innerHTML = '<div class="success-card">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' +
+        '<h3>评价提交成功！</h3>' +
+        '<p>你对用户戊的服务给出了 ' + rating + ' 星评价。<br>对方评价后你将看到完整互评结果。</p>' +
+        '<div style="margin-top:var(--space-xl);">' +
+          '<button class="btn btn--primary" onclick="location.href=\'orders.html\'">返回我的订单</button>' +
+        '</div>' +
+      '</div>';
+    }, 600);
+  });
+</script>
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav">
+  <a href="feed.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    首页
+  </a>
+  <a href="tasks.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    任务
+  </a>
+  <a href="post.html" class="publish-btn" aria-label="发布">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </a>
+  <a href="messages.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    消息
+  </a>
+  <a href="profile.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    我的
+  </a>
+</nav>
+
+<script src="/assets/app/jury-nav.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,15 @@
+@import url("/css/tokens.9237d5c336cf.css");
+
+:root {
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --motion-slow: 300ms;
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --breakpoint-mobile: 390px;
+  --breakpoint-tablet: 820px;
+  --breakpoint-desktop: 1440px;
+
+  --page-gutter: clamp(var(--space-lg), 3vw, var(--space-3xl));
+  --focus-ring: 0 0 0 3px var(--accent-subtle);
+}

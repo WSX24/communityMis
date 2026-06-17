@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh-CN" data-auth-state="checking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>用户管理 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.3cf7927f18de.css">
+<style>
+  .admin-page {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: 100dvh;
+  }
+  @media (max-width: 860px) {
+    .admin-page { grid-template-columns: 1fr; }
+    .admin-sidebar { display: none; }
+  }
+
+  .admin-sidebar {
+    background: var(--fg); color: oklch(92% 0.004 85);
+    padding: var(--space-2xl) var(--space-lg); display: flex;
+    flex-direction: column; gap: var(--space-3xl);
+    position: sticky; top: 0; height: 100dvh;
+  }
+  .admin-sidebar .sb-brand {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    color: #fff; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .admin-sidebar .shield {
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    background: var(--accent); display: flex; align-items: center;
+    justify-content: center; font-size: 14px;
+  }
+  .admin-sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+  .admin-sidebar nav a {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: oklch(72% 0.005 85);
+    transition: all 0.15s;
+  }
+  .admin-sidebar nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .admin-sidebar nav a.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 600; }
+  .admin-sidebar nav a svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .admin-sidebar .sb-footer { margin-top: auto; }
+  .admin-sidebar .sb-back {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 13px; color: oklch(62% 0.005 85); transition: all 0.15s;
+  }
+  .admin-sidebar .sb-back:hover { background: rgba(255,255,255,0.06); color: #fff; }
+
+  .admin-main {
+    padding: var(--space-3xl); max-width: 1200px;
+  }
+  @media (max-width: 860px) {
+    .admin-main { padding: var(--space-lg); padding-bottom: calc(var(--bottom-nav-height) + var(--space-2xl)); }
+  }
+
+  /* Header + search */
+  .au-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-2xl); flex-wrap: wrap; gap: var(--space-lg);
+  }
+  .au-header h2 {
+    font-family: var(--font-display); font-size: 26px; font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .au-search-row {
+    display: flex; gap: var(--space-md); flex-wrap: wrap;
+    margin-bottom: var(--space-xl); align-items: center;
+  }
+  .au-search {
+    flex: 1; min-width: 200px;
+    display: flex; align-items: center; gap: var(--space-sm);
+    background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: var(--radius-md); padding: 10px 16px;
+    transition: border-color 0.15s;
+  }
+  .au-search:focus-within { border-color: var(--accent); }
+  .au-search input {
+    flex: 1; border: none; outline: none; font-size: 14px; background: transparent;
+  }
+  .au-search svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+  .au-filter-group { display: flex; gap: var(--space-sm); flex-wrap: wrap; }
+
+  /* Table */
+  .au-table-wrap {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); overflow-x: auto;
+    margin-bottom: var(--space-xl);
+  }
+  .au-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .au-table th {
+    text-align: left; padding: 14px var(--space-xl); font-size: 12px;
+    font-weight: 600; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.04em; border-bottom: 1px solid var(--border-light);
+    background: var(--bg); white-space: nowrap;
+  }
+  .au-table td {
+    padding: 14px var(--space-xl); border-bottom: 1px solid var(--border-light);
+    vertical-align: middle; white-space: nowrap;
+  }
+  .au-table tr:last-child td { border-bottom: none; }
+  .au-table tr:hover td { background: oklch(97% 0.005 85 / 0.5); }
+  .au-table .user-cell {
+    display: flex; align-items: center; gap: var(--space-md);
+  }
+  .au-table .user-avatar {
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; color: #fff; flex-shrink: 0;
+  }
+  .au-table .user-name { font-weight: 600; }
+  .au-table .user-id { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+
+  /* Credit bar */
+  .credit-bar {
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .credit-bar .bar-track {
+    width: 60px; height: 6px; border-radius: 3px;
+    background: var(--border-light); overflow: hidden;
+  }
+  .credit-bar .bar-fill { height: 100%; border-radius: 3px; }
+  .credit-bar .bar-fill.high { background: var(--success); }
+  .credit-bar .bar-fill.mid { background: var(--warning); }
+  .credit-bar .bar-fill.low { background: var(--danger); }
+
+  /* Toggle switch */
+  .toggle-switch {
+    position: relative; width: 44px; height: 24px; cursor: pointer;
+  }
+  .toggle-switch input { display: none; }
+  .toggle-switch .slider {
+    position: absolute; inset: 0; border-radius: var(--radius-full);
+    background: var(--border); transition: background 0.2s;
+  }
+  .toggle-switch .slider::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 20px; height: 20px; border-radius: var(--radius-full);
+    background: #fff; transition: transform 0.2s; box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+  }
+  .toggle-switch input:checked + .slider { background: var(--success); }
+  .toggle-switch input:checked + .slider::after { transform: translateX(20px); }
+
+  /* Status pill */
+  .status-pill {
+    display: inline-flex; padding: 4px 12px; border-radius: var(--radius-full);
+    font-size: 12px; font-weight: 600;
+  }
+  .status-pill.active { background: var(--success-light); color: var(--success); }
+  .status-pill.disabled { background: var(--danger-light); color: var(--danger); }
+  .status-pill.restricted { background: var(--warning-light); color: var(--warning); }
+
+  /* Action buttons */
+  .action-row { display: flex; gap: var(--space-sm); }
+  .action-btn {
+    padding: 5px 12px; border-radius: var(--radius-sm); font-size: 12px;
+    font-weight: 500; cursor: pointer; transition: all 0.15s;
+    border: 1px solid var(--border-light); background: var(--surface); color: var(--muted);
+  }
+  .action-btn:hover { border-color: var(--accent-light); color: var(--accent); }
+  .action-btn.danger:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-light); }
+
+  /* Pagination */
+  .au-pagination {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: var(--space-md);
+  }
+  .au-page-info { font-size: 13px; color: var(--muted); }
+  .au-page-btns { display: flex; gap: 4px; }
+  .au-page-btn {
+    width: 32px; height: 32px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 500; border: 1px solid var(--border-light);
+    background: var(--surface); color: var(--fg); transition: all 0.15s; cursor: pointer;
+  }
+  .au-page-btn:hover { border-color: var(--accent-light); }
+  .au-page-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .au-page-btn.disabled { opacity: 0.35; pointer-events: none; }
+</style>
+<style>
+html[data-auth-state="checking"] body>*{visibility:hidden}
+html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9998;background:var(--bg,#f8f9fa)}
+html[data-auth-state="checking"] body::before{content:"加载中...";position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--fg-secondary,#888);font-family:system-ui,sans-serif}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="admin-users" data-route-title="用户管理" data-route-source="screens/admin-users.html" data-route-path="/admin/users" data-route-current-path="/admin/users" data-route-surface="admin" data-route-layout="adminShell">
+
+<div class="admin-page">
+
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="/admin/dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="/admin/users" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="/admin/disputes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理<span style="margin-left:auto;background:var(--danger);color:#fff;font-size:11px;padding:2px 7px;border-radius:var(--radius-full);">1</span></a>
+      <a href="/admin/ai/logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="/admin/ai/config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      	      <a href="/admin/categories"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>标签/类别</a>
+	      <a href="/admin/sensitive-words"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+	      <a href="/admin/stats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+	      <a href="/admin/audit-log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="/feed">← 返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <div class="au-header">
+      <h2>用户管理</h2>
+    </div>
+
+    <div class="au-search-row">
+      <div class="au-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" placeholder="搜索用户名、手机号、用户ID..." id="userSearch">
+      </div>
+      <div class="au-filter-group">
+        <button class="chip active">全部</button>
+        <button class="chip">正常</button>
+        <button class="chip">已禁用</button>
+        <button class="chip">受限</button>
+        <button class="chip">低信用 (&lt;2.5)</button>
+      </div>
+    </div>
+
+    <div class="au-table-wrap">
+      <table class="au-table">
+        <thead>
+          <tr>
+            <th>用户信息</th>
+            <th>角色</th>
+            <th>信用分</th>
+            <th>时间币</th>
+            <th>接单数</th>
+            <th>注册时间</th>
+            <th>状态</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="userTableBody">
+<tr data-runtime-placeholder><td colspan="7">正在加载真实用户数据。</td></tr>
+</tbody>
+      </table>
+    </div>
+
+    <div class="au-pagination">
+      <div class="au-page-info">共 1,248 条，显示第 1-10 条</div>
+      <div class="au-page-btns">
+        <button class="au-page-btn disabled">←</button>
+        <button class="au-page-btn active">1</button>
+        <button class="au-page-btn">2</button>
+        <button class="au-page-btn">3</button>
+        <button class="au-page-btn">...</button>
+        <button class="au-page-btn">125</button>
+        <button class="au-page-btn">→</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+
+
+<script type="module" src="/assets/app/main.mjs?v=1781615784443"></script>
+</body>
+</html>

@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="zh-CN" data-auth-state="checking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>冻结明细 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.3cf7927f18de.css">
+<style>
+  .freeze-header {
+    background: linear-gradient(180deg, oklch(22% 0.025 80) 0%, oklch(18% 0.018 80) 100%);
+    color: oklch(100% 0 0); padding: var(--space-xl) var(--space-lg) var(--space-3xl);
+    position: relative; overflow: hidden;
+  }
+  .freeze-header::before {
+    content: ''; position: absolute; top: -70px; right: -48px;
+    width: 220px; height: 220px; border-radius: var(--radius-full);
+    background: radial-gradient(circle, oklch(60% 0.16 75 / 0.18), transparent 70%);
+  }
+  .freeze-top {
+    display: flex; align-items: center; gap: var(--space-md);
+    margin-bottom: var(--space-xl); position: relative; z-index: 1;
+  }
+  .freeze-back,
+  .freeze-help {
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    background: rgba(255,255,255,0.12); display: flex; align-items: center;
+    justify-content: center; transition: background 0.15s; flex-shrink: 0;
+  }
+  .freeze-back:hover,
+  .freeze-help:hover { background: rgba(255,255,255,0.22); }
+  .freeze-title { flex: 1; font-family: var(--font-display); font-size: 20px; font-weight: 800; }
+  .freeze-balance { text-align: center; position: relative; z-index: 1; }
+  .freeze-balance .label {
+    font-size: 12px; opacity: 0.62; letter-spacing: 0.08em;
+    text-transform: uppercase; margin-bottom: var(--space-sm);
+  }
+  .freeze-balance .amount {
+    font-family: var(--font-mono); font-size: clamp(42px, 12vw, 58px);
+    line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums;
+  }
+  .freeze-balance .sub { font-size: 13px; opacity: 0.58; margin-top: 8px; }
+  .freeze-summary {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-md);
+    margin-top: var(--space-xl); position: relative; z-index: 1;
+  }
+  .freeze-summary .mini {
+    padding: var(--space-md); border-radius: var(--radius-lg);
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.12);
+  }
+  .mini .mini-num { font-family: var(--font-mono); font-size: 18px; font-weight: 800; }
+  .mini .mini-label { font-size: 11px; opacity: 0.58; margin-top: 2px; }
+  @media (max-width: 520px) { .freeze-summary { grid-template-columns: 1fr; } }
+
+  .freeze-main {
+    max-width: 760px; margin: calc(-1 * var(--space-xl)) auto 0;
+    padding: 0 var(--space-lg) calc(var(--bottom-nav-height) + var(--space-3xl));
+    position: relative; z-index: 2;
+  }
+  @media (min-width: 1024px) { .freeze-main { padding-bottom: var(--space-4xl); } }
+
+  .filter-card,
+  .freeze-card,
+  .rule-card {
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: var(--radius-xl); box-shadow: var(--shadow-sm);
+  }
+  .filter-card { padding: var(--space-md); margin-bottom: var(--space-lg); }
+  .filter-tabs {
+    display: flex; gap: 4px; padding: 4px; background: var(--border-light);
+    border-radius: var(--radius-md); overflow-x: auto; scrollbar-width: none;
+  }
+  .filter-tabs::-webkit-scrollbar { display: none; }
+  .filter-tabs button {
+    flex: 1; min-width: max-content; padding: 9px 14px;
+    border-radius: var(--radius-sm); color: var(--muted);
+    font-size: 13px; font-weight: 700; transition: all 0.15s;
+  }
+  .filter-tabs button.active { background: var(--surface); color: var(--fg); box-shadow: var(--shadow-sm); }
+
+  .section-label {
+    font-family: var(--font-display); font-size: 18px; font-weight: 800;
+    margin: var(--space-xl) 0 var(--space-md);
+  }
+  .freeze-list { display: grid; gap: var(--space-md); }
+  .freeze-card { padding: var(--space-lg); }
+  .freeze-card.hidden { display: none; }
+  .freeze-card-top {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: var(--space-md); margin-bottom: var(--space-md);
+  }
+  .freeze-card h2 { font-size: 16px; line-height: 1.35; font-weight: 800; }
+  .freeze-id { font-family: var(--font-mono); color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .freeze-amount {
+    font-family: var(--font-mono); color: var(--warning);
+    font-size: 18px; font-weight: 900; white-space: nowrap;
+  }
+  .freeze-meta {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-sm);
+    padding: var(--space-md); border-radius: var(--radius-md);
+    background: var(--bg); margin-bottom: var(--space-md);
+  }
+  .freeze-meta dt { color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+  .freeze-meta dd { font-size: 13px; font-weight: 700; }
+  @media (max-width: 560px) { .freeze-meta { grid-template-columns: 1fr; } }
+
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px;
+    border-radius: var(--radius-full); font-size: 12px; font-weight: 800;
+  }
+  .status-active { background: var(--warning-light); color: var(--warning); }
+  .status-dispute { background: var(--danger-light); color: var(--danger); }
+  .status-released { background: var(--success-light); color: var(--success); }
+  .reason-text { color: var(--muted); font-size: 14px; line-height: 1.7; }
+  .card-actions {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: var(--space-md); margin-top: var(--space-md); flex-wrap: wrap;
+  }
+  .detail-panel {
+    display: none; margin-top: var(--space-md); padding-top: var(--space-md);
+    border-top: 1px solid var(--border-light);
+  }
+  .freeze-card.expanded .detail-panel { display: block; }
+  .timeline { list-style: none; display: grid; gap: var(--space-md); }
+  .timeline li {
+    display: grid; grid-template-columns: 16px 1fr; gap: var(--space-sm);
+    font-size: 13px; line-height: 1.5;
+  }
+  .timeline-dot {
+    width: 8px; height: 8px; border-radius: var(--radius-full);
+    background: var(--secondary); margin-top: 6px;
+  }
+  .timeline span { color: var(--muted); font-size: 12px; display: block; margin-top: 2px; }
+
+  .rule-card { padding: var(--space-lg); margin-top: var(--space-lg); }
+  .rule-card h2 { font-family: var(--font-display); font-size: 18px; font-weight: 800; margin-bottom: var(--space-md); }
+  .rule-grid { display: grid; gap: var(--space-md); }
+  .rule-item { padding: var(--space-md); border-radius: var(--radius-md); background: var(--bg); }
+  .rule-item strong { display: block; margin-bottom: 4px; }
+  .rule-item p { color: var(--muted); font-size: 13px; line-height: 1.65; }
+
+  .empty-state { display: none; }
+  .empty-state.show { display: block; }
+</style>
+<style>
+html[data-auth-state="checking"] body>*{visibility:hidden}
+html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9998;background:var(--bg,#f8f9fa)}
+html[data-auth-state="checking"] body::before{content:"加载中...";position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--fg-secondary,#888);font-family:system-ui,sans-serif}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="wallet-freeze" data-route-title="冻结明细" data-route-source="screens/wallet-freeze.html" data-route-path="/wallet/freeze" data-route-current-path="/wallet/freeze" data-route-surface="user" data-route-layout="userShell">
+
+<header class="freeze-header">
+  <div class="freeze-top">
+    <a class="freeze-back" href="/wallet" aria-label="返回钱包">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </a>
+    <div class="freeze-title">冻结明细</div>
+    <button class="freeze-help" aria-label="询问 AI" data-ai-modal-scene="rules">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33"/></svg>
+    </button>
+  </div>
+  <div class="freeze-balance">
+    <div class="label">当前冻结</div>
+    <div class="amount">⏂ 72.50</div>
+    <div class="sub">来自 3 个订单与 1 个纠纷处理</div>
+  </div>
+  <div class="freeze-summary">
+    <div class="mini"><div class="mini-num">⏂ 286.50</div><div class="mini-label">可用余额</div></div>
+    <div class="mini"><div class="mini-num">48 小时</div><div class="mini-label">最快自动释放</div></div>
+    <div class="mini"><div class="mini-num">1 笔</div><div class="mini-label">等待人工裁决</div></div>
+  </div>
+</header>
+
+<main class="freeze-main">
+  <section class="filter-card" aria-label="冻结筛选">
+    <div class="filter-tabs" id="freezeTabs">
+      <button class="active" data-filter="all">全部</button>
+      <button data-filter="active">进行中</button>
+      <button data-filter="dispute">纠纷中</button>
+      <button data-filter="released">已释放</button>
+    </div>
+  </section>
+
+  <h1 class="section-label">冻结记录</h1>
+  <section class="freeze-list" id="freezeList" aria-label="冻结记录列表">
+<div data-runtime-placeholder class="runtime-placeholder">正在加载真实冻结明细。</div>
+</section>
+
+  <div class="empty-state" id="emptyState">
+    <p>当前筛选下没有冻结记录。</p>
+  </div>
+
+  <section class="rule-card">
+    <h2>冻结规则说明</h2>
+    <div class="rule-grid">
+      <div class="rule-item">
+        <strong>为什么会冻结？</strong>
+        <p>发布任务、订单接单、纠纷处理或风控核查时，相关时间币会先冻结，避免同一笔余额被重复使用。</p>
+      </div>
+      <div class="rule-item">
+        <strong>什么时候释放？</strong>
+        <p>正常订单在双方确认完成后释放给服务方；无人接单或取消任务时退回发布者；纠纷订单以管理员终审为准。</p>
+      </div>
+      <div class="rule-item">
+        <strong>AI 能帮我处理吗？</strong>
+        <p>AI 可以解释冻结来源、整理订单摘要，但不能自动释放、退款或裁决纠纷。关键操作必须由用户或管理员确认。</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<button class="ai-fab" aria-label="AI 助手" data-ai-modal-scene="rules">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33"/></svg>
+  <span class="fab-pulse"></span>
+</button>
+
+<nav class="bottom-nav">
+  <a href="/feed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>首页</a>
+  <a href="/tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>任务</a>
+  <a href="/post" class="publish-btn" aria-label="发布"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></a>
+  <a href="/messages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>消息</a>
+  <a href="/profile" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>我的</a>
+</nav>
+
+<script src="/js/ai-modal.3985de9eb7ef.js"></script>
+
+<script type="module" src="/assets/app/main.mjs?v=1781615784412"></script>
+</body>
+</html>

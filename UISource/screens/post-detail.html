@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>帖子详情 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  .detail-header {
+    position: sticky; top: 0; z-index: 50;
+    background: oklch(97% 0.005 85 / 0.88);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    padding: var(--space-lg); display: flex; align-items: center; gap: var(--space-lg);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .detail-header .back-btn {
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .detail-header .back-btn:hover { background: var(--border-light); }
+  .detail-header h2 {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+  }
+
+  .detail-content {
+    padding: 0 var(--space-lg) calc(var(--bottom-nav-height) + var(--space-xl));
+  }
+  @media (min-width: 1024px) {
+    .detail-content { max-width: 640px; margin: 0 auto; padding-bottom: var(--space-4xl); }
+  }
+
+  /* Post header */
+  .post-detail-header {
+    padding: var(--space-lg) 0; border-bottom: 1px solid var(--border-light);
+  }
+  .post-detail-header .author-row {
+    display: flex; align-items: center; gap: var(--space-md); margin-bottom: var(--space-md);
+  }
+  .post-detail-header .author-info { flex: 1; min-width: 0; }
+  .post-detail-header .author-name { font-size: 16px; font-weight: 600; }
+  .post-detail-header .author-meta { font-size: 13px; color: var(--muted); }
+  .post-detail-header .follow-btn {
+    padding: 6px 16px; border-radius: var(--radius-full); font-size: 13px;
+    font-weight: 600; border: 1.5px solid var(--accent); color: var(--accent);
+    transition: all 0.15s;
+  }
+  .post-detail-header .follow-btn:hover { background: var(--accent-subtle); }
+
+  .post-body-text {
+    font-size: 16px; line-height: 1.75; margin-bottom: var(--space-lg);
+  }
+  .post-images-detail {
+    display: grid; gap: 6px; margin-bottom: var(--space-lg);
+    border-radius: var(--radius-md); overflow: hidden;
+  }
+  .post-images-detail.col-1 { grid-template-columns: 1fr; }
+  .post-images-detail.col-2 { grid-template-columns: 1fr 1fr; }
+  .post-images-detail.col-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .post-images-detail img {
+    width: 100%; object-fit: cover; background: var(--border-light);
+  }
+  .post-images-detail.col-1 img { max-height: 420px; object-fit: contain; }
+  .post-images-detail.col-2 img, .post-images-detail.col-3 img { aspect-ratio: 1; }
+
+  .post-stats-row {
+    display: flex; align-items: center; gap: var(--space-xl);
+    padding-bottom: var(--space-lg); border-bottom: 1px solid var(--border-light);
+    font-size: 14px; color: var(--muted);
+  }
+  .post-stats-row span { font-weight: 600; color: var(--fg); }
+
+  .post-actions-row {
+    display: flex; align-items: center; gap: 0;
+    padding: var(--space-md) 0; border-bottom: 1px solid var(--border-light);
+  }
+  .post-actions-row .action-btn {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 10px 0; font-size: 14px; color: var(--muted);
+    border-radius: var(--radius-sm); transition: all 0.15s;
+  }
+  .post-actions-row .action-btn:hover { color: var(--accent); background: var(--accent-subtle); }
+  .post-actions-row .action-btn.liked { color: var(--accent); font-weight: 600; }
+  .post-actions-row .action-btn svg { width: 20px; height: 20px; }
+
+  /* Comment section */
+  .comment-section { padding-top: var(--space-lg); }
+  .comment-section .section-header { margin-bottom: var(--space-xl); }
+  .comment-count { font-size: 13px; color: var(--muted); font-weight: 400; }
+
+  .comment-item {
+    display: flex; gap: var(--space-md); margin-bottom: var(--space-xl);
+  }
+  .comment-item .comment-body { flex: 1; min-width: 0; }
+  .comment-item .comment-author {
+    font-size: 14px; font-weight: 600; margin-bottom: 2px;
+  }
+  .comment-item .comment-text {
+    font-size: 15px; line-height: 1.6; margin-bottom: 6px;
+  }
+  .comment-item .comment-footer {
+    display: flex; align-items: center; gap: var(--space-lg);
+    font-size: 12px; color: var(--muted);
+  }
+  .comment-item .comment-footer button {
+    color: var(--muted); font-size: 12px; transition: color 0.15s;
+  }
+  .comment-item .comment-footer button:hover { color: var(--accent); }
+  .comment-item .reply-badge {
+    font-size: 12px; color: var(--accent); font-weight: 500;
+    margin-right: 2px;
+  }
+
+  /* Reply to (nested) */
+  .reply-item {
+    background: var(--bg); border-radius: var(--radius-md);
+    padding: var(--space-md); margin-top: var(--space-md);
+    margin-left: 0;
+  }
+
+  /* Comment input */
+  .comment-input-bar {
+    position: sticky; bottom: 0; z-index: 50;
+    background: var(--surface); border-top: 1px solid var(--border-light);
+    padding: var(--space-md) var(--space-lg) calc(var(--space-md) + env(safe-area-inset-bottom, 0));
+    display: flex; align-items: center; gap: var(--space-sm);
+    margin: 0 calc(-1 * var(--space-lg));
+    width: calc(100% + var(--space-lg) * 2);
+  }
+  @media (min-width: 1024px) {
+    .comment-input-bar { border-radius: var(--radius-xl) var(--radius-xl) 0 0; margin: 0; width: 100%; }
+  }
+  .comment-input-bar input {
+    flex: 1; border: 1.5px solid var(--border); border-radius: var(--radius-xl);
+    padding: 10px 16px; font-size: 14px; outline: none; background: var(--bg);
+    transition: border-color 0.15s;
+  }
+  .comment-input-bar input:focus { border-color: var(--accent); }
+  .comment-input-bar .send-icon {
+    width: 40px; height: 40px; border-radius: var(--radius-full);
+    background: var(--accent); color: #fff; display: flex;
+    align-items: center; justify-content: center; flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .comment-input-bar .send-icon:hover { background: var(--accent-hover); }
+
+  /* Toast */
+  .toast {
+    position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 200;
+    background: var(--fg); color: #fff; padding: 10px 24px;
+    border-radius: var(--radius-full); font-size: 14px; font-weight: 600;
+    box-shadow: var(--shadow-lg); opacity: 0; transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="detail-header">
+  <a href="feed.html" class="back-btn">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </a>
+  <h2>帖子详情</h2>
+</div>
+
+<div class="detail-content">
+  <!-- Author + Follow -->
+  <div class="post-detail-header">
+    <div class="author-row">
+      <a href="user-public.html" style="display:flex;align-items:center;gap:var(--space-md);min-width:0;color:inherit;text-decoration:none;">
+        <div class="avatar" style="background:oklch(65% 0.10 175);display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:700;">张</div>
+        <div class="author-info">
+          <div class="author-name">张叔的阳台菜园</div>
+          <div class="author-meta">阳光花园 6 号楼 · 3 小时前</div>
+        </div>
+      </a>
+      <button class="follow-btn">+ 关注</button>
+    </div>
+
+    <div style="margin-bottom:var(--space-md);"><span class="badge badge--success">日常分享</span></div>
+
+    <p class="post-body-text">
+      今年阳台上种的小番茄丰收了！🍅 有没有邻居想要？免费送，自己来 6 号楼 502 拿就行，先到先得～<br><br>
+      品种是千禧圣女果和罗马番茄，全程有机种植，没打过农药。个头虽然不大但特别甜，适合拌沙拉或者直接当零食吃。隔壁刘奶奶已经拿走一小筐了，还有不少呢 🌱
+    </p>
+
+    <div class="post-images-detail col-2">
+      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Crect fill='%23f0eee6' width='300' height='300'/%3E%3Ccircle cx='150' cy='130' r='60' fill='%23d97757' opacity='0.5'/%3E%3Ccircle cx='100' cy='100' r='30' fill='%23c96442' opacity='0.4'/%3E%3Ccircle cx='190' cy='120' r='35' fill='%23e8956a' opacity='0.4'/%3E%3Ctext x='150' y='240' text-anchor='middle' fill='%2387867f' font-size='14'%3E📷 阳台小番茄%3C/text%3E%3C/svg%3E" alt="">
+      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Crect fill='%23e8e6dc' width='300' height='300'/%3E%3Crect x='80' y='70' width='140' height='120' rx='12' fill='%23c96442' opacity='0.4'/%3E%3Ccircle cx='110' cy='100' r='15' fill='%23d97757'/%3E%3Ccircle cx='190' cy='100' r='15' fill='%23d97757'/%3E%3Ctext x='150' y='240' text-anchor='middle' fill='%2387867f' font-size='14'%3E📷 丰收果实%3C/text%3E%3C/svg%3E" alt="">
+    </div>
+
+    <div class="post-stats-row">
+      赞 <span>28</span> · 评论 <span>6</span> · 分享 <span>3</span>
+    </div>
+
+    <div class="post-actions-row">
+      <button class="action-btn" id="like-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/></svg>
+        赞
+      </button>
+      <button class="action-btn" id="comment-focus-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        评论
+      </button>
+      <button class="action-btn" id="share-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        分享
+      </button>
+    </div>
+  </div>
+
+  <!-- Comments -->
+  <div class="comment-section">
+    <div class="section-header">
+      <span class="section-title">全部评论 <span class="comment-count">(6)</span></span>
+      <button class="section-action" id="sort-comments">最热</button>
+    </div>
+
+    <!-- Comment 1 -->
+    <div class="comment-item">
+      <div class="avatar sm" style="background:oklch(60% 0.12 255);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;">王</div>
+      <div class="comment-body">
+        <div class="comment-author">小王在社区</div>
+        <p class="comment-text">张叔太客气了！我拿了一小篮，拌沙拉真的超级甜 🥗 比超市买的好吃多了</p>
+        <div class="comment-footer">
+          <span>2 小时前</span>
+          <button class="reply-toggle">回复</button>
+          <button class="like-comment">👍 5</button>
+        </div>
+
+        <!-- Reply nested -->
+        <div class="reply-item">
+          <div class="comment-item" style="margin-bottom:0;">
+            <div class="avatar sm" style="background:oklch(65% 0.10 175);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;">张</div>
+            <div class="comment-body">
+              <div class="comment-author"><span class="reply-badge">作者</span>张叔的阳台菜园</div>
+              <p class="comment-text">哈哈喜欢就好！吃完再来拿，后面还有一批快熟了的 😄</p>
+              <div class="comment-footer"><span>2 小时前</span><button class="like-comment">👍 2</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comment 2 -->
+    <div class="comment-item">
+      <div class="avatar sm" style="background:oklch(70% 0.08 28);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;">李</div>
+      <div class="comment-body">
+        <div class="comment-author">李阿姨</div>
+        <p class="comment-text">张老师你种的番茄真好👍 我上次拿回去的做番茄炒蛋，家里人都说好吃。能不能教教我怎么在阳台上种？</p>
+        <div class="comment-footer">
+          <span>1 小时前</span>
+          <button class="reply-toggle">回复</button>
+          <button class="like-comment">👍 3</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comment 3 -->
+    <div class="comment-item">
+      <div class="avatar sm" style="background:oklch(55% 0.14 28);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;">陈</div>
+      <div class="comment-body">
+        <div class="comment-author">陈老师教画画</div>
+        <p class="comment-text">好邻居！下次素描课中场休息的时候可以请大家吃番茄 🎨🍅</p>
+        <div class="comment-footer">
+          <span>45 分钟前</span>
+          <button class="reply-toggle">回复</button>
+          <button class="like-comment">👍 8</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comment 4 -->
+    <div class="comment-item">
+      <div class="avatar sm" style="background:oklch(60% 0.08 50);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;">刘</div>
+      <div class="comment-body">
+        <div class="comment-author">刘奶奶</div>
+        <p class="comment-text">我家孙女特别爱吃！谢谢张老师，真是好人 🙏</p>
+        <div class="comment-footer">
+          <span>30 分钟前</span>
+          <button class="reply-toggle">回复</button>
+          <button class="like-comment">👍 2</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comment 5 -->
+    <div class="comment-item">
+      <div class="avatar sm" style="background:oklch(65% 0.08 175);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;">赵</div>
+      <div class="comment-body">
+        <div class="comment-author">赵姐</div>
+        <p class="comment-text">还有吗还有吗？刚看到帖子，现在过去拿还来得及不 😂</p>
+        <div class="comment-footer">
+          <span>10 分钟前</span>
+          <button class="reply-toggle">回复</button>
+          <button class="like-comment">👍 1</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comment 6 -->
+    <div class="comment-item">
+      <div class="avatar sm" style="background:oklch(70% 0.06 175);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;">周</div>
+      <div class="comment-body">
+        <div class="comment-author">周同学</div>
+        <p class="comment-text">张叔我明天下午去拿可以吗？晚上看了帖子馋得不行 😋</p>
+        <div class="comment-footer">
+          <span>刚刚</span>
+          <button class="reply-toggle">回复</button>
+          <button class="like-comment">👍 0</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Comment input bar -->
+<div class="comment-input-bar">
+  <div class="avatar sm" style="background:oklch(60% 0.12 28);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;">我</div>
+  <input type="text" id="comment-input" placeholder="写下你的评论…">
+  <button class="send-icon" id="send-comment-btn" aria-label="发送">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
+  </button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // Like button
+  const likeBtn = document.getElementById('like-btn');
+  let liked = false;
+  let likeCount = 28;
+  likeBtn.addEventListener('click', () => {
+    liked = !liked;
+    likeBtn.classList.toggle('liked', liked);
+    const countSpan = document.querySelector('.post-stats-row span:first-of-type');
+    countSpan.textContent = liked ? likeCount + 1 : likeCount;
+    showToast(liked ? '已点赞' : '已取消点赞');
+  });
+
+  // Comment focus
+  document.getElementById('comment-focus-btn').addEventListener('click', () => {
+    document.getElementById('comment-input').focus();
+  });
+
+  // Share
+  document.getElementById('share-btn').addEventListener('click', () => {
+    showToast('链接已复制到剪贴板');
+  });
+
+  // Follow button
+  const followBtn = document.querySelector('.follow-btn');
+  let following = false;
+  followBtn.addEventListener('click', () => {
+    following = !following;
+    followBtn.textContent = following ? '已关注' : '+ 关注';
+    followBtn.style.background = following ? 'var(--accent)' : '';
+    followBtn.style.color = following ? '#fff' : '';
+    followBtn.style.borderColor = following ? 'var(--accent)' : '';
+  });
+
+  // Send comment
+  const commentInput = document.getElementById('comment-input');
+  const sendBtn = document.getElementById('send-comment-btn');
+
+  function sendComment() {
+    const text = commentInput.value.trim();
+    if (!text) return;
+    const commentSection = document.querySelector('.comment-section');
+    const now = new Date();
+    const html = `
+      <div class="comment-item" style="animation:fadeIn 0.25s ease;">
+        <div class="avatar sm" style="background:oklch(60% 0.12 28);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;">我</div>
+        <div class="comment-body">
+          <div class="comment-author">我</div>
+          <p class="comment-text">${escapeHtml(text)}</p>
+          <div class="comment-footer">
+            <span>刚刚</span>
+            <button class="reply-toggle">回复</button>
+            <button class="like-comment">👍 0</button>
+          </div>
+        </div>
+      </div>`;
+    commentSection.insertAdjacentHTML('beforeend', html);
+    commentInput.value = '';
+    // Update count
+    const countEl = document.querySelector('.comment-count');
+    const current = parseInt(countEl.textContent.match(/\d+/)[0]);
+    countEl.textContent = `(${current + 1})`;
+    showToast('评论已发布');
+  }
+
+  sendBtn.addEventListener('click', sendComment);
+  commentInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment(); }
+  });
+
+  // Reply toggles (demo — focus input)
+  document.querySelectorAll('.reply-toggle').forEach(btn => {
+    btn.addEventListener('click', function() {
+      commentInput.focus();
+      const author = this.closest('.comment-item').querySelector('.comment-author').textContent.replace('作者','').trim();
+      commentInput.placeholder = `回复 ${author}…`;
+      commentInput.dataset.replying = author;
+    });
+  });
+
+  // Like individual comments
+  document.querySelectorAll('.like-comment').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const match = this.textContent.match(/\d+/);
+      const count = match ? parseInt(match[0]) : 0;
+      this.textContent = `👍 ${count + 1}`;
+      this.style.color = 'var(--accent)';
+    });
+  });
+
+  // Sort comments toggle
+  document.getElementById('sort-comments').addEventListener('click', function() {
+    this.textContent = this.textContent === '最热' ? '最新' : '最热';
+  });
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2000);
+  }
+</script>
+<script src="/assets/app/jury-nav.js"></script>
+
+</body>
+</html>

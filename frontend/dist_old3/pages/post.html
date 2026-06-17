@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="zh-CN" data-auth-state="checking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>发布 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.7d27460f6ca5.css">
+<style>
+  .publish-header {
+    position: sticky; top: 0; z-index: 50;
+    background: oklch(97% 0.005 85 / 0.88);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    padding: var(--space-lg); display: flex; align-items: center; gap: var(--space-lg);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .publish-header .back-btn {
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .publish-header .back-btn:hover { background: var(--border-light); }
+  .publish-header h2 {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+  }
+
+  .publish-tabs {
+    display: flex; gap: 0; margin: var(--space-lg); background: var(--border-light);
+    border-radius: var(--radius-lg); padding: 4px;
+  }
+  .publish-tabs button {
+    flex: 1; padding: 12px; border-radius: var(--radius-md);
+    font-size: 15px; font-weight: 600; color: var(--muted);
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    transition: all 0.2s;
+  }
+  .publish-tabs button.active {
+    background: var(--surface); color: var(--fg);
+    box-shadow: var(--shadow-sm);
+  }
+  .publish-tabs button svg { width: 20px; height: 20px; }
+
+  .form-section {
+    padding: 0 var(--space-lg);
+  }
+  .form-group { margin-bottom: var(--space-xl); }
+  .form-group label {
+    display: block; font-size: 14px; font-weight: 600;
+    margin-bottom: var(--space-sm); color: var(--fg);
+  }
+  .form-group .helper {
+    font-size: 12px; color: var(--muted); margin-top: 4px;
+  }
+
+  /* Image upload */
+  .image-upload-area {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-sm);
+  }
+  .image-slot {
+    aspect-ratio: 1; border-radius: var(--radius-md);
+    border: 2px dashed var(--border); display: flex;
+    align-items: center; justify-content: center;
+    color: var(--muted); transition: border-color 0.15s, background 0.15s;
+    cursor: pointer;
+  }
+  .image-slot:hover { border-color: var(--accent); background: var(--accent-subtle); }
+  .image-slot svg { width: 28px; height: 28px; }
+
+  /* Reward input */
+  .reward-input-group {
+    display: flex; align-items: center; gap: 0;
+  }
+  .reward-input-group .prefix {
+    padding: 10px 14px; background: var(--border-light);
+    border: 1.5px solid var(--border); border-right: none;
+    border-radius: var(--radius-md) 0 0 var(--radius-md);
+    font-size: 18px; font-weight: 700; color: var(--reward-gold);
+  }
+  .reward-input-group .input {
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  }
+
+  /* Tag chips select */
+  .tag-grid {
+    display: flex; flex-wrap: wrap; gap: 8px;
+  }
+  .tag-chip {
+    padding: 8px 16px; border-radius: var(--radius-full);
+    border: 1.5px solid var(--border); font-size: 14px;
+    color: var(--muted); cursor: pointer; transition: all 0.15s;
+  }
+  .tag-chip:hover { border-color: var(--accent-light); }
+  .tag-chip.selected {
+    background: var(--accent-subtle); border-color: var(--accent);
+    color: var(--accent); font-weight: 600;
+  }
+
+  /* Deadline radio */
+  .deadline-options {
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .deadline-opt {
+    padding: 8px 16px; border-radius: var(--radius-full);
+    border: 1.5px solid var(--border); font-size: 14px;
+    color: var(--muted); cursor: pointer; transition: all 0.15s;
+  }
+  .deadline-opt:hover { border-color: var(--accent-light); }
+  .deadline-opt.selected {
+    background: var(--accent-subtle); border-color: var(--accent);
+    color: var(--accent); font-weight: 600;
+  }
+
+  /* Post mode */
+  .editor-toolbar {
+    display: flex; gap: 4px; padding: var(--space-sm) 0;
+    margin-bottom: var(--space-sm);
+  }
+  .tool-btn {
+    width: 36px; height: 36px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); transition: background 0.15s;
+  }
+  .tool-btn:hover { background: var(--border-light); color: var(--fg); }
+
+  .submit-bar {
+    position: sticky; bottom: 0; z-index: 50;
+    background: var(--surface); border-top: 1px solid var(--border-light);
+    padding: var(--space-md) var(--space-lg) calc(var(--space-md) + env(safe-area-inset-bottom, 0));
+  }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Publish success toast */
+  .toast {
+    position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 200;
+    background: var(--fg); color: #fff; padding: 12px 24px;
+    border-radius: var(--radius-full); font-size: 14px; font-weight: 600;
+    box-shadow: var(--shadow-lg); opacity: 0; transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+</style>
+<style>
+html[data-auth-state="checking"] body>*{visibility:hidden}
+html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9998;background:var(--bg,#f8f9fa)}
+html[data-auth-state="checking"] body::before{content:"加载中...";position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--fg-secondary,#888);font-family:system-ui,sans-serif}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="post" data-route-title="发布" data-route-source="screens/post.html" data-route-path="/post" data-route-current-path="/post" data-route-surface="user" data-route-layout="userShell">
+
+<div class="publish-header">
+  <a href="/feed" class="back-btn">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </a>
+  <h2>发布</h2>
+</div>
+
+<div class="publish-tabs">
+  <button class="active" data-tab="post">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+    发帖子
+  </button>
+  <button data-tab="task">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    发任务
+  </button>
+</div>
+
+<!-- ====== Post Form ====== -->
+<div class="tab-content active" id="tab-post">
+  <div class="form-section">
+    <div class="editor-toolbar">
+      <button class="tool-btn" title="加粗"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></svg></button>
+      <button class="tool-btn" title="图片"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></button>
+      <button class="tool-btn" title="话题"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg></button>
+      <button class="tool-btn" title="表情"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></button>
+    </div>
+
+    <div class="form-group">
+      <textarea class="input" rows="6" placeholder="分享你的日常、求助邻里、或者随便聊聊…"></textarea>
+      <div style="margin-top:var(--space-sm);display:flex;justify-content:flex-end;">
+        <button data-ai-modal-scene="publish" class="ai-assist-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          AI 帮我完善
+        </button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>添加图片</label>
+      <div class="image-upload-area">
+        <div class="image-slot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </div>
+        <div class="image-slot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </div>
+        <div class="image-slot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </div>
+      </div>
+      <p class="helper">最多 9 张，支持 jpg / png</p>
+    </div>
+
+    <div class="form-group">
+      <label>选择分类</label>
+      <div class="tag-grid" id="post-tags">
+        <span class="tag-chip" data-tag="日常分享">日常分享</span>
+        <span class="tag-chip" data-tag="求助问答">求助问答</span>
+        <span class="tag-chip" data-tag="闲置交易">闲置交易</span>
+        <span class="tag-chip" data-tag="社区活动">社区活动</span>
+        <span class="tag-chip" data-tag="宠物相关">宠物相关</span>
+        <span class="tag-chip" data-tag="美食推荐">美食推荐</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== Task Form ====== -->
+<div class="tab-content" id="tab-task">
+  <div class="form-section">
+    <div class="form-group">
+      <label>任务标题</label>
+      <input class="input" id="task-title" type="text" maxlength="100" placeholder="简明扼要描述任务，如：代取快递并送货上门">
+    </div>
+
+    <div class="form-group">
+      <label>任务描述</label>
+      <textarea class="input" id="task-description" rows="4" maxlength="2000" placeholder="详细说明任务要求、地点、注意事项等…"></textarea>
+      <div style="margin-top:var(--space-sm);display:flex;justify-content:flex-end;">
+        <button data-ai-modal-scene="publish" class="ai-assist-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          AI 帮我完善
+        </button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>预计耗时</label>
+      <div class="reward-input-group">
+        <span class="prefix" style="background:var(--secondary-light);color:var(--secondary);border-color:var(--secondary-light);">⏃</span>
+        <input class="input" id="task-hours" type="number" placeholder="预计服务耗时（小时）" min="0.5" step="0.5" style="text-align:left;">
+      </div>
+      <p class="helper">1 小时 ≈ 5 ⏂ 时间币（参考值），双方可协商调整</p>
+    </div>
+
+    <div class="form-group">
+      <label>预估时间币报酬</label>
+      <div class="reward-input-group">
+        <span class="prefix" style="background:var(--accent-subtle);color:var(--accent);border-color:var(--accent-subtle);">⏂</span>
+        <input class="input" id="task-coins" type="number" placeholder="自动计算，也可手动调整" min="1" style="text-align:left;background:var(--bg);">
+      </div>
+      <p class="helper" id="coin-estimate-hint">输入预计耗时后自动估算</p>
+    </div>
+
+    <div class="form-group">
+      <label>截止时间</label>
+      <div class="deadline-options" id="deadline-opts">
+        <span class="deadline-opt" data-deadline="1h">1 小时内</span>
+        <span class="deadline-opt" data-deadline="3h">3 小时内</span>
+        <span class="deadline-opt" data-deadline="today">今天内</span>
+        <span class="deadline-opt" data-deadline="tomorrow">明天内</span>
+        <span class="deadline-opt" data-deadline="3d">3 天内</span>
+        <span class="deadline-opt" data-deadline="custom">自定义</span>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>执行地点</label>
+      <input class="input" id="task-location" type="text" maxlength="120" placeholder="如：阳光花园小区内 / 3公里范围内">
+    </div>
+
+    <div class="form-group">
+      <label>服务类别</label>
+      <div class="tag-grid" id="task-tags">
+        <span class="tag-chip" data-tag="维修">维修</span>
+        <span class="tag-chip" data-tag="保洁">保洁</span>
+        <span class="tag-chip" data-tag="烹饪">烹饪</span>
+        <span class="tag-chip" data-tag="辅导">辅导</span>
+        <span class="tag-chip" data-tag="陪伴">陪伴</span>
+        <span class="tag-chip" data-tag="跑腿">跑腿</span>
+        <span class="tag-chip" data-tag="遛宠">遛宠</span>
+        <span class="tag-chip" data-tag="摄影">摄影</span>
+        <span class="tag-chip" data-tag="园艺">园艺</span>
+        <span class="tag-chip" data-tag="手工">手工</span>
+        <span class="tag-chip" data-tag="IT">IT</span>
+        <span class="tag-chip" data-tag="翻译">翻译</span>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="task-urgent" style="width:18px;height:18px;accent-color:var(--danger);">
+        <span style="font-weight:600;">紧急需求</span>
+        <span class="badge badge--danger" style="font-size:10px;">优先展示</span>
+      </label>
+      <p class="helper">紧急需求将在任务市场置顶展示，建议适当提高时间币报酬</p>
+    </div>
+  </div>
+</div>
+
+<!-- Submit bar -->
+<div class="submit-bar">
+  <button class="btn btn--primary btn--lg btn--full" id="submit-btn">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
+    立即发布
+  </button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/js/ai-modal.3985de9eb7ef.js"></script>
+
+<script type="module" src="/assets/app/main.mjs?v=1781616991813"></script>
+</body>
+</html>

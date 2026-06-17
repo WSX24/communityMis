@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="zh-CN" data-auth-state="checking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>个人中心 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.3cf7927f18de.css">
+<style>
+  /* ===== 个人资料头部 ===== */
+  .profile-header-bg {
+    background: linear-gradient(180deg, var(--accent-subtle) 0%, var(--bg) 60%);
+    padding: var(--space-2xl) var(--space-lg) var(--space-lg);
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .profile-header-bg::before {
+    content: '';
+    position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(circle at 50% 30%, rgba(99, 102, 241, 0.08) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .profile-header-bg .avatar-wrap {
+    position: relative; display: inline-block;
+    z-index: 1;
+  }
+  .profile-header-bg .avatar-wrap .edit-avatar {
+    position: absolute; bottom: 2px; right: 2px;
+    width: 28px; height: 28px; border-radius: var(--radius-full);
+    background: var(--surface); border: 2px solid var(--border-light);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); cursor: pointer; transition: all 0.2s;
+    box-shadow: var(--shadow-sm);
+  }
+  .profile-header-bg .avatar-wrap .edit-avatar:hover {
+    color: var(--accent);
+    transform: scale(1.1);
+    border-color: var(--accent-light);
+  }
+  .profile-header-bg .avatar-wrap .edit-avatar svg { width: 14px; height: 14px; }
+  .profile-name {
+    font-family: var(--font-display); font-size: 22px; font-weight: 700;
+    margin-top: var(--space-md); color: var(--fg);
+  }
+  .profile-bio { font-size: 14px; color: var(--muted); margin-top: 4px; }
+
+  /* 信誉徽章 */
+  .credit-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: linear-gradient(135deg, oklch(65% 0.18 82), oklch(56% 0.16 70));
+    color: #fff; padding: 5px 14px; border-radius: var(--radius-full);
+    font-size: 13px; font-weight: 700; margin-top: var(--space-sm);
+    box-shadow: 0 2px 8px rgba(217, 119, 87, 0.3);
+  }
+
+  /* ===== 统计栏 ===== */
+  .stats-row {
+    display: flex; justify-content: center; gap: var(--space-3xl);
+    padding: var(--space-lg) 0; margin: 0 var(--space-lg);
+    border-top: 1px solid var(--border-light);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .stat-item { text-align: center; cursor: pointer; transition: transform 0.2s; }
+  .stat-item:hover { transform: translateY(-2px); }
+  .stat-item .num {
+    font-family: var(--font-display); font-size: 24px; font-weight: 800;
+    font-variant-numeric: tabular-nums; color: var(--fg);
+    letter-spacing: -0.02em;
+  }
+  .stat-item .label { font-size: 12px; color: var(--muted); margin-top: 4px; font-weight: 500; }
+
+  /* ===== 标签切换 ===== */
+  .profile-tabs {
+    display: flex; gap: 0; margin: var(--space-lg); background: var(--border-light);
+    border-radius: var(--radius-md); padding: 4px;
+    position: sticky; top: 0; z-index: 40;
+  }
+  .profile-tabs button {
+    flex: 1; padding: 10px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: var(--muted);
+    transition: all 0.2s;
+    border: none; cursor: pointer; background: transparent;
+  }
+  .profile-tabs button:hover { color: var(--accent); }
+  .profile-tabs button.active {
+    background: var(--surface); color: var(--fg); font-weight: 700;
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* ===== 内容列表 ===== */
+  .content-list {
+    padding: 0 var(--space-lg) calc(var(--bottom-nav-height) + var(--space-2xl));
+    max-width: 640px; margin: 0 auto;
+  }
+
+  /* ===== 迷你卡片 ===== */
+  .mini-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1.5px solid var(--border-light); padding: var(--space-lg);
+    margin-bottom: var(--space-md);
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+  }
+  .mini-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+  .mini-card .card-top-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-sm);
+    gap: var(--space-sm);
+  }
+  .mini-card .card-title {
+    font-size: 15px; font-weight: 700; flex: 1;
+    color: var(--fg); line-height: 1.4;
+  }
+  .mini-card .card-excerpt {
+    font-size: 13px; color: var(--muted); line-height: 1.6;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; margin-bottom: var(--space-sm);
+  }
+  .mini-card .card-meta {
+    display: flex; align-items: center; gap: var(--space-lg);
+    font-size: 12px; color: var(--muted);
+  }
+  .mini-card .card-meta span {
+    display: flex; align-items: center; gap: 4px;
+  }
+  .mini-card .status-dot {
+    width: 8px; height: 8px; border-radius: var(--radius-full);
+  }
+  .status-dot.active { background: var(--success); }
+  .status-dot.done { background: var(--muted); }
+  .status-dot.pending { background: var(--warning); }
+
+  /* ===== 钱包卡片 ===== */
+  .wallet-card {
+    background: linear-gradient(135deg, var(--fg) 0%, oklch(24% 0.02 80) 100%);
+    border-radius: var(--radius-xl); padding: var(--space-xl); color: #fff;
+    margin-bottom: var(--space-2xl);
+    position: relative; overflow: hidden;
+    transition: transform 0.3s, box-shadow 0.3s;
+    cursor: pointer;
+  }
+  .wallet-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.25);
+  }
+  .wallet-card::before {
+    content: '';
+    position: absolute; top: 0; right: 0; width: 150px; height: 150px;
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .wallet-card .wallet-label {
+    font-size: 13px; opacity: 0.7; margin-bottom: 4px;
+    font-weight: 500;
+  }
+  .wallet-card .wallet-balance {
+    font-family: var(--font-mono); font-size: 36px; font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .wallet-card .wallet-actions {
+    display: flex; gap: var(--space-md); margin-top: var(--space-lg);
+  }
+  .wallet-card .wallet-btn {
+    padding: 8px 18px; border-radius: var(--radius-full);
+    background: rgba(255,255,255,0.15); color: #fff;
+    font-size: 13px; font-weight: 600; transition: all 0.2s;
+    border: none; cursor: pointer;
+  }
+  .wallet-card .wallet-btn:hover {
+    background: rgba(255,255,255,0.25);
+    transform: translateY(-1px);
+  }
+
+  /* ===== 设置列表 ===== */
+  .settings-list {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1.5px solid var(--border-light); overflow: hidden;
+  }
+  .settings-item {
+    display: flex; align-items: center; padding: var(--space-lg);
+    border-bottom: 1px solid var(--border-light);
+    cursor: pointer; transition: all 0.2s;
+    text-decoration: none; color: inherit;
+  }
+  .settings-item:last-child { border-bottom: none; }
+  .settings-item:hover {
+    background: var(--bg);
+    transform: translateX(4px);
+  }
+  .settings-item .settings-icon {
+    width: 40px; height: 40px; border-radius: var(--radius-md);
+    display: flex; align-items: center; justify-content: center;
+    margin-right: var(--space-md); flex-shrink: 0;
+    transition: transform 0.2s;
+  }
+  .settings-item:hover .settings-icon {
+    transform: scale(1.1);
+  }
+  .settings-item .settings-text { flex: 1; }
+  .settings-item .settings-text .s-title {
+    font-size: 15px; font-weight: 600; color: var(--fg);
+  }
+  .settings-item .settings-text .s-desc {
+    font-size: 12px; color: var(--muted); margin-top: 2px;
+  }
+  .settings-item .settings-right {
+    display: flex; align-items: center; gap: var(--space-sm);
+    font-size: 13px; color: var(--muted);
+  }
+  .settings-item .chevron {
+    color: var(--border);
+    transition: transform 0.2s, color 0.2s;
+  }
+  .settings-item:hover .chevron {
+    transform: translateX(2px);
+    color: var(--accent);
+  }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .divider {
+    height: 1px; background: var(--border-light); margin: 0;
+  }
+
+  /* ===== AI FAB ===== */
+  .ai-fab {
+    position: fixed; right: 20px; bottom: calc(80px + env(safe-area-inset-bottom));
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.35);
+    z-index: 90; transition: transform 0.3s, box-shadow 0.3s;
+  }
+  .ai-fab:hover {
+    transform: scale(1.1) rotate(15deg);
+    box-shadow: 0 6px 28px rgba(99, 102, 241, 0.45);
+  }
+  .ai-fab svg { width: 24px; height: 24px; }
+  .fab-pulse {
+    position: absolute; inset: -4px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    opacity: 0;
+    animation: fabPulse 2s ease-out infinite;
+  }
+  @keyframes fabPulse {
+    0% { transform: scale(1); opacity: 0.6; }
+    100% { transform: scale(1.4); opacity: 0; }
+  }
+
+  /* ===== 底部导航 ===== */
+  .bottom-nav {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: oklch(98% 0.005 85 / 0.92);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border-light);
+    display: flex; justify-content: space-around; align-items: center;
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+    z-index: 100;
+  }
+  .bottom-nav a {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    transition: color 0.2s; padding: 4px 12px; text-decoration: none;
+  }
+  .bottom-nav a svg { width: 22px; height: 22px; transition: transform 0.2s; }
+  .bottom-nav a:hover { color: var(--accent); }
+  .bottom-nav a:hover svg { transform: translateY(-2px); }
+  .bottom-nav a.active { color: var(--accent); }
+  .bottom-nav a.active svg { transform: translateY(-2px); }
+
+  .publish-btn {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff !important;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+    margin-top: -24px; transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .publish-btn:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 24px rgba(99, 102, 241, 0.45);
+  }
+  .publish-btn svg { width: 24px; height: 24px; }
+
+  /* 通用微件 */
+  .badge {
+    display: inline-flex; align-items: center;
+    padding: 3px 10px; border-radius: var(--radius-full);
+    font-size: 12px; font-weight: 600;
+  }
+  .badge--success { background: oklch(95% 0.05 145); color: oklch(45% 0.12 145); }
+  .badge--accent { background: var(--accent-subtle); color: var(--accent); }
+  .badge--warning { background: oklch(95% 0.05 85); color: oklch(55% 0.12 70); }
+
+  .reward-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    background: linear-gradient(135deg, oklch(65% 0.18 82), oklch(56% 0.16 70));
+    color: #fff; padding: 4px 12px; border-radius: var(--radius-full);
+    font-size: 15px; font-weight: 700; white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(217, 119, 87, 0.3);
+  }
+  .reward-badge.sm { font-size: 13px; padding: 3px 10px; }
+
+  .avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 14px; font-weight: 700;
+  }
+  .avatar.lg {
+    width: 80px; height: 80px; font-size: 28px;
+    border-radius: 50%;
+  }
+
+  /* 响应式 */
+  @media (max-width: 480px) {
+    .profile-header-bg { padding: var(--space-xl) var(--space-md) var(--space-md); }
+    .content-list { padding: 0 var(--space-md) calc(var(--bottom-nav-height) + var(--space-2xl)); }
+    .stats-row { gap: var(--space-2xl); }
+    .profile-tabs { margin: var(--space-md); }
+  }
+</style>
+<style>
+html[data-auth-state="checking"] body>*{visibility:hidden}
+html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9998;background:var(--bg,#f8f9fa)}
+html[data-auth-state="checking"] body::before{content:"加载中...";position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--fg-secondary,#888);font-family:system-ui,sans-serif}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="profile" data-route-title="个人中心" data-route-source="screens/profile.html" data-route-path="/profile" data-route-current-path="/profile" data-route-surface="user" data-route-layout="userShell">
+
+<!-- 个人资料头部 -->
+<div class="profile-header-bg">
+  <div class="avatar-wrap">
+    <div class="avatar lg" style="background:oklch(60% 0.12 28);">张</div>
+    <button class="edit-avatar" aria-label="编辑头像">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+    </button>
+  </div>
+  <div class="profile-name">张叔的阳台菜园</div>
+  <div class="profile-bio">阳光花园 6 号楼 · 退休教师 · 爱种菜爱分享 🌱</div>
+  <div class="credit-badge">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+    信誉 4.9
+  </div>
+</div>
+
+<!-- 统计栏 -->
+<div class="stats-row">
+  <div class="stat-item">
+    <div class="num">23</div>
+    <div class="label">帖子</div>
+  </div>
+  <div class="stat-item">
+    <div class="num">8</div>
+    <div class="label">发布的任务</div>
+  </div>
+  <div class="stat-item">
+    <div class="num">15</div>
+    <div class="label">完成的接单</div>
+  </div>
+</div>
+
+<!-- 标签切换 -->
+<div class="profile-tabs" id="profile-tabs">
+  <button class="active" data-panel="myposts">我的帖子</button>
+  <button data-panel="mytasks">我的任务</button>
+  <button data-panel="accepted">接单记录</button>
+</div>
+
+<!-- 内容列表 -->
+<div class="content-list">
+  <!-- 我的帖子 -->
+  <div class="tab-panel active" id="panel-myposts">
+<div data-runtime-placeholder class="runtime-placeholder">正在加载真实帖子。</div>
+</div>
+
+  <!-- 我的任务 -->
+  <div class="tab-panel" id="panel-mytasks">
+<div data-runtime-placeholder class="runtime-placeholder">正在加载真实任务。</div>
+</div>
+
+  <!-- 接单记录 -->
+  <div class="tab-panel" id="panel-accepted">
+<div data-runtime-placeholder class="runtime-placeholder">正在加载真实接单记录。</div>
+</div>
+
+  <!-- 钱包 -->
+  <div class="wallet-card">
+    <div class="wallet-label">我的钱包</div>
+    <div class="wallet-balance">⏂ 286.50</div>
+    <div class="wallet-actions">
+      <button class="wallet-btn">查看钱包</button>
+    </div>
+  </div>
+
+  <!-- 设置 -->
+  <div class="settings-list">
+    <a href="/settings" class="settings-item">
+      <div class="settings-icon" style="background:var(--accent-subtle);color:var(--accent);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      </div>
+      <div class="settings-text">
+        <div class="s-title">编辑资料</div>
+        <div class="s-desc">修改头像、昵称、个人简介</div>
+      </div>
+      <div class="settings-right">
+        <svg class="chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </a>
+    <a href="/orders" class="settings-item">
+      <div class="settings-icon" style="background:var(--secondary-light);color:var(--secondary);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+      </div>
+      <div class="settings-text">
+        <div class="s-title">我的订单</div>
+        <div class="s-desc">发布和接单的全部记录</div>
+      </div>
+      <div class="settings-right">
+        <svg class="chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </a>
+    <a href="/credit" class="settings-item">
+      <div class="settings-icon" style="background:oklch(94% 0.04 82);color:var(--reward-gold);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      </div>
+      <div class="settings-text">
+        <div class="s-title">信用详情</div>
+        <div class="s-desc">评分分布、评价记录和信誉等级</div>
+      </div>
+      <div class="settings-right">
+        <svg class="chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </a>
+    <a href="/disputes/demo?id=DSP-240528-003" class="settings-item">
+      <div class="settings-icon" style="background:var(--danger-light);color:var(--danger);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      </div>
+      <div class="settings-text">
+        <div class="s-title">我的纠纷</div>
+        <div class="s-desc">申诉和陪审投票记录</div>
+      </div>
+      <div class="settings-right">
+        <span class="badge badge--warning" style="font-size:11px;">1 进行中</span>
+        <svg class="chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </a>
+    <div class="settings-item">
+      <div class="settings-icon" style="background:var(--warning-light);color:var(--warning);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      </div>
+      <div class="settings-text">
+        <div class="s-title">我的收藏</div>
+        <div class="s-desc">收藏的帖子和常用任务模板</div>
+      </div>
+      <div class="settings-right">
+        <svg class="chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+    <a href="/settings" class="settings-item">
+      <div class="settings-icon" style="background:var(--border-light);color:var(--muted);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </div>
+      <div class="settings-text">
+        <div class="s-title">设置</div>
+        <div class="s-desc">通知、隐私、通用偏好</div>
+      </div>
+      <div class="settings-right">
+        <svg class="chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </a>
+    <div class="divider"></div>
+    <a href="/admin/login" class="settings-item">
+      <div class="settings-icon" style="background:var(--fg);color:var(--accent-light);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </div>
+      <div class="settings-text">
+        <div class="s-title">管理后台</div>
+        <div class="s-desc">用户管理、争议处理、平台统计</div>
+      </div>
+      <div class="settings-right">
+        <svg class="chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </a>
+    <button class="settings-item" id="logout-button" type="button">
+      <div class="settings-icon" style="background:var(--danger-light);color:var(--danger);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </div>
+      <div class="settings-text">
+        <div class="s-title">退出登录</div>
+        <div class="s-desc">清除当前浏览器登录态</div>
+      </div>
+      <div class="settings-right">
+        <svg class="chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </button>
+  </div>
+</div>
+
+<!-- AI FAB -->
+<button class="ai-fab" aria-label="AI 助手" data-ai-modal-scene="all">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  <span class="fab-pulse"></span>
+</button>
+
+<!-- 底部导航 -->
+<nav class="bottom-nav">
+  <a href="/feed">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    首页
+  </a>
+  <a href="/tasks">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    任务
+  </a>
+  <a href="/post" class="publish-btn" aria-label="发布">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </a>
+  <a href="/messages">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    消息
+  </a>
+  <a href="/profile" class="active">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    我的
+  </a>
+</nav>
+
+<script src="/js/ai-modal.3985de9eb7ef.js"></script>
+
+<script type="module" src="/assets/app/main.mjs?v=1781616460955"></script>
+</body>
+</html>

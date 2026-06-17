@@ -1,0 +1,8 @@
+{
+  "apiBaseUrl": "${API_BASE_URL}",
+  "appEnv": "${APP_ENV}",
+  "buildVersion": "${BUILD_VERSION}",
+  "sentryDsn": "${SENTRY_DSN}",
+  "sentryTracesSampleRate": "${SENTRY_TRACES_SAMPLE_RATE}",
+  "sentryIngestOrigin": "${SENTRY_INGEST_ORIGIN}"
+}

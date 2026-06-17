@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="zh-CN" data-auth-state="checking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>交易流水 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.7d27460f6ca5.css">
+<style>
+  .admin-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100dvh; }
+  @media (max-width: 860px) {
+    .admin-page { grid-template-columns: 1fr; }
+    .admin-sidebar { display: none; }
+  }
+
+  .admin-sidebar {
+    background: var(--fg); color: oklch(92% 0.004 85);
+    padding: var(--space-2xl) var(--space-lg); display: flex;
+    flex-direction: column; gap: var(--space-3xl);
+    position: sticky; top: 0; height: 100dvh;
+  }
+  .admin-sidebar .sb-brand {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    color: oklch(100% 0 0); letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .admin-sidebar .shield {
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    background: var(--accent); display: flex; align-items: center;
+    justify-content: center; font-size: 14px;
+  }
+  .admin-sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+  .admin-sidebar nav a {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: oklch(72% 0.005 85);
+    transition: all 0.15s;
+  }
+  .admin-sidebar nav a:hover { background: oklch(100% 0 0 / 0.08); color: oklch(100% 0 0); }
+  .admin-sidebar nav a.active { background: oklch(100% 0 0 / 0.12); color: oklch(100% 0 0); font-weight: 600; }
+  .admin-sidebar nav a svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .admin-sidebar .sb-footer { margin-top: auto; }
+  .admin-sidebar .sb-back {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 13px; color: oklch(62% 0.005 85); transition: all 0.15s;
+  }
+  .admin-sidebar .sb-back:hover { background: oklch(100% 0 0 / 0.06); color: oklch(100% 0 0); }
+
+  .admin-main { padding: var(--space-3xl); max-width: 1240px; }
+  @media (max-width: 860px) { .admin-main { padding: var(--space-lg); } }
+
+  .page-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: var(--space-lg); margin-bottom: var(--space-2xl); flex-wrap: wrap;
+  }
+  .page-head h1 {
+    font-family: var(--font-display); font-size: 28px; line-height: 1.2;
+    font-weight: 800; letter-spacing: -0.02em; margin-bottom: 4px;
+  }
+  .page-head p { color: var(--muted); font-size: 14px; line-height: 1.6; }
+  .head-actions { display: flex; gap: var(--space-sm); flex-wrap: wrap; }
+
+  .kpi-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: var(--space-lg); margin-bottom: var(--space-xl);
+  }
+  .kpi-card {
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg); padding: var(--space-xl);
+  }
+  .kpi-value {
+    font-family: var(--font-mono); font-size: 28px; font-weight: 800;
+    letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
+  }
+  .kpi-label { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .kpi-sub { font-size: 12px; margin-top: var(--space-sm); color: var(--muted); }
+  .kpi-sub.good { color: var(--success); }
+  .kpi-sub.warn { color: var(--warning); }
+  .kpi-sub.bad { color: var(--danger); }
+
+  .ops-layout {
+    display: grid; grid-template-columns: minmax(0, 1fr) 320px;
+    gap: var(--space-xl); align-items: start;
+  }
+  .ops-layout > section { min-width: 0; }
+  @media (max-width: 1120px) { .ops-layout { grid-template-columns: 1fr; } }
+
+  .filter-panel,
+  .table-panel,
+  .inspector {
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);
+  }
+  .filter-panel { padding: var(--space-lg); margin-bottom: var(--space-lg); }
+  .filter-grid {
+    display: grid; grid-template-columns: minmax(220px, 1fr) 150px 150px 150px auto;
+    gap: var(--space-md); align-items: center;
+  }
+  @media (max-width: 920px) { .filter-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .filter-grid { grid-template-columns: 1fr; } }
+
+  .search-box {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); background: var(--bg);
+  }
+  .search-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
+  .search-box input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-size: 14px; }
+  .filter-select {
+    min-height: 42px; border: 1.5px solid var(--border); border-radius: var(--radius-md);
+    background: var(--surface); padding: 0 12px; font-size: 14px; outline: none;
+  }
+  .filter-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
+
+  .table-panel { overflow: hidden; min-width: 0; }
+  .table-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-md); padding: var(--space-lg) var(--space-xl);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .table-head h2 { font-family: var(--font-display); font-size: 18px; font-weight: 800; }
+  .table-count { color: var(--muted); font-size: 13px; }
+  .table-scroll { overflow-x: auto; max-width: 100%; }
+  .tx-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 940px; }
+  @media (max-width: 640px) {
+    .tx-table { min-width: 760px; }
+  }
+  .tx-table th {
+    text-align: left; padding: 12px var(--space-xl); font-size: 11px;
+    color: var(--muted); background: var(--bg); border-bottom: 1px solid var(--border-light);
+    letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap;
+  }
+  .tx-table td { padding: 13px var(--space-xl); border-bottom: 1px solid var(--border-light); vertical-align: middle; }
+  .tx-table tr:last-child td { border-bottom: none; }
+  .tx-table tbody tr { cursor: pointer; }
+  .tx-table tbody tr:hover td { background: oklch(97% 0.005 85 / 0.65); }
+  .tx-table tbody tr.selected td { background: var(--accent-subtle); }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .strong { font-weight: 700; }
+  .muted { color: var(--muted); }
+  .amount-pos { color: var(--success); font-weight: 800; }
+  .amount-neg { color: var(--accent); font-weight: 800; }
+  .amount-lock { color: var(--warning); font-weight: 800; }
+
+  .type-badge,
+  .status-badge,
+  .risk-badge {
+    display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+    border-radius: var(--radius-full); font-size: 12px; font-weight: 700;
+  }
+  .type-badge { padding: 4px 10px; background: var(--border-light); color: var(--muted); }
+  .type-income { background: var(--success-light); color: var(--success); }
+  .type-expense { background: var(--accent-subtle); color: var(--accent); }
+  .type-freeze { background: var(--warning-light); color: var(--warning); }
+  .type-release { background: var(--secondary-light); color: var(--secondary); }
+  .type-refund { background: var(--danger-light); color: var(--danger); }
+  .status-badge { padding: 3px 9px; background: var(--success-light); color: var(--success); }
+  .status-pending { background: var(--warning-light); color: var(--warning); }
+  .status-review { background: var(--danger-light); color: var(--danger); }
+  .risk-badge { padding: 2px 8px; }
+  .risk-low { background: var(--success-light); color: var(--success); }
+  .risk-mid { background: var(--warning-light); color: var(--warning); }
+  .risk-high { background: var(--danger-light); color: var(--danger); }
+
+  .inspector { padding: var(--space-xl); position: sticky; top: var(--space-xl); }
+  @media (max-width: 1120px) { .inspector { position: static; } }
+  .inspector h2 {
+    font-family: var(--font-display); font-size: 18px; font-weight: 800;
+    margin-bottom: var(--space-md);
+  }
+  .detail-card {
+    border: 1px solid var(--border-light); border-radius: var(--radius-md);
+    padding: var(--space-md); margin-bottom: var(--space-md); background: var(--bg);
+  }
+  .detail-row {
+    display: flex; justify-content: space-between; gap: var(--space-md);
+    padding: 8px 0; border-bottom: 1px solid var(--border-light);
+    font-size: 13px;
+  }
+  .detail-row:last-child { border-bottom: none; }
+  .detail-row dt { color: var(--muted); }
+  .detail-row dd { text-align: right; font-weight: 600; }
+  .timeline { display: grid; gap: var(--space-md); margin-top: var(--space-md); }
+  .timeline-item { display: grid; grid-template-columns: 12px 1fr; gap: var(--space-sm); font-size: 13px; }
+  .timeline-dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--secondary); margin-top: 6px; }
+  .timeline-text strong { display: block; font-size: 13px; }
+  .timeline-text span { color: var(--muted); font-size: 12px; }
+
+  .mobile-admin-top {
+    display: none; align-items: center; justify-content: space-between;
+    padding: var(--space-lg); background: var(--fg); color: oklch(100% 0 0);
+  }
+  .mobile-admin-top a { font-size: 13px; color: oklch(82% 0.004 85); }
+  @media (max-width: 860px) { .mobile-admin-top { display: flex; } }
+</style>
+<style>
+html[data-auth-state="checking"] body>*{visibility:hidden}
+html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9998;background:var(--bg,#f8f9fa)}
+html[data-auth-state="checking"] body::before{content:"加载中...";position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--fg-secondary,#888);font-family:system-ui,sans-serif}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="admin-transactions" data-route-title="交易流水" data-route-source="screens/admin-transactions.html" data-route-path="/admin/transactions" data-route-current-path="/admin/transactions" data-route-surface="admin" data-route-layout="adminShell">
+
+<div class="mobile-admin-top">
+  <strong>邻帮·管理后台</strong>
+  <a href="/admin/dashboard">返回仪表盘</a>
+</div>
+
+<div class="admin-page">
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="/admin/dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="/admin/users"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="/admin/transactions" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><path d="M7 15h3M14 15h3"/></svg>交易流水</a>
+      <a href="/admin/disputes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理</a>
+      <a href="/admin/ai/logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="/admin/ai/config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      <a href="/admin/categories"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>标签/类别</a>
+      <a href="/admin/sensitive-words"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+      <a href="/admin/stats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+      <a href="/admin/audit-log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="/feed">← 返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <div class="page-head">
+      <div>
+        <h1>交易流水</h1>
+        <p>查看全平台订单转账、冻结、释放、退款和异常交易。管理员只能查看与审计，释放与退款仍需走人工裁决流程。</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn btn--secondary btn--sm" id="exportBtn">导出 CSV</button>
+        <a class="btn btn--primary btn--sm" href="/admin/audit-log">查看审计</a>
+      </div>
+    </div>
+
+    <section class="kpi-grid" aria-label="交易概览">
+      <div class="kpi-card">
+        <div class="kpi-value">12,486</div>
+        <div class="kpi-label">累计流水记录</div>
+        <div class="kpi-sub good">本月新增 1,710 条</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">⏂ 5,620</div>
+        <div class="kpi-label">时间币流通总量</div>
+        <div class="kpi-sub good">较上月增加 8.3%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">⏂ 186.5</div>
+        <div class="kpi-label">当前冻结金额</div>
+        <div class="kpi-sub warn">13 笔等待完成或裁决</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">4</div>
+        <div class="kpi-label">异常待核查</div>
+        <div class="kpi-sub bad">含 1 笔高风险重复退款</div>
+      </div>
+    </section>
+
+    <div class="ops-layout">
+      <section>
+        <div class="filter-panel" aria-label="交易筛选">
+          <div class="filter-grid">
+            <label class="search-box">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input id="searchInput" type="search" placeholder="搜索订单号、用户、流水号">
+            </label>
+            <select class="filter-select" id="typeFilter" aria-label="流水类型">
+              <option value="">全部类型</option>
+              <option value="income">收入</option>
+              <option value="expense">支出</option>
+              <option value="freeze">冻结</option>
+              <option value="release">释放</option>
+              <option value="refund">退款</option>
+            </select>
+            <select class="filter-select" id="statusFilter" aria-label="处理状态">
+              <option value="">全部状态</option>
+              <option value="settled">已入账</option>
+              <option value="pending">处理中</option>
+              <option value="review">待核查</option>
+            </select>
+            <select class="filter-select" id="riskFilter" aria-label="风险等级">
+              <option value="">全部风险</option>
+              <option value="low">低风险</option>
+              <option value="mid">中风险</option>
+              <option value="high">高风险</option>
+            </select>
+            <button class="btn btn--secondary btn--sm" id="resetBtn">重置</button>
+          </div>
+        </div>
+
+        <div class="table-panel">
+          <div class="table-head">
+            <h2>流水列表</h2>
+            <span class="table-count" id="resultCount">显示 0 条</span>
+          </div>
+          <div class="table-scroll">
+            <table class="tx-table">
+              <thead>
+                <tr>
+                  <th>流水号</th>
+                  <th>时间</th>
+                  <th>类型</th>
+                  <th>关联订单</th>
+                  <th>用户</th>
+                  <th>金额</th>
+                  <th>状态</th>
+                  <th>风险</th>
+                </tr>
+              </thead>
+              <tbody id="transactionBody">
+<tr data-runtime-placeholder><td colspan="8">正在加载真实流水数据。</td></tr>
+</tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <aside class="inspector" aria-label="流水详情">
+        <h2>流水详情</h2>
+        <div id="inspectorBody">
+          <p class="muted" style="font-size:14px;line-height:1.7;">点击左侧任一流水记录，查看冻结来源、订单双方、审计链路和下一步处理建议。</p>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+
+<script type="module" src="/assets/app/main.mjs?v=1781616991906"></script>
+</body>
+</html>

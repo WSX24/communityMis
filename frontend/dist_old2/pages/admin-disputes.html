@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="zh-CN" data-auth-state="checking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>争议处理 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.3cf7927f18de.css">
+<style>
+  .admin-page {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: 100dvh;
+  }
+  @media (max-width: 860px) {
+    .admin-page { grid-template-columns: 1fr; }
+    .admin-sidebar { display: none; }
+  }
+
+  .admin-sidebar {
+    background: var(--fg); color: oklch(92% 0.004 85);
+    padding: var(--space-2xl) var(--space-lg); display: flex;
+    flex-direction: column; gap: var(--space-3xl);
+    position: sticky; top: 0; height: 100dvh;
+  }
+  .admin-sidebar .sb-brand {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    color: #fff; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .admin-sidebar .shield {
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    background: var(--accent); display: flex; align-items: center;
+    justify-content: center; font-size: 14px;
+  }
+  .admin-sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+  .admin-sidebar nav a {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: oklch(72% 0.005 85);
+    transition: all 0.15s;
+  }
+  .admin-sidebar nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .admin-sidebar nav a.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 600; }
+  .admin-sidebar nav a svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .admin-sidebar .sb-footer { margin-top: auto; }
+  .admin-sidebar .sb-back {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 13px; color: oklch(62% 0.005 85); transition: all 0.15s;
+  }
+  .admin-sidebar .sb-back:hover { background: rgba(255,255,255,0.06); color: #fff; }
+
+  .admin-main {
+    padding: var(--space-3xl); max-width: 1200px;
+  }
+  @media (max-width: 860px) {
+    .admin-main { padding: var(--space-lg); padding-bottom: calc(var(--bottom-nav-height) + var(--space-2xl)); }
+  }
+
+  .au-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-2xl); flex-wrap: wrap; gap: var(--space-lg);
+  }
+  .au-header h2 {
+    font-family: var(--font-display); font-size: 26px; font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  /* Tabs */
+  .ad-tabs { display: flex; gap: 4px; margin-bottom: var(--space-xl); }
+  .ad-tab {
+    padding: 8px 18px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: var(--muted); cursor: pointer;
+    transition: all 0.15s;
+  }
+  .ad-tab:hover { background: var(--border-light); }
+  .ad-tab.active { background: var(--fg); color: #fff; }
+
+  /* Dispute card */
+  .dispute-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+    margin-bottom: var(--space-lg); transition: box-shadow 0.2s;
+    cursor: pointer;
+  }
+  .dispute-card:hover { box-shadow: var(--shadow-md); }
+  .dispute-card.expanded { border-color: var(--accent-light); }
+  .dc-header {
+    display: flex; align-items: center; gap: var(--space-md);
+    margin-bottom: var(--space-md); flex-wrap: wrap;
+  }
+  .dc-id {
+    font-family: var(--font-mono); font-size: 13px; font-weight: 600;
+    padding: 4px 10px; border-radius: var(--radius-sm);
+    background: var(--border-light);
+  }
+  .dc-type {
+    font-size: 12px; font-weight: 600; padding: 3px 10px;
+    border-radius: var(--radius-full);
+  }
+  .dc-type.quality { background: var(--warning-light); color: var(--warning); }
+  .dc-type.incomplete { background: var(--danger-light); color: var(--danger); }
+  .dc-type.payment { background: var(--accent-subtle); color: var(--accent); }
+  .dc-type.other { background: var(--border-light); color: var(--muted); }
+  .dc-status {
+    margin-left: auto; font-size: 12px; font-weight: 600;
+    padding: 4px 12px; border-radius: var(--radius-full);
+  }
+  .dc-status.pending { background: var(--warning-light); color: var(--warning); }
+  .dc-status.ruled { background: var(--success-light); color: var(--success); }
+  .dc-title { font-size: 16px; font-weight: 600; margin-bottom: var(--space-sm); }
+  .dc-meta { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .dc-parties {
+    display: flex; gap: var(--space-xl); margin-top: var(--space-md); flex-wrap: wrap;
+  }
+  .dc-party { display: flex; align-items: center; gap: var(--space-sm); font-size: 13px; }
+  .dc-party .badge-label {
+    font-size: 11px; padding: 2px 8px; border-radius: var(--radius-full);
+    font-weight: 600;
+  }
+  .dc-party .badge-label.demand { background: var(--secondary-light); color: var(--secondary); }
+  .dc-party .badge-label.service { background: var(--accent-subtle); color: var(--accent); }
+
+  /* Expanded detail */
+  .dc-detail { display: none; margin-top: var(--space-xl); }
+  .dispute-card.expanded .dc-detail { display: block; }
+
+  .evidence-panels {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--space-lg); margin-bottom: var(--space-xl);
+  }
+  @media (max-width: 640px) { .evidence-panels { grid-template-columns: 1fr; } }
+  .evidence-panel {
+    background: var(--bg); border-radius: var(--radius-md);
+    border: 1px solid var(--border-light); padding: var(--space-lg);
+  }
+  .evidence-panel .ep-title {
+    font-size: 14px; font-weight: 700; margin-bottom: var(--space-md);
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .evidence-panel .ep-claim { font-size: 14px; line-height: 1.6; margin-bottom: var(--space-md); }
+  .evidence-panel .ep-files {
+    display: flex; flex-direction: column; gap: var(--space-sm);
+  }
+  .evidence-panel .ep-file {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 6px 10px; border-radius: var(--radius-sm);
+    background: var(--surface); font-size: 12px; color: var(--muted);
+    font-family: var(--font-mono);
+  }
+
+  .ai-summary-box {
+    background: oklch(96% 0.02 200); border: 1px solid var(--secondary-light);
+    border-radius: var(--radius-md); padding: var(--space-xl); margin-bottom: var(--space-xl);
+  }
+  .ai-summary-box h4 {
+    font-size: 14px; font-weight: 700; margin-bottom: var(--space-md);
+    display: flex; align-items: center; gap: var(--space-sm); color: var(--secondary);
+  }
+  .ai-summary-box .ai-id { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: auto; }
+  .ai-summary-box .as-items { display: grid; gap: var(--space-md); }
+  .ai-summary-box .as-item {
+    display: flex; gap: var(--space-md); font-size: 13px; line-height: 1.6;
+  }
+  .ai-summary-box .as-label {
+    font-weight: 600; white-space: nowrap; color: var(--fg); min-width: 56px;
+  }
+  .ai-note {
+    margin-top: var(--space-md); font-size: 11px; color: var(--muted);
+    display: flex; align-items: center; gap: 4px;
+  }
+
+  .ruling-area {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+  }
+  .ruling-area h4 { font-size: 15px; font-weight: 700; margin-bottom: var(--space-lg); }
+  .ruling-options { display: flex; gap: var(--space-md); margin-bottom: var(--space-xl); flex-wrap: wrap; }
+  .ruling-opt {
+    flex: 1; min-width: 120px; padding: var(--space-xl);
+    border-radius: var(--radius-md); border: 2px solid var(--border-light);
+    text-align: center; cursor: pointer; transition: all 0.2s;
+  }
+  .ruling-opt:hover { border-color: var(--accent-light); }
+  .ruling-opt.selected { border-color: var(--accent); background: var(--accent-subtle); }
+  .ruling-opt .ro-label { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+  .ruling-opt .ro-desc { font-size: 12px; color: var(--muted); }
+  .ruling-opt .ro-icon { font-size: 24px; margin-bottom: var(--space-sm); }
+  .ruling-textarea {
+    width: 100%; min-height: 80px; padding: 12px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); font-size: 14px; outline: none;
+    margin-bottom: var(--space-lg); resize: vertical;
+  }
+  .ruling-textarea:focus { border-color: var(--accent); }
+  .ruling-actions { display: flex; gap: var(--space-md); flex-wrap: wrap; }
+</style>
+<style>
+html[data-auth-state="checking"] body>*{visibility:hidden}
+html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9998;background:var(--bg,#f8f9fa)}
+html[data-auth-state="checking"] body::before{content:"加载中...";position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--fg-secondary,#888);font-family:system-ui,sans-serif}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="admin-disputes" data-route-title="争议处理" data-route-source="screens/admin-disputes.html" data-route-path="/admin/disputes" data-route-current-path="/admin/disputes" data-route-surface="admin" data-route-layout="adminShell">
+
+<div class="admin-page">
+
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="/admin/dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="/admin/users"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="/admin/disputes" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理<span style="margin-left:auto;background:var(--danger);color:#fff;font-size:11px;padding:2px 7px;border-radius:var(--radius-full);">1</span></a>
+      <a href="/admin/ai/logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="/admin/ai/config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+	      <a href="/admin/categories"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>标签/类别</a>
+	      <a href="/admin/sensitive-words"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+	      <a href="/admin/stats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+	      <a href="/admin/audit-log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="/feed">← 返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <div class="au-header">
+      <h2>争议处理</h2>
+    </div>
+
+    <div class="ad-tabs">
+      <button class="ad-tab active">全部争议 (3)</button>
+      <button class="ad-tab">待处理 (1)</button>
+      <button class="ad-tab">已裁决 (2)</button>
+    </div>
+
+    <div id="disputeList">
+<div data-runtime-placeholder class="runtime-placeholder">正在加载真实争议列表。</div>
+</div>
+  </main>
+</div>
+
+
+
+<script type="module" src="/assets/app/main.mjs?v=1781616461026"></script>
+</body>
+</html>

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh-CN" data-auth-state="checking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>发起纠纷 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.3cf7927f18de.css">
+<style>
+  .disp-header {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--surface); border-bottom: 1px solid var(--border-light);
+    padding: var(--space-lg); display: flex; align-items: center; gap: var(--space-md);
+  }
+  .disp-back {
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    background: var(--border-light); display: flex; align-items: center;
+    justify-content: center; transition: background 0.15s; flex-shrink: 0;
+  }
+  .disp-back:hover { background: var(--border); }
+  .disp-title { flex: 1; font-family: var(--font-display); font-size: 18px; font-weight: 700; }
+
+  .disp-body {
+    padding: var(--space-lg); padding-bottom: calc(var(--bottom-nav-height) + var(--space-2xl));
+    max-width: 580px; margin: 0 auto;
+  }
+  @media (min-width: 1024px) { .disp-body { padding-bottom: var(--space-4xl); } }
+
+  /* Warning banner */
+  .warning-banner {
+    background: var(--warning-light); border-radius: var(--radius-md);
+    padding: var(--space-lg); margin-bottom: var(--space-xl);
+    display: flex; gap: var(--space-md); align-items: flex-start;
+    border: 1px solid oklch(90% 0.04 75);
+  }
+  .warning-banner svg { width: 22px; height: 22px; color: var(--warning); flex-shrink: 0; margin-top: 1px; }
+  .warning-banner p { font-size: 13px; line-height: 1.6; color: oklch(45% 0.12 75); }
+
+  /* Order reference */
+  .order-ref {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-lg);
+    margin-bottom: var(--space-xl);
+  }
+  .order-ref .ref-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--space-sm); }
+  .order-ref .ref-id { font-family: var(--font-mono); font-size: 14px; font-weight: 700; }
+  .order-ref .ref-title { font-size: 15px; font-weight: 600; margin-top: var(--space-sm); }
+  .order-ref .ref-meta { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  /* Form section */
+  .form-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+    margin-bottom: var(--space-lg);
+  }
+  .form-card label {
+    display: block; font-size: 14px; font-weight: 600; margin-bottom: var(--space-md);
+  }
+  .form-card .field-help {
+    font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.5;
+  }
+
+  /* Dispute type selectors */
+  .dispute-types {
+    display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);
+  }
+  .dispute-type-option {
+    padding: var(--space-lg); border-radius: var(--radius-md);
+    border: 2px solid var(--border-light); cursor: pointer; transition: all 0.15s;
+    text-align: center;
+  }
+  .dispute-type-option:hover { border-color: var(--accent-light); }
+  .dispute-type-option.selected {
+    border-color: var(--accent); background: var(--accent-subtle);
+  }
+  .dispute-type-option .dt-icon {
+    font-size: 28px; margin-bottom: var(--space-sm);
+  }
+  .dispute-type-option .dt-name {
+    font-size: 14px; font-weight: 600;
+  }
+  .dispute-type-option .dt-desc {
+    font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4;
+  }
+
+  /* Evidence upload area */
+  .evidence-zone {
+    border: 2px dashed var(--border); border-radius: var(--radius-md);
+    padding: var(--space-3xl) var(--space-xl); text-align: center;
+    transition: border-color 0.15s; cursor: pointer;
+    margin-bottom: var(--space-lg);
+  }
+  .evidence-zone:hover { border-color: var(--accent-light); }
+  .evidence-zone .ez-icon {
+    width: 48px; height: 48px; border-radius: var(--radius-full);
+    background: var(--border-light); display: flex; align-items: center;
+    justify-content: center; margin: 0 auto var(--space-md);
+    color: var(--muted);
+  }
+  .evidence-zone .ez-text { font-size: 14px; color: var(--muted); }
+  .evidence-zone .ez-hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .evidence-files {
+    display: flex; flex-wrap: wrap; gap: var(--space-md); margin-bottom: var(--space-lg);
+  }
+  .ev-file {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 8px 14px; border-radius: var(--radius-md);
+    border: 1px solid var(--border); font-size: 13px; background: var(--surface);
+  }
+  .ev-file .ev-remove {
+    width: 20px; height: 20px; border-radius: var(--radius-full);
+    background: var(--danger-light); color: var(--danger); display: flex;
+    align-items: center; justify-content: center; font-size: 11px; cursor: pointer;
+  }
+
+  /* Submit */
+  .submit-section { margin: var(--space-xl) 0; }
+  .submit-section .note {
+    font-size: 12px; color: var(--muted); text-align: center;
+    margin-top: var(--space-md); line-height: 1.6;
+  }
+  @media (max-width: 480px) {
+    .dispute-types { grid-template-columns: 1fr; }
+  }
+</style>
+<style>
+html[data-auth-state="checking"] body>*{visibility:hidden}
+html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9998;background:var(--bg,#f8f9fa)}
+html[data-auth-state="checking"] body::before{content:"加载中...";position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--fg-secondary,#888);font-family:system-ui,sans-serif}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="dispute-create" data-route-title="发起纠纷" data-route-source="screens/dispute-create.html" data-route-path="/disputes/new" data-route-current-path="/disputes/new" data-route-surface="user" data-route-layout="userShell">
+
+<div class="disp-header">
+  <button class="disp-back" aria-label="返回">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
+  <div class="disp-title">发起纠纷</div>
+</div>
+
+<div class="disp-body">
+
+  <div class="warning-banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <p><strong>请先尝试与对方沟通解决。</strong>纠纷发起后将进入调解流程，由社区陪审团投票裁决。恶意发起纠纷可能影响你的信用评分。</p>
+  </div>
+
+  <!-- Order reference -->
+  <div class="order-ref">
+    <div class="ref-label">关联订单</div>
+    <div class="ref-id">#ORD-240524-032</div>
+    <div class="ref-title">辅导初三数学 2 小时</div>
+    <div class="ref-meta">对方：张姐 · 时间币 ⏂40.00 · 5月24日</div>
+  </div>
+
+  <!-- Dispute type -->
+  <div class="form-card">
+    <label>纠纷类型</label>
+    <div class="dispute-types" id="dispute-types">
+      <div class="dispute-type-option" data-type="quality">
+        <div class="dt-icon">⚠️</div>
+        <div class="dt-name">服务质量争议</div>
+        <div class="dt-desc">服务未按约定完成或质量不达标</div>
+      </div>
+      <div class="dispute-type-option" data-type="nofinish">
+        <div class="dt-icon">🚫</div>
+        <div class="dt-name">未完成服务</div>
+        <div class="dt-desc">服务方接单后未执行或中途放弃</div>
+      </div>
+      <div class="dispute-type-option" data-type="nopay">
+        <div class="dt-icon">💰</div>
+        <div class="dt-name">拒付/延迟确认</div>
+        <div class="dt-desc">需求方无理拒绝确认或延迟付款</div>
+      </div>
+      <div class="dispute-type-option" data-type="other">
+        <div class="dt-icon">📋</div>
+        <div class="dt-name">其他争议</div>
+        <div class="dt-desc">不属于以上类型的纠纷</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Evidence -->
+  <div class="form-card">
+    <label>证据材料（选填）</label>
+    <div class="evidence-files" id="evidence-files"></div>
+    <div class="evidence-zone" id="evidence-zone">
+      <div class="ez-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      </div>
+      <div class="ez-text">点击上传证据截图</div>
+      <div class="ez-hint">支持 JPG、PNG，单张不超过 5MB</div>
+    </div>
+    <div class="field-help">上传聊天记录截图、服务现场照片、交易凭证等，帮助陪审团了解情况。</div>
+  </div>
+
+  <!-- Description -->
+  <div class="form-card">
+    <label for="disp-desc">争议描述</label>
+    <textarea class="input" id="disp-desc" placeholder="请详细描述争议的经过：发生了什么、何时发生、你期望怎样的解决方案…" maxlength="1000" style="min-height:140px;"></textarea>
+    <div class="field-help" style="display:flex;justify-content:space-between;">
+      <span>请客观描述事实，不要使用攻击性语言。</span>
+      <span style="font-family:var(--font-mono);" id="desc-count">0 / 1000</span>
+    </div>
+  </div>
+
+  <!-- Submit -->
+  <div class="submit-section">
+    <button class="btn btn--lg btn--full" id="submit-btn" disabled style="background:var(--danger);color:#fff;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      提交纠纷申请
+    </button>
+    <p class="note">提交后管理员和陪审团将介入处理。纠纷处理期间该订单的双方信用将被临时冻结。</p>
+  </div>
+</div>
+
+
+
+<!-- Success card style -->
+<style>
+  .success-card {
+    background: var(--success-light); border-radius: var(--radius-lg);
+    padding: var(--space-3xl) var(--space-xl); text-align: center;
+    margin: var(--space-2xl) 0;
+  }
+  .success-card svg { width: 56px; height: 56px; margin-bottom: var(--space-lg); }
+  .success-card h3 { font-size: 20px; font-weight: 700; margin-bottom: var(--space-sm); }
+  .success-card p { font-size: 14px; color: var(--muted); }
+</style>
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav">
+  <a href="/feed">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    首页
+  </a>
+  <a href="/tasks">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    任务
+  </a>
+  <a href="/post" class="publish-btn" aria-label="发布">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </a>
+  <a href="/messages">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    消息
+  </a>
+  <a href="/profile">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    我的
+  </a>
+</nav>
+
+<script type="module" src="/assets/app/main.mjs?v=1781615784419"></script>
+</body>
+</html>

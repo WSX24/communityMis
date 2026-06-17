@@ -1,0 +1,778 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>消息 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  /* ===== 顶部导航 ===== */
+  .msgs-header {
+    position: sticky; top: 0; z-index: 101;
+    background: oklch(97% 0.005 85 / 0.88);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    padding: var(--space-lg) var(--space-lg) var(--space-md);
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .msgs-header.scrolled {
+    border-bottom-color: var(--border-light);
+    box-shadow: var(--shadow-sm);
+  }
+  .msgs-header h2 {
+    font-family: var(--font-display); font-size: 26px; font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .msgs-header h2 span { color: var(--accent); }
+
+  .icon-btn {
+    width: 40px; height: 40px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted);
+    background: transparent;
+    border: none; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .icon-btn:hover {
+    background: var(--border-light);
+    color: var(--accent);
+    transform: scale(1.05);
+  }
+
+  /* ===== 标签切换 ===== */
+  .msg-tabs {
+    display: flex; gap: 0; margin: 0 var(--space-lg) var(--space-md);
+    background: var(--border-light); border-radius: var(--radius-md); padding: 4px;
+  }
+  .msg-tabs button {
+    flex: 1; padding: 8px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: var(--muted);
+    transition: all 0.2s;
+    border: none; cursor: pointer;
+    background: transparent;
+  }
+  .msg-tabs button.active {
+    background: var(--surface); color: var(--fg); font-weight: 700;
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* ===== 内容区 ===== */
+  .msg-list {
+    padding: 0 var(--space-lg) calc(var(--bottom-nav-height) + var(--space-2xl));
+    max-width: 640px; margin: 0 auto;
+  }
+
+  /* ===== 会话项 ===== */
+  .conv-item {
+    display: flex; align-items: center; gap: var(--space-md);
+    padding: var(--space-lg) 0; border-bottom: 1px solid var(--border-light);
+    cursor: pointer; transition: all 0.2s;
+    border-radius: var(--radius-lg);
+    margin: 0 -8px; padding-left: 12px; padding-right: 12px;
+  }
+  .conv-item:hover {
+    background: var(--surface);
+    transform: translateX(4px);
+    box-shadow: var(--shadow-sm);
+  }
+  .conv-item.unread { position: relative; }
+  .conv-item.unread::before {
+    content: ''; position: absolute; left: -2px; top: 50%; transform: translateY(-50%);
+    width: 4px; height: 40px; border-radius: var(--radius-full); background: var(--accent);
+  }
+  .conv-item .conv-avatar {
+    position: relative; flex-shrink: 0;
+  }
+  .conv-item .conv-avatar .online-dot {
+    position: absolute; bottom: 1px; right: 1px;
+    width: 12px; height: 12px; border-radius: var(--radius-full);
+    background: var(--success); border: 2.5px solid var(--surface);
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+    50% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0); }
+  }
+  .conv-item .conv-body { flex: 1; min-width: 0; }
+  .conv-item .conv-top {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .conv-item .conv-name {
+    font-size: 15px; font-weight: 700; color: var(--fg);
+  }
+  .conv-item .conv-time {
+    font-size: 12px; color: var(--muted); flex-shrink: 0; font-weight: 500;
+  }
+  .conv-item .conv-preview {
+    font-size: 13px; color: var(--muted); line-height: 1.5;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .conv-item.unread .conv-preview {
+    color: var(--fg); font-weight: 600;
+  }
+  .conv-item .conv-right { text-align: right; flex-shrink: 0; }
+  .conv-item .unread-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 20px; height: 20px; padding: 0 6px;
+    border-radius: var(--radius-full); background: var(--danger);
+    color: #fff; font-size: 11px; font-weight: 700;
+    margin-top: 4px;
+    box-shadow: 0 2px 6px rgba(239, 68, 68, 0.3);
+  }
+  .conv-item .pinned-icon {
+    font-size: 12px; color: var(--accent); margin-right: 4px;
+  }
+
+  /* ===== 通知项 ===== */
+  .notif-item {
+    display: flex; gap: var(--space-md); padding: var(--space-lg);
+    border-bottom: 1px solid var(--border-light); align-items: flex-start;
+    transition: all 0.2s;
+    border-radius: var(--radius-lg);
+    margin: 0 -8px;
+  }
+  .notif-item:hover {
+    background: var(--surface);
+    transform: translateX(4px);
+    box-shadow: var(--shadow-sm);
+  }
+  .notif-item .notif-icon {
+    width: 40px; height: 40px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-top: 2px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .notif-item .notif-body { flex: 1; min-width: 0; }
+  .notif-item .notif-title {
+    font-size: 14px; line-height: 1.6; color: var(--text-secondary);
+  }
+  .notif-item .notif-title strong { font-weight: 700; color: var(--fg); }
+  .notif-item .notif-time {
+    font-size: 12px; color: var(--muted); margin-top: 4px; font-weight: 500;
+  }
+
+  /* ===== 聊天视图 ===== */
+  .chat-view { display: none; flex-direction: column; height: calc(100dvh - var(--bottom-nav-height)); }
+  .chat-view.active { display: flex; }
+
+  .chat-header {
+    position: sticky; top: 0; z-index: 101;
+    background: oklch(97% 0.005 85 / 0.88);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    padding: var(--space-lg); display: flex; align-items: center; gap: var(--space-md);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .chat-header .back-btn {
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s; flex-shrink: 0;
+    color: var(--muted); border: none; background: transparent; cursor: pointer;
+  }
+  .chat-header .back-btn:hover {
+    background: var(--border-light);
+    color: var(--accent);
+    transform: scale(1.05);
+  }
+  .chat-header .chat-partner { flex: 1; min-width: 0; }
+  .chat-header .chat-partner .name { font-size: 16px; font-weight: 700; color: var(--fg); }
+  .chat-header .chat-partner .status {
+    font-size: 12px; color: var(--success); font-weight: 500;
+  }
+
+  .chat-messages {
+    flex: 1; overflow-y: auto; padding: var(--space-lg);
+    display: flex; flex-direction: column; gap: var(--space-lg);
+    scroll-behavior: smooth;
+    max-width: 680px; margin: 0 auto; width: 100%;
+  }
+
+  .msg-bubble {
+    max-width: 75%; display: flex; flex-direction: column; gap: 4px;
+    animation: fadeInUp 0.3s ease;
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .msg-bubble.incoming { align-self: flex-start; }
+  .msg-bubble.outgoing { align-self: flex-end; align-items: flex-end; }
+  .msg-bubble .bubble-content {
+    padding: 12px 16px; border-radius: var(--radius-lg); font-size: 15px;
+    line-height: 1.55; word-break: break-word;
+  }
+  .msg-bubble.incoming .bubble-content {
+    background: var(--surface); border: 1.5px solid var(--border-light);
+    color: var(--text-secondary);
+    border-top-left-radius: 4px;
+  }
+  .msg-bubble.outgoing .bubble-content {
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff;
+    border-top-right-radius: 4px;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+  }
+  .msg-bubble .bubble-time {
+    font-size: 11px; color: var(--muted); padding: 0 4px; font-weight: 500;
+  }
+  .msg-date-divider {
+    text-align: center; font-size: 12px; color: var(--muted);
+    padding: var(--space-sm) 0; font-weight: 500;
+  }
+
+  /* 聊天输入栏 */
+  .chat-input-bar {
+    position: sticky; bottom: 0; z-index: 101;
+    background: var(--surface); border-top: 1px solid var(--border-light);
+    padding: var(--space-md) var(--space-lg) calc(var(--space-md) + env(safe-area-inset-bottom, 0));
+    display: flex; align-items: flex-end; gap: var(--space-sm);
+    max-width: 680px; margin: 0 auto; width: 100%;
+  }
+  .chat-input-bar textarea {
+    flex: 1; border: 1.5px solid var(--border); border-radius: var(--radius-xl);
+    padding: 10px 16px; font-size: 15px; line-height: 1.45; outline: none;
+    resize: none; max-height: 120px; background: var(--bg);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    font-family: inherit; color: var(--fg);
+  }
+  .chat-input-bar textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+  }
+  .chat-input-bar textarea::placeholder { color: var(--muted); }
+  .chat-input-bar .send-btn {
+    width: 44px; height: 44px; border-radius: var(--radius-full);
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff; display: flex;
+    align-items: center; justify-content: center;
+    flex-shrink: 0; transition: all 0.2s;
+    border: none; cursor: pointer;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+  }
+  .chat-input-bar .send-btn:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35);
+  }
+  .chat-input-bar .send-btn:active { transform: scale(0.94); }
+  .chat-input-bar .send-btn svg { width: 20px; height: 20px; }
+
+  /* ===== 空状态 ===== */
+  .notif-empty {
+    text-align: center; padding: var(--space-4xl) var(--space-xl); color: var(--muted);
+  }
+  .notif-empty svg { width: 56px; height: 56px; opacity: 0.25; margin-bottom: var(--space-lg); }
+
+  /* ===== 通用 ===== */
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .conv-list-view { display: block; }
+  .conv-list-view.hidden { display: none; }
+
+  .divider {
+    height: 1px; background: var(--border-light); margin: var(--space-md) var(--space-lg);
+  }
+
+  /* ===== AI FAB ===== */
+  .ai-fab {
+    position: fixed; right: 20px; bottom: calc(80px + env(safe-area-inset-bottom));
+    width: 56px; height: 56px; border-radius: 50%;
+    background: var(--ai-icon-red, #b43b38);
+    color: #fff; border: 2px solid var(--ai-icon-ring, #bdeff6); cursor: pointer;
+    box-sizing: border-box;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--ai-icon-shadow, 0 8px 22px rgba(67, 118, 128, 0.18));
+    z-index: 90; transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .ai-fab:hover {
+    transform: scale(1.06);
+    box-shadow: 0 10px 28px rgba(67, 118, 128, 0.24);
+  }
+  .ai-fab svg { width: 24px; height: 24px; }
+  .fab-pulse {
+    display: none;
+  }
+  @keyframes fabPulse {
+    0% { transform: scale(1); opacity: 0.6; }
+    100% { transform: scale(1.4); opacity: 0; }
+  }
+
+  /* ===== 底部导航 ===== */
+  .bottom-nav {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: oklch(98% 0.005 85 / 0.92);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border-light);
+    display: flex; justify-content: space-around; align-items: center;
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+    z-index: 100;
+  }
+  .bottom-nav a {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    transition: color 0.2s; padding: 4px 12px; text-decoration: none;
+  }
+  .bottom-nav a svg { width: 22px; height: 22px; transition: transform 0.2s; }
+  .bottom-nav a:hover { color: var(--accent); }
+  .bottom-nav a:hover svg { transform: translateY(-2px); }
+  .bottom-nav a.active { color: var(--accent); }
+  .bottom-nav a.active svg { transform: translateY(-2px); }
+
+  .publish-btn {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff !important;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+    margin-top: -24px; transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .publish-btn:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 24px rgba(99, 102, 241, 0.45);
+  }
+  .publish-btn svg { width: 24px; height: 24px; }
+
+  /* 响应式 */
+  @media (max-width: 480px) {
+    .msgs-header { padding: var(--space-md) var(--space-md) var(--space-sm); }
+    .msg-list { padding: 0 var(--space-md) calc(var(--bottom-nav-height) + var(--space-2xl)); }
+    .msg-tabs { margin: 0 var(--space-md) var(--space-sm); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ====== 会话列表视图 ====== -->
+<div class="conv-list-view" id="conv-list">
+  <div class="msgs-header" id="msgsHeader">
+    <h2>消息<span>中心</span></h2>
+    <button class="icon-btn" aria-label="搜索消息">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    </button>
+  </div>
+
+  <div class="msg-tabs" id="msg-tabs">
+    <button class="active" data-tab="chat">私信</button>
+    <button data-tab="system">通知</button>
+  </div>
+
+  <!-- 私信标签 -->
+  <div class="tab-content active" id="tab-chat">
+    <div class="msg-list">
+      <!-- 置顶 -->
+      <div class="conv-item unread" data-chat="李阿姨">
+        <div class="conv-avatar">
+          <div class="avatar" style="background:oklch(70% 0.08 28);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:700;">李</div>
+          <span class="online-dot"></span>
+        </div>
+        <div class="conv-body">
+          <div class="conv-top">
+            <span class="conv-name"><span class="pinned-icon">📌</span>李阿姨</span>
+            <span class="conv-time">刚刚</span>
+          </div>
+          <p class="conv-preview">好的好的，太感谢你了！我这就把取件码发给你</p>
+        </div>
+        <div class="conv-right">
+          <span class="unread-badge">3</span>
+        </div>
+      </div>
+
+      <div class="conv-item unread" data-chat="赵姐">
+        <div class="conv-avatar">
+          <div class="avatar" style="background:oklch(65% 0.08 175);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:700;">赵</div>
+        </div>
+        <div class="conv-body">
+          <div class="conv-top">
+            <span class="conv-name">赵姐</span>
+            <span class="conv-time">10分钟前</span>
+          </div>
+          <p class="conv-preview">金毛很乖的，你直接来 6 号楼 201 敲门就好，牵引绳在门口鞋柜上</p>
+        </div>
+        <div class="conv-right">
+          <span class="unread-badge">1</span>
+        </div>
+      </div>
+
+      <div class="conv-item" data-chat="王爷爷的孙子">
+        <div class="conv-avatar">
+          <div class="avatar" style="background:oklch(55% 0.10 255);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:700;">小</div>
+        </div>
+        <div class="conv-body">
+          <div class="conv-top">
+            <span class="conv-name">王爷爷的孙子</span>
+            <span class="conv-time">昨天 16:32</span>
+          </div>
+          <p class="conv-preview">血常规报告拿到了，指标都正常，我拍照发你了</p>
+        </div>
+      </div>
+
+      <div class="conv-item" data-chat="刘奶奶">
+        <div class="conv-avatar">
+          <div class="avatar" style="background:oklch(60% 0.08 50);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:700;">刘</div>
+        </div>
+        <div class="conv-body">
+          <div class="conv-top">
+            <span class="conv-name">刘奶奶</span>
+            <span class="conv-time">昨天 10:15</span>
+          </div>
+          <p class="conv-preview">小伙子你帮大忙了，东西买得很全，谢谢你啊 🙏</p>
+        </div>
+      </div>
+
+      <div class="conv-item" data-chat="陈老师教画画">
+        <div class="conv-avatar">
+          <div class="avatar" style="background:oklch(55% 0.14 28);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:700;">陈</div>
+          <span class="online-dot"></span>
+        </div>
+        <div class="conv-body">
+          <div class="conv-top">
+            <span class="conv-name">陈老师教画画</span>
+            <span class="conv-time">周三</span>
+          </div>
+          <p class="conv-preview">周六的素描课材料都备好了，你直接过来就行，不用带东西</p>
+        </div>
+      </div>
+
+      <div class="conv-item" data-chat="物业小管家">
+        <div class="conv-avatar">
+          <div class="avatar" style="background:oklch(55% 0.10 200);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:700;">物</div>
+        </div>
+        <div class="conv-body">
+          <div class="conv-top">
+            <span class="conv-name">物业小管家</span>
+            <span class="conv-time">周一</span>
+          </div>
+          <p class="conv-preview">各位邻居注意：明天上午 8:00–12:00 小区水泵检修，可能短暂停水</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通知标签 -->
+  <div class="tab-content" id="tab-system">
+    <div class="msg-list">
+      <div class="notif-item">
+        <div class="notif-icon" style="background:var(--accent-subtle);color:var(--accent);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </div>
+        <div class="notif-body">
+          <p class="notif-title"><strong>赵姐</strong> 接受了你的任务「帮忙遛狗 30 分钟」</p>
+          <p class="notif-time">10 分钟前</p>
+        </div>
+      </div>
+
+      <div class="notif-item">
+        <div class="notif-icon" style="background:var(--danger-light);color:var(--danger);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div class="notif-body">
+          <p class="notif-title"><strong>赵姐</strong> 对订单「帮忙组装书柜」发起了纠纷申诉</p>
+          <p class="notif-time">2 天前</p>
+        </div>
+      </div>
+
+      <div class="notif-item">
+        <div class="notif-icon" style="background:var(--warning-light);color:var(--warning);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
+        <div class="notif-body">
+          <p class="notif-title">管理员已对纠纷 <strong>#DSP-240528-003</strong> 作出裁决：<span style="color:var(--success);font-weight:700;">服务方胜诉</span></p>
+          <p class="notif-time">3 天前</p>
+        </div>
+      </div>
+
+      <div class="notif-item">
+        <div class="notif-icon" style="background:var(--secondary-light);color:var(--secondary);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/></svg>
+        </div>
+        <div class="notif-body">
+          <p class="notif-title"><strong>陈老师教画画</strong> 赞了你的帖子</p>
+          <p class="notif-time">1 小时前</p>
+        </div>
+      </div>
+
+      <div class="notif-item">
+        <div class="notif-icon" style="background:var(--success-light);color:var(--success);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div class="notif-body">
+          <p class="notif-title"><strong>刘奶奶</strong> 确认完成，<<span style="color:var(--success);font-weight:700;">+5.0 ⏂</span> 时间币已到账</p>
+          <p class="notif-time">昨天 16:45</p>
+        </div>
+      </div>
+
+      <div class="notif-item">
+        <div class="notif-icon" style="background:var(--danger-light);color:var(--danger);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </div>
+        <div class="notif-body">
+          <p class="notif-title">订单 #240601-B1 结算完成，<<span style="color:var(--danger);font-weight:700;">−7.5 ⏂</span> 时间币已扣除</p>
+          <p class="notif-time">昨天 16:30</p>
+        </div>
+      </div>
+
+      <div class="notif-item">
+        <div class="notif-icon" style="background:var(--warning-light);color:var(--warning);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div class="notif-body">
+          <p class="notif-title">任务「代取快递并送到 3 号楼」即将在 <strong>3 小时</strong>后截止</p>
+          <p class="notif-time">昨天 14:00</p>
+        </div>
+      </div>
+
+      <div class="notif-item">
+        <div class="notif-icon" style="background:var(--border-light);color:var(--muted);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <div class="notif-body">
+          <p class="notif-title"><strong>小王在社区</strong> 评论了你的帖子「素描兴趣小组」</p>
+          <p class="notif-time">2 天前</p>
+        </div>
+      </div>
+
+      <div class="notif-item">
+        <div class="notif-icon" style="background:linear-gradient(135deg,oklch(65% 0.18 82),oklch(56% 0.16 70));color:#fff;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </div>
+        <div class="notif-body">
+          <p class="notif-title">欢迎加入邻帮！<<span style="color:var(--reward-gold);font-weight:700;">+5.0 ⏂</span> 新用户注册奖励已到账</p>
+          <p class="notif-time">5 天前</p>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <p style="text-align:center;font-size:12px;color:var(--muted);padding:var(--space-lg);">仅显示最近 30 天通知 · <a href="notifications.html" style="color:var(--accent);font-weight:700;">查看完整通知中心</a></p>
+    </div>
+  </div>
+</div>
+
+<!-- ====== 聊天详情视图 ====== -->
+<div class="chat-view" id="chat-view">
+  <div class="chat-header">
+    <button class="back-btn" id="chat-back">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <div class="avatar sm" id="chat-avatar" style="background:oklch(70% 0.08 28);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;">李</div>
+    <div class="chat-partner">
+      <div class="name" id="chat-name">李阿姨</div>
+      <div class="status">在线</div>
+    </div>
+    <button class="icon-btn" style="width:36px;height:36px;" aria-label="更多">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+    </button>
+  </div>
+
+  <div class="chat-messages" id="chat-messages"></div>
+
+  <div class="chat-input-bar">
+    <button class="icon-btn" style="width:36px;height:36px;" aria-label="添加图片">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+    </button>
+    <textarea id="chat-input" rows="1" placeholder="输入消息…" oninput="this.style.height='';this.style.height=Math.min(this.scrollHeight,120)+'px';"></textarea>
+    <button class="send-btn" id="send-btn" aria-label="发送">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="22" y1="2" x2="11" y2="13"/><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- AI FAB -->
+<button class="ai-fab" aria-label="AI 助手" data-ai-modal-scene="all">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  <span class="fab-pulse"></span>
+</button>
+
+<!-- 底部导航 -->
+<nav class="bottom-nav">
+  <a href="feed.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    首页
+  </a>
+  <a href="tasks.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    任务
+  </a>
+  <a href="post.html" class="publish-btn" aria-label="发布">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </a>
+  <a href="messages.html" class="active">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    消息
+  </a>
+  <a href="profile.html">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    我的
+  </a>
+</nav>
+
+<script src="../js/ai-modal.js"></script>
+<script>
+  // 顶部滚动阴影
+  const header = document.getElementById('msgsHeader');
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 10) header.classList.add('scrolled');
+    else header.classList.remove('scrolled');
+  });
+
+  // 标签切换
+  document.querySelectorAll('#msg-tabs button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#msg-tabs button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('#conv-list .tab-content').forEach(tc => tc.classList.remove('active'));
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // 聊天数据
+  const chatData = {
+    '李阿姨': {
+      avatar: '李', avatarBg: 'oklch(70% 0.08 28)', online: true,
+      messages: [
+        { from: 'incoming', text: '小伙子你好！我看到你接了我的快递代取悬赏 😊', time: '14:20' },
+        { from: 'outgoing', text: '李阿姨好！对，我刚好要去菜鸟驿站取自己的快递，顺便帮您拿', time: '14:22' },
+        { from: 'incoming', text: '太好了！3 号柜，取件码是 8321 和 8322，两个包裹有点重你小心点', time: '14:23' },
+        { from: 'outgoing', text: '好的没问题，我带了推车。拿到之后送到 3 号楼 1201 对吧？', time: '14:25' },
+        { from: 'incoming', text: '对对，送到门口就行，我下午都在家', time: '14:25' },
+        { from: 'incoming', text: '好的好的，太感谢你了！我这就把取件码发给你', time: '14:26' },
+      ]
+    },
+    '赵姐': {
+      avatar: '赵', avatarBg: 'oklch(65% 0.08 175)', online: false,
+      messages: [
+        { from: 'incoming', text: '你好呀！看到你接了帮我遛金毛的任务～', time: '15:40' },
+        { from: 'outgoing', text: '赵姐好！我在小区经常遛狗，金毛是我最喜欢的品种 😄', time: '15:42' },
+        { from: 'incoming', text: '那太好啦！金毛叫豆豆，一岁半了特别亲人，就在小区里遛就行', time: '15:43' },
+        { from: 'incoming', text: '金毛很乖的，你直接来 6 号楼 201 敲门就好，牵引绳在门口鞋柜上', time: '15:44' },
+        { from: 'outgoing', text: '收到，我下午 4 点准时到！', time: '15:45' },
+      ]
+    },
+    '王爷爷的孙子': {
+      avatar: '小', avatarBg: 'oklch(55% 0.10 255)', online: false,
+      messages: [
+        { from: 'incoming', text: '你好，看到你愿意帮我去社区医院排队取报告单，非常感谢！', time: '昨天 14:00' },
+        { from: 'outgoing', text: '不用客气，我刚好离社区医院很近，具体取什么报告？', time: '昨天 14:05' },
+        { from: 'incoming', text: '血常规报告，在二楼检验科窗口，报我爷爷的名字「王德顺」就行', time: '昨天 14:08' },
+        { from: 'outgoing', text: '好的，我现在就出发，取了之后送到 8 号楼 301 对吗？', time: '昨天 14:10' },
+        { from: 'incoming', text: '对！我爷爷在家呢，你直接敲门就行。血常规报告拿到了，指标都正常，我拍照发你了', time: '昨天 16:32' },
+      ]
+    },
+    '陈老师教画画': {
+      avatar: '陈', avatarBg: 'oklch(55% 0.14 28)', online: true,
+      messages: [
+        { from: 'incoming', text: '欢迎加入素描兴趣小组！这周六下午 2:30 在社区活动室开展第二期 ✏️', time: '周三 10:00' },
+        { from: 'outgoing', text: '陈老师好！我想确认一下零基础可以参加吗？完全没画过 😅', time: '周三 10:15' },
+        { from: 'incoming', text: '当然可以！前两期都是零基础入门，材料我都备好了你直接来就行', time: '周三 10:18' },
+        { from: 'incoming', text: '周六的素描课材料都备好了，你直接过来就行，不用带东西', time: '周三 10:20' },
+        { from: 'outgoing', text: '太好了，周六一定到！', time: '周三 10:22' },
+      ]
+    },
+    '刘奶奶': {
+      avatar: '刘', avatarBg: 'oklch(60% 0.08 50)', online: false,
+      messages: [
+        { from: 'outgoing', text: '刘奶奶您好，我接了您的超市代购任务，您把购物清单发给我吧', time: '昨天 09:30' },
+        { from: 'incoming', text: '好的好的！要买洗衣液一桶（蓝月亮深层洁净）、抽纸两提（维达）、垃圾袋一卷', time: '昨天 09:35' },
+        { from: 'outgoing', text: '收到，去永辉超市买对吧？大概 1 小时内送到', time: '昨天 09:38' },
+        { from: 'incoming', text: '对对，永辉就行。麻烦你了小伙子', time: '昨天 09:40' },
+        { from: 'outgoing', text: '刘奶奶，东西买全了，现在给您送过去！', time: '昨天 10:10' },
+        { from: 'incoming', text: '小伙子你帮大忙了，东西买得很全，谢谢你啊 🙏', time: '昨天 10:15' },
+      ]
+    },
+    '物业小管家': {
+      avatar: '物', avatarBg: 'oklch(55% 0.10 200)', online: false,
+      messages: [
+        { from: 'incoming', text: '📢 社区通知：明天上午 8:00–12:00 小区水泵检修，届时可能短暂停水，请各位邻居提前储水', time: '周一 09:00' },
+        { from: 'incoming', text: '各位邻居注意：明天上午 8:00–12:00 小区水泵检修，可能短暂停水', time: '周一 09:01' },
+        { from: 'outgoing', text: '收到，谢谢提醒！', time: '周一 09:30' },
+      ]
+    }
+  };
+
+  let currentChat = null;
+  const convList = document.getElementById('conv-list');
+  const chatView = document.getElementById('chat-view');
+  const chatMessages = document.getElementById('chat-messages');
+  const chatName = document.getElementById('chat-name');
+  const chatAvatar = document.getElementById('chat-avatar');
+  const chatInput = document.getElementById('chat-input');
+
+  function openChat(name) {
+    const data = chatData[name];
+    if (!data) return;
+    currentChat = name;
+    chatName.textContent = name;
+    chatAvatar.textContent = data.avatar;
+    chatAvatar.style.background = data.avatarBg;
+    const statusEl = chatAvatar.nextElementSibling.querySelector('.status');
+    statusEl.textContent = data.online ? '在线' : '离线';
+    statusEl.style.color = data.online ? 'var(--success)' : 'var(--muted)';
+    renderMessages(data.messages);
+    convList.classList.add('hidden');
+    chatView.classList.add('active');
+    chatInput.focus();
+    // 标记已读
+    const item = document.querySelector(`.conv-item[data-chat="${name}"]`);
+    if (item) {
+      item.classList.remove('unread');
+      const badge = item.querySelector('.unread-badge');
+      if (badge) badge.remove();
+    }
+  }
+
+  function closeChat() {
+    convList.classList.remove('hidden');
+    chatView.classList.remove('active');
+    currentChat = null;
+  }
+
+  document.getElementById('chat-back').addEventListener('click', closeChat);
+
+  document.querySelectorAll('.conv-item[data-chat]').forEach(item => {
+    item.addEventListener('click', () => openChat(item.dataset.chat));
+  });
+
+  function renderMessages(msgs) {
+    let html = '';
+    let lastDate = '';
+    msgs.forEach(m => {
+      if (m.date && m.date !== lastDate) {
+        html += `<div class="msg-date-divider">${m.date}</div>`;
+        lastDate = m.date;
+      }
+      html += `<div class="msg-bubble ${m.from}">
+        <div class="bubble-content">${escapeHtml(m.text)}</div>
+        <span class="bubble-time">${m.time}</span>
+      </div>`;
+    });
+    chatMessages.innerHTML = html;
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function sendMessage() {
+    const text = chatInput.value.trim();
+    if (!text || !currentChat) return;
+    const now = new Date();
+    const time = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+    chatData[currentChat].messages.push({ from: 'outgoing', text, time });
+    renderMessages(chatData[currentChat].messages);
+    chatInput.value = '';
+    chatInput.style.height = '';
+  }
+
+  document.getElementById('send-btn').addEventListener('click', sendMessage);
+  chatInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+</script>
+<script src="/assets/app/jury-nav.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="zh-CN" data-auth-state="checking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>信用详情 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.3cf7927f18de.css">
+<style>
+  /* ===== 基础 ===== */
+  *, *::before, *::after { box-sizing: border-box; }
+
+  /* ===== 动画 ===== */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes slideInDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.92); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 30%, transparent); }
+    50% { box-shadow: 0 0 0 10px color-mix(in oklch, var(--accent) 0%, transparent); }
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+  }
+  @keyframes ringGlow {
+    0%, 100% { filter: drop-shadow(0 0 4px oklch(65% 0.18 82 / 0.3)); }
+    50% { filter: drop-shadow(0 0 12px oklch(65% 0.18 82 / 0.5)); }
+  }
+  @keyframes distGrow {
+    from { width: 0; }
+  }
+  @keyframes cardEnter {
+    from { opacity: 0; transform: translateY(16px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes numberPop {
+    from { opacity: 0; transform: translateY(10px) scale(0.8); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  @keyframes badgeShine {
+    0% { background-position: -200% center; }
+    100% { background-position: 200% center; }
+  }
+  @keyframes starPop {
+    from { opacity: 0; transform: scale(0) rotate(-20deg); }
+    to   { opacity: 1; transform: scale(1) rotate(0deg); }
+  }
+
+  /* ===== 头部 ===== */
+  .credit-header {
+    position: sticky; top: 0; z-index: 50;
+    background: oklch(97% 0.005 85 / 0.88);
+    backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    padding: var(--space-lg); display: flex; align-items: center; gap: var(--space-lg);
+    border-bottom: 1px solid var(--border-light);
+    animation: slideInDown 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .credit-header .back-btn {
+    width: 40px; height: 40px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    border: none; background: transparent; color: var(--fg); cursor: pointer;
+  }
+  .credit-header .back-btn:hover {
+    background: color-mix(in oklch, var(--accent) 10%, var(--border-light));
+    transform: scale(1.08) translateX(-2px);
+    box-shadow: 0 2px 8px color-mix(in oklch, var(--accent) 10%, transparent);
+  }
+  .credit-header .back-btn:active { transform: scale(0.95); }
+  .credit-header .back-btn svg { transition: transform 0.25s ease; }
+  .credit-header .back-btn:hover svg { transform: translateX(-2px); }
+  .credit-header h2 {
+    font-family: var(--font-display); font-size: 22px; font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  /* ===== 信用英雄区 ===== */
+  .credit-hero {
+    text-align: center; padding: var(--space-2xl) var(--space-lg);
+    background: linear-gradient(180deg, var(--accent-subtle) 0%, var(--bg) 70%);
+    position: relative; overflow: hidden;
+  }
+  .credit-hero::before {
+    content: ''; position: absolute; top: -40px; left: 50%; transform: translateX(-50%);
+    width: 300px; height: 300px; border-radius: 50%;
+    background: radial-gradient(circle, oklch(65% 0.18 82 / 0.08), transparent 70%);
+    animation: float 8s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .score-ring {
+    position: relative; width: 150px; height: 150px; margin: 0 auto var(--space-lg);
+    animation: scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+  }
+  .score-ring svg {
+    transform: rotate(-90deg);
+    filter: drop-shadow(0 0 6px oklch(65% 0.18 82 / 0.2));
+    animation: ringGlow 3s ease-in-out infinite;
+  }
+  .score-ring .score-value {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .score-ring .score-num {
+    font-family: var(--font-display); font-size: 48px; font-weight: 700;
+    line-height: 1;
+    background: linear-gradient(180deg, oklch(35% 0.02 80) 0%, oklch(55% 0.18 82) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    animation: numberPop 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
+  }
+  .score-ring .score-max {
+    font-size: 14px; color: var(--muted); font-weight: 500;
+    animation: fadeIn 0.4s ease 0.5s both;
+  }
+  .score-label {
+    font-size: 18px; font-weight: 700; margin-bottom: 4px;
+    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+  }
+  .score-desc {
+    font-size: 13px; color: var(--muted); font-weight: 500;
+    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
+  }
+
+  /* ===== 等级徽章 ===== */
+  .level-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: linear-gradient(135deg, oklch(65% 0.18 82), oklch(56% 0.16 70));
+    color: #fff; padding: 7px 20px; border-radius: var(--radius-full);
+    font-size: 14px; font-weight: 700; margin: var(--space-md) 0;
+    box-shadow: 0 4px 16px oklch(65% 0.18 82 / 0.35), 0 1px 3px oklch(65% 0.18 82 / 0.2);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both;
+    position: relative; overflow: hidden;
+  }
+  .level-badge::after {
+    content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
+    animation: badgeShine 3s ease-in-out infinite 1s;
+  }
+  .level-badge:hover {
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 8px 24px oklch(65% 0.18 82 / 0.45), 0 2px 6px oklch(65% 0.18 82 / 0.25);
+  }
+  .level-badge svg { position: relative; z-index: 1; transition: transform 0.3s ease; }
+  .level-badge:hover svg { transform: rotate(15deg) scale(1.15); }
+  .level-badge span { position: relative; z-index: 1; }
+
+  /* ===== 统计行 ===== */
+  .credit-stats {
+    display: flex; justify-content: center; gap: var(--space-3xl);
+    padding: var(--space-lg) 0; margin: 0 var(--space-lg) var(--space-lg);
+    border-top: 1px solid var(--border-light);
+    border-bottom: 1px solid var(--border-light);
+    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.5s both;
+  }
+  .credit-stats .stat-item { text-align: center; position: relative; transition: transform 0.25s ease; }
+  .credit-stats .stat-item:hover { transform: translateY(-2px); }
+  .credit-stats .stat-item::after {
+    content: ''; position: absolute; right: calc(-1 * var(--space-3xl) / 2); top: 15%;
+    width: 1px; height: 70%; background: var(--border-light);
+  }
+  .credit-stats .stat-item:last-child::after { display: none; }
+  .credit-stats .stat-item .num {
+    font-family: var(--font-display); font-size: 22px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    transition: color 0.2s ease;
+  }
+  .credit-stats .stat-item:hover .num { color: var(--accent); }
+  .credit-stats .stat-item .label {
+    font-size: 12px; color: var(--muted); margin-top: 4px; font-weight: 500;
+  }
+
+  /* ===== 评分分布 ===== */
+  .dist-section {
+    padding: 0 var(--space-lg); margin-bottom: var(--space-2xl);
+    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.6s both;
+  }
+  .section-title-sm {
+    font-family: var(--font-display); font-size: 17px; font-weight: 700;
+    margin-bottom: var(--space-lg); letter-spacing: -0.01em;
+  }
+  .dist-item {
+    display: flex; align-items: center; gap: var(--space-md);
+    margin-bottom: var(--space-sm); transition: transform 0.2s ease;
+  }
+  .dist-item:hover { transform: translateX(4px); }
+  .dist-item .dist-star {
+    width: 44px; font-size: 13px; font-weight: 600; text-align: right;
+    flex-shrink: 0; color: var(--fg); transition: color 0.2s ease;
+  }
+  .dist-item:hover .dist-star { color: oklch(65% 0.18 82); }
+  .dist-item .dist-bar-wrap {
+    flex: 1; height: 14px; background: var(--border-light);
+    border-radius: var(--radius-full); overflow: hidden;
+    position: relative;
+  }
+  .dist-item .dist-bar-wrap::after {
+    content: ''; position: absolute; inset: 0; border-radius: inherit;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
+    opacity: 0; transition: opacity 0.3s ease;
+  }
+  .dist-item:hover .dist-bar-wrap::after { opacity: 1; }
+  .dist-item .dist-bar {
+    height: 100%; border-radius: var(--radius-full);
+    background: linear-gradient(90deg, oklch(65% 0.18 82), oklch(56% 0.16 70));
+    transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: distGrow 1s cubic-bezier(0.16, 1, 0.3, 1) 0.7s both;
+    position: relative; overflow: hidden;
+  }
+  .dist-item .dist-bar::after {
+    content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
+    animation: shimmer 2.5s ease-in-out infinite;
+  }
+  .dist-item .dist-count {
+    width: 36px; font-size: 13px; color: var(--muted); flex-shrink: 0;
+    font-weight: 500; transition: color 0.2s ease;
+  }
+  .dist-item:hover .dist-count { color: var(--fg); }
+
+  /* ===== 评价列表 ===== */
+  .review-list {
+    padding: 0 var(--space-lg) calc(var(--bottom-nav-height) + var(--space-2xl));
+    animation: fadeIn 0.5s ease 0.7s both;
+  }
+  @media (min-width: 1024px) {
+    .review-list {
+      max-width: 680px; margin: 0 auto;
+      padding-bottom: var(--space-4xl);
+    }
+  }
+
+  /* ===== 筛选标签 ===== */
+  .review-filter-tabs {
+    display: flex; gap: 0; margin-bottom: var(--space-lg);
+    background: var(--border-light); border-radius: var(--radius-lg); padding: 4px;
+    box-shadow: 0 1px 3px color-mix(in oklch, var(--fg) 3%, transparent);
+  }
+  .review-filter-tabs button {
+    flex: 1; padding: 10px 12px; border-radius: var(--radius-md);
+    font-size: 13px; font-weight: 500; color: var(--muted);
+    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    border: none; background: transparent; cursor: pointer; position: relative; overflow: hidden;
+  }
+  .review-filter-tabs button::before {
+    content: ''; position: absolute; inset: 0; border-radius: inherit;
+    background: linear-gradient(135deg, color-mix(in oklch, var(--accent) 5%, transparent) 0%, transparent 100%);
+    opacity: 0; transition: opacity 0.3s ease;
+  }
+  .review-filter-tabs button:hover { color: var(--fg); }
+  .review-filter-tabs button:hover::before { opacity: 1; }
+  .review-filter-tabs button.active {
+    background: var(--surface); color: var(--fg); font-weight: 600;
+    box-shadow: 0 2px 8px color-mix(in oklch, var(--fg) 6%, transparent), 0 1px 2px color-mix(in oklch, var(--fg) 3%, transparent);
+  }
+  .review-filter-tabs button span { position: relative; z-index: 1; }
+
+  /* ===== 评价卡片 ===== */
+  .review-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-lg) var(--space-xl);
+    margin-bottom: var(--space-md);
+    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative; overflow: hidden;
+    animation: cardEnter 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .review-card:nth-child(1) { animation-delay: 0.05s; }
+  .review-card:nth-child(2) { animation-delay: 0.1s; }
+  .review-card:nth-child(3) { animation-delay: 0.15s; }
+  .review-card:nth-child(4) { animation-delay: 0.2s; }
+  .review-card:nth-child(5) { animation-delay: 0.25s; }
+  .review-card:nth-child(6) { animation-delay: 0.3s; }
+  .review-card::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--border); border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+    transition: all 0.3s ease;
+  }
+  .review-card:hover {
+    box-shadow: 0 8px 24px color-mix(in oklch, var(--fg) 5%, transparent), 0 2px 6px color-mix(in oklch, var(--fg) 3%, transparent);
+    transform: translateY(-2px); border-color: color-mix(in oklch, var(--accent) 12%, var(--border-light));
+  }
+  .review-card:hover::before {
+    width: 4px;
+    background: linear-gradient(180deg, oklch(65% 0.18 82) 0%, oklch(56% 0.16 70) 100%);
+  }
+  .review-card .review-top {
+    display: flex; align-items: center; gap: var(--space-md);
+    margin-bottom: var(--space-sm);
+  }
+  .review-card .review-avatar {
+    width: 44px; height: 44px; border-radius: var(--radius-full);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 16px; font-weight: 700; flex-shrink: 0;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 2px 8px color-mix(in oklch, var(--fg) 10%, transparent);
+  }
+  .review-card:hover .review-avatar {
+    transform: scale(1.08) rotate(-3deg);
+    box-shadow: 0 4px 14px color-mix(in oklch, var(--fg) 15%, transparent);
+  }
+  .review-card .review-name {
+    font-size: 15px; font-weight: 600; margin-bottom: 3px;
+    transition: color 0.2s ease;
+  }
+  .review-card:hover .review-name { color: var(--accent); }
+  .review-card .review-time {
+    font-size: 12px; color: var(--muted); font-weight: 500;
+  }
+  .review-card .review-stars {
+    display: flex; gap: 3px; margin-bottom: var(--space-sm);
+  }
+  .review-card .review-stars .star {
+    color: oklch(65% 0.18 82); font-size: 16px;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: starPop 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .review-card .review-stars .star:nth-child(1) { animation-delay: 0.05s; }
+  .review-card .review-stars .star:nth-child(2) { animation-delay: 0.1s; }
+  .review-card .review-stars .star:nth-child(3) { animation-delay: 0.15s; }
+  .review-card .review-stars .star:nth-child(4) { animation-delay: 0.2s; }
+  .review-card .review-stars .star:nth-child(5) { animation-delay: 0.25s; }
+  .review-card .review-stars .star.empty { color: var(--border); }
+  .review-card:hover .review-stars .star:not(.empty) {
+    transform: scale(1.2) rotate(-5deg);
+  }
+  .review-card .review-comment {
+    font-size: 14px; line-height: 1.7; color: var(--fg);
+    transition: color 0.2s ease;
+  }
+  .review-card:hover .review-comment { color: color-mix(in oklch, var(--fg) 90%, var(--accent)); }
+  .review-card .review-tags {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-top: var(--space-sm);
+  }
+  .review-card .review-tag {
+    font-size: 12px; padding: 4px 12px; border-radius: var(--radius-full);
+    background: var(--bg); color: var(--muted); border: 1px solid var(--border-light);
+    font-weight: 500; transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    cursor: default;
+  }
+  .review-card .review-tag:hover {
+    background: color-mix(in oklch, var(--accent) 8%, var(--bg));
+    border-color: color-mix(in oklch, var(--accent) 25%, var(--border-light));
+    color: var(--accent);
+    transform: translateY(-1px);
+  }
+
+  /* ===== AI FAB ===== */
+  .ai-fab {
+    position: fixed; right: var(--space-xl); bottom: calc(var(--space-xl) + var(--bottom-nav-height, 0px));
+    z-index: 600; width: 56px; height: 56px; border-radius: var(--radius-full);
+    background: var(--accent); color: var(--surface); border: none; cursor: pointer;
+    display: grid; place-items: center;
+    box-shadow: 0 4px 16px color-mix(in oklch, var(--accent) 35%, transparent), 0 1px 3px color-mix(in oklch, var(--accent) 20%, transparent);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .ai-fab:hover {
+    transform: scale(1.1) rotate(-5deg);
+    box-shadow: 0 8px 28px color-mix(in oklch, var(--accent) 45%, transparent), 0 2px 6px color-mix(in oklch, var(--accent) 25%, transparent);
+  }
+  .ai-fab:active { transform: scale(0.95); }
+  .fab-pulse {
+    position: absolute; inset: -4px; border-radius: inherit;
+    border: 2px solid var(--accent); opacity: 0;
+    animation: pulse-glow 2.5s ease-in-out infinite;
+  }
+
+  /* ===== 底部导航 ===== */
+  .bottom-nav {
+    transition: all 0.3s ease;
+  }
+  .bottom-nav a {
+    transition: all 0.2s ease;
+  }
+  .bottom-nav a:hover {
+    color: var(--accent);
+    transform: translateY(-2px);
+  }
+  .bottom-nav .publish-btn {
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .bottom-nav .publish-btn:hover {
+    transform: scale(1.1) translateY(-4px);
+    box-shadow: 0 8px 24px color-mix(in oklch, var(--accent) 40%, transparent);
+  }
+
+  /* ===== 响应式 ===== */
+  @media (max-width: 480px) {
+    .score-ring { width: 130px; height: 130px; }
+    .score-ring .score-num { font-size: 40px; }
+    .credit-stats { gap: var(--space-xl); }
+    .credit-stats .stat-item::after { right: calc(-1 * var(--space-xl) / 2); }
+    .review-card { padding: var(--space-md); }
+    .ai-fab {
+      right: var(--space-md); bottom: calc(var(--space-md) + var(--bottom-nav-height, 0px));
+      width: 48px; height: 48px;
+    }
+    .ai-fab svg { width: 22px; height: 22px; }
+  }
+
+  /* ===== 减少动画偏好 ===== */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+</style>
+<style>
+html[data-auth-state="checking"] body>*{visibility:hidden}
+html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9998;background:var(--bg,#f8f9fa)}
+html[data-auth-state="checking"] body::before{content:"加载中...";position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--fg-secondary,#888);font-family:system-ui,sans-serif}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="credit" data-route-title="信用详情" data-route-source="screens/credit.html" data-route-path="/credit" data-route-current-path="/credit" data-route-surface="user" data-route-layout="userShell">
+
+<div class="credit-header">
+  <a href="/profile" class="back-btn">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </a>
+  <h2>信用详情</h2>
+</div>
+
+<!-- Score hero -->
+<div class="credit-hero">
+  <div class="score-ring">
+    <svg width="140" height="140" viewBox="0 0 140 140">
+      <circle cx="70" cy="70" r="62" fill="none" stroke="var(--border-light)" stroke-width="8"/>
+      <circle cx="70" cy="70" r="62" fill="none" stroke="url(#scoreGrad)" stroke-width="8"
+        stroke-linecap="round" stroke-dasharray="389.6" stroke-dashoffset="39" style="transition:stroke-dashoffset 1s ease;"/>
+      <defs>
+        <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="oklch(65% 0.18 82)"/>
+          <stop offset="100%" stop-color="oklch(56% 0.16 70)"/>
+        </linearGradient>
+      </defs>
+    </svg>
+    <div class="score-value">
+      <span class="score-num">4.9</span>
+      <span class="score-max">/ 5.0</span>
+    </div>
+  </div>
+  <div class="score-label">信誉极好</div>
+  <div class="score-desc">近6个月共收到 28 条评价</div>
+  <div class="level-badge">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+    金牌服务者
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="credit-stats">
+  <div class="stat-item">
+    <div class="num">28</div>
+    <div class="label">总评价</div>
+  </div>
+  <div class="stat-item">
+    <div class="num">96%</div>
+    <div class="label">好评率</div>
+  </div>
+  <div class="stat-item">
+    <div class="num">15</div>
+    <div class="label">作为服务方</div>
+  </div>
+  <div class="stat-item">
+    <div class="num">13</div>
+    <div class="label">作为需求方</div>
+  </div>
+</div>
+
+<!-- Rating distribution -->
+<div class="dist-section">
+  <div class="section-title-sm">评分分布</div>
+  <div class="dist-item">
+    <span class="dist-star">5 星</span>
+    <div class="dist-bar-wrap"><div class="dist-bar" style="width:86%;"></div></div>
+    <span class="dist-count">24</span>
+  </div>
+  <div class="dist-item">
+    <span class="dist-star">4 星</span>
+    <div class="dist-bar-wrap"><div class="dist-bar" style="width:11%;"></div></div>
+    <span class="dist-count">3</span>
+  </div>
+  <div class="dist-item">
+    <span class="dist-star">3 星</span>
+    <div class="dist-bar-wrap"><div class="dist-bar" style="width:3%;"></div></div>
+    <span class="dist-count">1</span>
+  </div>
+  <div class="dist-item">
+    <span class="dist-star">2 星</span>
+    <div class="dist-bar-wrap"><div class="dist-bar" style="width:0;"></div></div>
+    <span class="dist-count">0</span>
+  </div>
+  <div class="dist-item">
+    <span class="dist-star">1 星</span>
+    <div class="dist-bar-wrap"><div class="dist-bar" style="width:0;"></div></div>
+    <span class="dist-count">0</span>
+  </div>
+</div>
+
+<!-- Review list -->
+<div class="review-list">
+  <div class="section-title-sm" style="display:flex;align-items:center;justify-content:space-between;">
+    评价记录
+    <div class="review-filter-tabs" id="review-tabs" style="margin-bottom:0;">
+      <button class="active" data-filter="all">全部</button>
+      <button data-filter="positive">好评</button>
+      <button data-filter="neutral">中评</button>
+    </div>
+  </div>
+
+  <div id="review-cards">
+<div data-runtime-placeholder class="runtime-placeholder">正在加载真实信用评价。</div>
+</div>
+
+  <div style="text-align:center;padding:var(--space-lg);">
+    <p style="font-size:12px;color:var(--muted);">— 显示全部 28 条评价 —</p>
+  </div>
+</div>
+
+<!-- AI FAB -->
+<button class="ai-fab" aria-label="AI 助手" data-ai-modal-scene="all">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  <span class="fab-pulse"></span>
+</button>
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav">
+  <a href="/feed">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    首页
+  </a>
+  <a href="/tasks">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    任务
+  </a>
+  <a href="/post" class="publish-btn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </a>
+  <a href="/messages">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    消息
+  </a>
+  <a href="/profile" class="active">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    我的
+  </a>
+</nav>
+
+<script src="/js/ai-modal.3985de9eb7ef.js"></script>
+
+<script type="module" src="/assets/app/main.mjs?v=1781616460972"></script>
+</body>
+</html>

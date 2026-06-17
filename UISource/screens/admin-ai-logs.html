@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 日志 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../css/tokens.css">
+<link rel="stylesheet" href="../css/common.css">
+<style>
+  .admin-page {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: 100dvh;
+  }
+  @media (max-width: 860px) {
+    .admin-page { grid-template-columns: 1fr; }
+    .admin-sidebar { display: none; }
+  }
+
+  .admin-sidebar {
+    background: var(--fg); color: oklch(92% 0.004 85);
+    padding: var(--space-2xl) var(--space-lg); display: flex;
+    flex-direction: column; gap: var(--space-3xl);
+    position: sticky; top: 0; height: 100dvh;
+  }
+  .admin-sidebar .sb-brand {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    color: #fff; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .admin-sidebar .shield {
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    background: var(--accent); display: flex; align-items: center;
+    justify-content: center; font-size: 14px;
+  }
+  .admin-sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+  .admin-sidebar nav a {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: oklch(72% 0.005 85);
+    transition: all 0.15s;
+  }
+  .admin-sidebar nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .admin-sidebar nav a.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 600; }
+  .admin-sidebar nav a svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .admin-sidebar .sb-footer { margin-top: auto; }
+  .admin-sidebar .sb-back {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    font-size: 13px; color: oklch(62% 0.005 85); transition: all 0.15s;
+  }
+  .admin-sidebar .sb-back:hover { background: rgba(255,255,255,0.06); color: #fff; }
+
+  .admin-main {
+    padding: var(--space-3xl); max-width: 1200px;
+  }
+  @media (max-width: 860px) {
+    .admin-main { padding: var(--space-lg); padding-bottom: calc(var(--bottom-nav-height) + var(--space-2xl)); }
+  }
+
+  .au-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-2xl); flex-wrap: wrap; gap: var(--space-lg);
+  }
+  .au-header h2 {
+    font-family: var(--font-display); font-size: 26px; font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  /* Summary cards */
+  .al-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--space-lg); margin-bottom: var(--space-xl);
+  }
+  .al-sum-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-lg);
+    text-align: center;
+  }
+  .al-sum-card .al-num {
+    font-family: var(--font-display); font-size: 28px; font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .al-sum-card .al-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* Search */
+  .al-search-row {
+    display: flex; gap: var(--space-md); flex-wrap: wrap;
+    margin-bottom: var(--space-xl); align-items: center;
+  }
+  .ai-subnav {
+    display: flex; gap: var(--space-sm); flex-wrap: wrap;
+    margin-bottom: var(--space-xl);
+  }
+  .ai-subnav a {
+    display: inline-flex; align-items: center; min-height: 34px;
+    padding: 7px 13px; border-radius: var(--radius-full);
+    border: 1.5px solid var(--border); color: var(--muted);
+    font-size: 13px; font-weight: 700;
+    transition: all 0.15s;
+  }
+  .ai-subnav a:hover,
+  .ai-subnav a.active {
+    color: var(--accent-hover); border-color: var(--accent-light);
+    background: var(--accent-subtle);
+  }
+  .al-search {
+    flex: 1; min-width: 200px;
+    display: flex; align-items: center; gap: var(--space-sm);
+    background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: var(--radius-md); padding: 10px 16px;
+    transition: border-color 0.15s;
+  }
+  .al-search:focus-within { border-color: var(--accent); }
+  .al-search input {
+    flex: 1; border: none; outline: none; font-size: 14px; background: transparent;
+  }
+  .al-search svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+
+  /* Table */
+  .al-table-wrap {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); overflow-x: auto;
+    margin-bottom: var(--space-xl);
+  }
+  .al-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .al-table th {
+    text-align: left; padding: 14px var(--space-xl); font-size: 12px;
+    font-weight: 600; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.04em; border-bottom: 1px solid var(--border-light);
+    background: var(--bg); white-space: nowrap;
+  }
+  .al-table td {
+    padding: 14px var(--space-xl); border-bottom: 1px solid var(--border-light);
+    vertical-align: middle;
+  }
+  .al-table tr:last-child td { border-bottom: none; }
+  .al-table tr:hover td { background: oklch(97% 0.005 85 / 0.5); }
+
+  .status-dot {
+    width: 8px; height: 8px; border-radius: var(--radius-full);
+    display: inline-block; margin-right: 6px;
+  }
+  .status-dot.ok { background: var(--success); }
+  .status-dot.warn { background: var(--warning); }
+  .status-dot.err { background: var(--danger); }
+
+  /* Expandable row */
+  .al-expand-btn {
+    padding: 4px 12px; border-radius: var(--radius-sm);
+    font-size: 12px; font-weight: 500; cursor: pointer;
+    border: 1px solid var(--border-light); background: var(--surface);
+    color: var(--muted); transition: all 0.15s;
+  }
+  .al-expand-btn:hover { border-color: var(--accent-light); color: var(--accent); }
+  .al-detail-row { display: none; }
+  .al-detail-row.show { display: table-row; }
+  .al-detail-row td {
+    padding: 0;
+  }
+  .al-detail-content {
+    padding: var(--space-xl); background: var(--bg);
+    border-top: 1px solid var(--border-light);
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--space-lg); font-size: 13px;
+  }
+  @media (max-width: 640px) { .al-detail-content { grid-template-columns: 1fr; } }
+  .al-detail-content h5 { font-size: 13px; font-weight: 700; margin-bottom: var(--space-sm); }
+  .al-detail-content .msg-log {
+    max-height: 180px; overflow-y: auto; background: var(--surface);
+    border-radius: var(--radius-sm); padding: var(--space-md);
+    font-family: var(--font-mono); font-size: 11px; line-height: 1.8;
+    white-space: pre-wrap; word-break: break-all;
+  }
+
+  /* Feedback badge */
+  .fb-badge {
+    display: inline-flex; padding: 3px 10px; border-radius: var(--radius-full);
+    font-size: 12px; font-weight: 600;
+  }
+  .fb-badge.pos { background: var(--success-light); color: var(--success); }
+  .fb-badge.neu { background: var(--border-light); color: var(--muted); }
+  .fb-badge.neg { background: var(--danger-light); color: var(--danger); }
+
+  /* Pagination */
+  .al-pagination {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: var(--space-md);
+  }
+  .al-page-info { font-size: 13px; color: var(--muted); }
+  .al-page-btns { display: flex; gap: 4px; }
+  .al-page-btn {
+    width: 32px; height: 32px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 500; border: 1px solid var(--border-light);
+    background: var(--surface); color: var(--fg); transition: all 0.15s; cursor: pointer;
+  }
+  .al-page-btn:hover { border-color: var(--accent-light); }
+  .al-page-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .al-page-btn.disabled { opacity: 0.35; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div class="admin-page">
+
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="admin-dashboard.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="admin-users.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="admin-disputes.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理<span style="margin-left:auto;background:var(--danger);color:#fff;font-size:11px;padding:2px 7px;border-radius:var(--radius-full);">1</span></a>
+      <a href="admin-ai-logs.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="admin-ai-config.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      	      <a href="admin-categories.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>标签/类别</a>
+	      <a href="admin-sensitive-words.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+	      <a href="admin-stats.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+	      <a href="admin-audit-log.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="../screens/feed.html">← 返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+    <div class="au-header">
+      <h2>AI 日志管理</h2>
+    </div>
+
+    <nav class="ai-subnav" aria-label="AI 管理子页">
+      <a href="admin-ai-conversations.html">会话管理</a>
+      <a href="admin-ai-feedback.html">用户反馈</a>
+      <a href="admin-ai-errors.html">异常调用</a>
+      <a class="active" href="admin-ai-logs.html">原始日志</a>
+      <a href="admin-ai-config.html">AI 配置</a>
+    </nav>
+
+    <!-- Summary -->
+    <div class="al-summary">
+      <div class="al-sum-card">
+        <div class="al-num" style="color:var(--secondary)">8,421</div>
+        <div class="al-label">今日调用总量</div>
+      </div>
+      <div class="al-sum-card">
+        <div class="al-num" style="color:var(--success)">99.2%</div>
+        <div class="al-label">成功率</div>
+      </div>
+      <div class="al-sum-card">
+        <div class="al-num" style="color:var(--warning)">67</div>
+        <div class="al-label">今日异常</div>
+      </div>
+      <div class="al-sum-card">
+        <div class="al-num" style="color:var(--muted)">1.2s</div>
+        <div class="al-label">平均响应时间</div>
+      </div>
+    </div>
+
+    <!-- Search -->
+    <div class="al-search-row">
+      <div class="al-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" placeholder="搜索会话ID、用户、关键词...">
+      </div>
+      <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap">
+        <button class="chip active">全部</button>
+        <button class="chip">成功</button>
+        <button class="chip">超时</button>
+        <button class="chip">错误</button>
+        <button class="chip">用户反馈</button>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="al-table-wrap">
+      <table class="al-table">
+        <thead>
+          <tr>
+            <th>会话 ID</th>
+            <th>用户</th>
+            <th>场景</th>
+            <th>状态</th>
+            <th>耗时</th>
+            <th>令牌</th>
+            <th>反馈</th>
+            <th>时间</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="aiLogTbody">
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="al-pagination">
+      <div class="al-page-info">共 8,421 条，显示第 1-10 条</div>
+      <div class="al-page-btns">
+        <button class="al-page-btn disabled">←</button>
+        <button class="al-page-btn active">1</button>
+        <button class="al-page-btn">2</button>
+        <button class="al-page-btn">3</button>
+        <button class="al-page-btn">...</button>
+        <button class="al-page-btn">843</button>
+        <button class="al-page-btn">→</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const logs = [
+  { id:'AI-4832', user:'赵姐', scene:'智能筛选', status:'ok', statusLabel:'成功', duration:'0.8s', tokens:'1,240', feedback:'positive', fbLabel:'👍 有用', time:'14:22:08' },
+  { id:'AI-4831', user:'小明', scene:'纠纷发起', status:'warn', statusLabel:'超时 (3.2s)', duration:'3.2s', tokens:'2,180', feedback:'none', fbLabel:'—', time:'13:51:33' },
+  { id:'AI-4823', user:'admin_张三', scene:'纠纷摘要', status:'ok', statusLabel:'成功', duration:'1.1s', tokens:'3,420', feedback:'neutral', fbLabel:'➖ 一般', time:'13:20:45' },
+  { id:'AI-4815', user:'李华', scene:'智能问答', status:'ok', statusLabel:'成功', duration:'0.6s', tokens:'890', feedback:'positive', fbLabel:'👍 有用', time:'11:08:12' },
+  { id:'AI-4810', user:'陈阿姨', scene:'内容生成', status:'ok', statusLabel:'成功', duration:'1.4s', tokens:'1,870', feedback:'positive', fbLabel:'👍 有用', time:'10:45:30' },
+  { id:'AI-4803', user:'王大壮', scene:'操作引导', status:'err', statusLabel:'错误 500', duration:'0.2s', tokens:'0', feedback:'negative', fbLabel:'👎 无用', time:'09:12:55' },
+  { id:'AI-4798', user:'林小红', scene:'智能问答', status:'ok', statusLabel:'成功', duration:'0.7s', tokens:'560', feedback:'none', fbLabel:'—', time:'08:30:18' },
+  { id:'AI-4790', user:'周老师', scene:'订单摘要', status:'ok', statusLabel:'成功', duration:'1.8s', tokens:'2,640', feedback:'positive', fbLabel:'👍 有用', time:'07:55:01' },
+  { id:'AI-4785', user:'小明', scene:'内容生成', status:'warn', statusLabel:'超时 (5.1s)', duration:'5.1s', tokens:'0', feedback:'negative', fbLabel:'👎 无用', time:'07:32:44' },
+  { id:'AI-4779', user:'刘阿姨', scene:'智能筛选', status:'ok', statusLabel:'成功', duration:'0.9s', tokens:'1,140', feedback:'neutral', fbLabel:'➖ 一般', time:'07:15:20' }
+];
+
+function statusDot(status) {
+  if (status === 'ok') return '<span class="status-dot ok"></span>';
+  if (status === 'warn') return '<span class="status-dot warn"></span>';
+  return '<span class="status-dot err"></span>';
+}
+
+function fbBadge(fb) {
+  if (fb === 'positive') return '<span class="fb-badge pos">👍 有用</span>';
+  if (fb === 'neutral') return '<span class="fb-badge neu">➖ 一般</span>';
+  if (fb === 'negative') return '<span class="fb-badge neg">👎 无用</span>';
+  return '<span style="color:var(--muted);font-size:12px">—</span>';
+}
+
+function renderTable(data) {
+  document.getElementById('aiLogTbody').innerHTML = data.map((l,i) => `
+    <tr>
+      <td style="font-family:var(--font-mono);font-size:13px;font-weight:500">#${l.id}</td>
+      <td>${l.user}</td>
+      <td style="font-size:13px">${l.scene}</td>
+      <td>${statusDot(l.status)}${l.statusLabel}</td>
+      <td style="font-family:var(--font-mono);font-size:13px">${l.duration}</td>
+      <td style="font-family:var(--font-mono);font-size:13px">${l.tokens}</td>
+      <td>${fbBadge(l.feedback)}</td>
+      <td style="font-size:12px;color:var(--muted);white-space:nowrap">${l.time}</td>
+      <td><button class="al-expand-btn" onclick="toggleDetail(${i})">查看详情</button></td>
+    </tr>
+    <tr class="al-detail-row" id="detail-${i}">
+      <td colspan="9">
+        <div class="al-detail-content">
+          <div>
+            <h5>📋 请求上下文</h5>
+            <div style="font-size:12px;line-height:1.8;color:var(--muted)">
+              <div><strong>场景：</strong>${l.scene}</div>
+              <div><strong>用户：</strong>${l.user}</div>
+              <div><strong>会话开始：</strong>${l.time}</div>
+              <div><strong>模型：</strong>deepseek-v4</div>
+              <div><strong>输入令牌：</strong>${l.tokens === '0' ? '—' : Math.floor(parseInt(l.tokens.replace(',','')) * 0.7).toLocaleString()}</div>
+              <div><strong>输出令牌：</strong>${l.tokens === '0' ? '—' : Math.floor(parseInt(l.tokens.replace(',','')) * 0.3).toLocaleString()}</div>
+              ${l.status === 'err' ? '<div style="color:var(--danger)"><strong>错误：</strong>Internal server error — 模型服务不可用</div>' : ''}
+              ${l.status === 'warn' ? '<div style="color:var(--warning)"><strong>超时：</strong>请求超过默认3s阈值，已自动重试</div>' : ''}
+            </div>
+          </div>
+          <div>
+            <h5>💬 对话摘要</h5>
+            <div class="msg-log">${l.scene === '智能筛选' ? '用户: 帮我找一个信用高、今天发布的电脑维修需求\nAI: 正在为您筛选...\nAI: 为您找到 3 条匹配结果，按信用分排序如下：\n1. 周老师 ★4.9 — 笔记本电脑清灰 (30分钟前)\n2. 小明 ★4.8 — 台式机无法开机 (2小时前)' : l.scene === '纠纷摘要' ? '管理员: 请分析 #DSP-240528-003 纠纷\nAI: 正在分析纠纷订单...\nAI: 已生成摘要：双方主张、关键证据、陪审建议、风险提示。请管理员手动裁决。' : l.scene === '内容生成' ? '用户: 帮我写一个保洁服务需求描述\nAI: 为您生成以下草稿：\n标题：全屋保洁 — 2小时深度清洁\n描述：需要经验丰富的保洁阿姨...' : l.status === 'err' ? '用户: 请问如何发起纠纷？\n[错误 — 无响应]' : '对话片段已记录'}</div>
+          </div>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function toggleDetail(i) {
+  const row = document.getElementById('detail-' + i);
+  row.classList.toggle('show');
+}
+
+renderTable(logs);
+</script>
+
+<script src="/assets/app/jury-nav.js"></script>
+</body>
+</html>

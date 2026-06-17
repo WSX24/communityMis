@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="zh-CN" data-auth-state="checking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 配置管理 — 管理后台 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.7d27460f6ca5.css">
+<style>/* ====== 全局过渡与微交互 ====== */
+  * { transition: background-color 0.2s, border-color 0.2s, box-shadow 0.2s; }
+
+  .admin-page {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: 100dvh;
+    background: var(--bg);
+  }
+  @media (max-width: 860px) {
+    .admin-page { grid-template-columns: 1fr; }
+    .admin-sidebar { display: none; }
+  }
+
+  /* ====== 侧边栏 ====== */
+  .admin-sidebar {
+    background: var(--fg); color: oklch(92% 0.004 85);
+    padding: var(--space-2xl) var(--space-lg); display: flex;
+    flex-direction: column; gap: var(--space-3xl);
+    position: sticky; top: 0; height: 100dvh;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.08);
+    z-index: 10;
+  }
+  .admin-sidebar .sb-brand {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    color: #fff; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding-bottom: var(--space-lg);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .admin-sidebar .shield {
+    width: 32px; height: 32px; border-radius: var(--radius-md);
+    background: linear-gradient(135deg, var(--accent), var(--secondary));
+    display: flex; align-items: center;
+    justify-content: center; font-size: 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    transition: transform 0.2s;
+  }
+  .admin-sidebar .shield:hover { transform: scale(1.05) rotate(-5deg); }
+  .admin-sidebar nav { display: flex; flex-direction: column; gap: 3px; }
+  .admin-sidebar nav a {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-md);
+    font-size: 14px; font-weight: 500; color: oklch(72% 0.005 85);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+  }
+  .admin-sidebar nav a::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: var(--accent); opacity: 0; transition: opacity 0.2s;
+  }
+  .admin-sidebar nav a:hover { background: rgba(255,255,255,0.08); color: #fff; transform: translateX(2px); }
+  .admin-sidebar nav a:hover::before { opacity: 0.5; }
+  .admin-sidebar nav a.active {
+    background: rgba(255,255,255,0.12); color: #fff; font-weight: 600;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .admin-sidebar nav a.active::before { opacity: 1; }
+  .admin-sidebar nav a svg { width: 18px; height: 18px; flex-shrink: 0; opacity: 0.8; }
+  .admin-sidebar nav a.active svg { opacity: 1; }
+  .admin-sidebar .nav-section-label {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    color: oklch(52% 0.005 85); letter-spacing: 0.08em;
+    padding: var(--space-lg) 14px var(--space-sm);
+  }
+  .admin-sidebar .sb-footer { margin-top: auto; }
+  .admin-sidebar .sb-back {
+    display: flex; align-items: center; gap: var(--space-sm);
+    padding: 10px 14px; border-radius: var(--radius-md);
+    font-size: 13px; color: oklch(62% 0.005 85); transition: all 0.2s;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .admin-sidebar .sb-back:hover { background: rgba(255,255,255,0.06); color: #fff; border-color: rgba(255,255,255,0.12); }
+
+  /* ====== 主内容区 ====== */
+  .admin-main {
+    padding: var(--space-3xl); max-width: 960px;
+    margin: 0 auto;
+  }
+  @media (max-width: 860px) {
+    .admin-main { padding: var(--space-lg); padding-bottom: 100px; }
+  }
+
+  /* ====== 页面头部 ====== */
+  .au-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-2xl); flex-wrap: wrap; gap: var(--space-lg);
+    padding-bottom: var(--space-xl);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .au-header h2 {
+    font-family: var(--font-display); font-size: 28px; font-weight: 700;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, var(--fg), var(--accent));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .super-admin-badge {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: var(--radius-full);
+    background: linear-gradient(135deg, oklch(94% 0.05 82), oklch(90% 0.08 82));
+    color: var(--reward-gold);
+    font-size: 13px; font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border: 1px solid rgba(0,0,0,0.04);
+  }
+
+  /* ====== 配置卡片 ====== */
+  .cfg-section {
+    background: var(--surface); border-radius: var(--radius-xl);
+    border: 1px solid var(--border-light); padding: var(--space-2xl);
+    margin-bottom: var(--space-xl);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.02);
+    transition: box-shadow 0.3s, transform 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .cfg-section::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--secondary));
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .cfg-section:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.06), 0 8px 32px rgba(0,0,0,0.04); transform: translateY(-1px); }
+  .cfg-section:hover::before { opacity: 0.6; }
+  .cfg-section.danger-zone {
+    border-color: var(--danger-light);
+  }
+  .cfg-section.danger-zone::before {
+    background: linear-gradient(90deg, var(--danger), var(--warning));
+    opacity: 0.3;
+  }
+
+  .cfg-section-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: var(--space-xl); gap: var(--space-md);
+  }
+  .cfg-section-title {
+    font-family: var(--font-display); font-size: 18px; font-weight: 700;
+    letter-spacing: -0.005em; margin-bottom: 6px;
+    display: flex; align-items: center; gap: var(--space-sm);
+  }
+  .cfg-section-desc {
+    font-size: 13px; color: var(--muted); line-height: 1.6;
+  }
+
+  /* ====== 开关组件 ====== */
+  .toggle-switch {
+    position: relative; width: 52px; height: 30px; flex-shrink: 0;
+  }
+  .toggle-switch input { display: none; }
+  .toggle-slider {
+    position: absolute; inset: 0; border-radius: var(--radius-full);
+    background: var(--border); cursor: pointer; transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+  }
+  .toggle-slider::after {
+    content: ''; position: absolute; top: 3px; left: 3px;
+    width: 24px; height: 24px; border-radius: var(--radius-full);
+    background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .toggle-switch input:checked + .toggle-slider { background: linear-gradient(135deg, var(--success), oklch(70% 0.18 145)); }
+  .toggle-switch input:checked + .toggle-slider::after { transform: translateX(22px); }
+  .toggle-switch:hover .toggle-slider::after { box-shadow: 0 3px 10px rgba(0,0,0,0.25); }
+
+  /* ====== 配置行 ====== */
+  .cfg-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--space-lg) 0; border-bottom: 1px solid var(--border-light);
+    gap: var(--space-xl);
+    transition: background-color 0.15s;
+    margin: 0 calc(-1 * var(--space-lg));
+    padding-left: var(--space-lg);
+    padding-right: var(--space-lg);
+    border-radius: var(--radius-md);
+  }
+  .cfg-row:hover { background: rgba(0,0,0,0.015); }
+  .cfg-row:last-child { border-bottom: none; }
+  .cfg-row .cfg-label {
+    font-size: 14px; font-weight: 600; line-height: 1.4;
+    color: var(--fg);
+  }
+  .cfg-row .cfg-hint { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+  .cfg-row .cfg-control { display: flex; align-items: center; gap: var(--space-sm); flex-shrink: 0; }
+
+  /* ====== 输入框 ====== */
+  .cfg-input {
+    width: 100px; padding: 9px 14px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); font-size: 14px; text-align: center;
+    outline: none; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    font-family: var(--font-mono);
+    background: var(--bg);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .cfg-input:hover { border-color: var(--secondary-light); }
+  .cfg-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle), inset 0 1px 2px rgba(0,0,0,0.04); }
+  .cfg-input-unit {
+    font-size: 13px; color: var(--muted); min-width: 40px;
+    font-weight: 500;
+  }
+
+  .cfg-select {
+    padding: 9px 14px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); font-size: 14px; outline: none;
+    background: var(--surface); cursor: pointer; min-width: 140px;
+    transition: all 0.2s;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 36px;
+  }
+  .cfg-select:hover { border-color: var(--secondary-light); }
+  .cfg-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
+
+  /* ====== 场景卡片 ====== */
+  .scene-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: var(--space-md); margin-top: var(--space-lg);
+  }
+  .scene-card {
+    display: flex; align-items: flex-start; gap: var(--space-md);
+    padding: var(--space-lg); background: var(--bg);
+    border-radius: var(--radius-lg); border: 1.5px solid var(--border-light);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer;
+    position: relative;
+  }
+  .scene-card:hover {
+    border-color: var(--secondary-light);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    transform: translateY(-2px);
+  }
+  .scene-card:has(input:checked) {
+    border-color: var(--secondary);
+    background: linear-gradient(135deg, var(--surface), oklch(97% 0.01 85));
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  }
+  .scene-card:has(input:checked)::after {
+    content: '✓'; position: absolute; top: 8px; right: 8px;
+    width: 20px; height: 20px; border-radius: var(--radius-full);
+    background: var(--secondary); color: #fff; font-size: 11px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700;
+  }
+  .scene-card input[type="checkbox"] {
+    width: 20px; height: 20px; accent-color: var(--secondary); flex-shrink: 0; margin-top: 2px;
+    cursor: pointer; border-radius: var(--radius-sm);
+  }
+  .scene-card .sc-info { flex: 1; }
+  .scene-card .sc-name { font-size: 14px; font-weight: 600; margin-bottom: 4px; color: var(--fg); }
+  .scene-card .sc-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  /* ====== 滑块 ====== */
+  .range-group {
+    display: flex; align-items: center; gap: var(--space-md);
+  }
+  .range-group input[type="range"] {
+    width: 160px; accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .range-val {
+    font-family: var(--font-mono); font-size: 14px; font-weight: 600;
+    min-width: 40px; text-align: right;
+    color: var(--accent);
+    background: var(--accent-subtle);
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* ====== 状态指示器 ====== */
+  .status-indicator {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 600;
+    padding: 8px 16px;
+    border-radius: var(--radius-full);
+    background: var(--bg);
+    border: 1px solid var(--border-light);
+  }
+  .status-dot {
+    width: 10px; height: 10px; border-radius: var(--radius-full);
+    position: relative;
+  }
+  .status-dot.on { background: var(--success); box-shadow: 0 0 0 3px oklch(90% 0.05 145); }
+  .status-dot.on::after {
+    content: ''; position: absolute; inset: -3px; border-radius: var(--radius-full);
+    border: 2px solid var(--success); animation: pulse-ring 2s ease-out infinite;
+  }
+  .status-dot.off { background: var(--border); }
+  @keyframes pulse-ring {
+    0% { transform: scale(1); opacity: 0.6; }
+    100% { transform: scale(1.8); opacity: 0; }
+  }
+
+  /* ====== 保存栏 ====== */
+  .save-bar {
+    position: sticky; bottom: 0; z-index: 50;
+    background: rgba(255,255,255,0.92); border-top: 1px solid var(--border-light);
+    border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+    padding: var(--space-lg) var(--space-2xl); margin-top: var(--space-xl);
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-lg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.04);
+  }
+  .save-bar .unsaved-hint {
+    font-size: 13px; color: var(--warning); display: flex; align-items: center; gap: 8px;
+    font-weight: 600;
+    background: oklch(97% 0.03 82);
+    padding: 6px 14px;
+    border-radius: var(--radius-full);
+    border: 1px solid oklch(90% 0.05 82);
+  }
+  .save-bar .unsaved-hint .dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--warning); animation: blink 1.2s ease infinite; }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* ====== 按钮 ====== */
+  .btn {
+    padding: 10px 20px; border-radius: var(--radius-md); font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1.5px solid transparent; outline: none;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn--ghost {
+    background: transparent; color: var(--muted); border-color: var(--border);
+  }
+  .btn--ghost:hover { background: var(--bg); color: var(--fg); border-color: var(--border-light); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+  .btn--primary {
+    background: linear-gradient(135deg, var(--accent), var(--secondary));
+    color: #fff; border: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  }
+  .btn--primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    filter: brightness(1.05);
+  }
+  .btn--primary:active { transform: translateY(0); }
+  .btn--lg { padding: 12px 28px; font-size: 15px; }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; filter: none !important; }
+
+  /* ====== 审计日志 ====== */
+  .audit-preview {
+    background: var(--bg); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-lg);
+    margin-top: var(--space-xl);
+    position: relative;
+    overflow: hidden;
+  }
+  .audit-preview::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: linear-gradient(180deg, var(--accent), var(--secondary));
+    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+  }
+  .audit-preview .ap-label {
+    font-size: 11px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--space-md);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .audit-entry {
+    display: flex; align-items: center; gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md); font-size: 12px;
+    font-family: var(--font-mono); color: var(--muted);
+    border-bottom: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    transition: background-color 0.15s;
+  }
+  .audit-entry:hover { background: rgba(0,0,0,0.02); }
+  .audit-entry:last-child { border-bottom: none; }
+  .audit-entry .ae-time { color: var(--border); min-width: 90px; font-weight: 500; }
+  .audit-entry .ae-action {
+    font-weight: 700; color: var(--accent);
+    background: var(--accent-subtle);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    letter-spacing: 0.03em;
+  }
+  .audit-entry .ae-detail { flex: 1; color: var(--fg); }
+
+  /* ====== Toast ====== */
+  .toast {
+    position: fixed; bottom: var(--space-3xl); left: 50%; transform: translateX(-50%) translateY(20px);
+    z-index: 600; padding: 14px 28px; border-radius: var(--radius-lg);
+    background: var(--fg); color: #fff; font-size: 14px; font-weight: 600;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    opacity: 0; pointer-events: none;
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.show::before {
+    content: ""; position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+    background: rgba(255,255,255,0.3); border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    animation: toast-progress 3s linear forwards;
+  }
+  @keyframes toast-progress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+  .toast.success { background: linear-gradient(135deg, var(--success), oklch(70% 0.18 145)); }
+  .toast.error { background: linear-gradient(135deg, var(--danger), oklch(65% 0.2 25)); }
+
+  /* ====== 服务开关区域特殊样式 ====== */
+  .cfg-section:first-of-type {
+    background: linear-gradient(135deg, var(--surface), oklch(98% 0.005 85));
+  }
+  .cfg-section:first-of-type .cfg-section-title {
+    font-size: 20px;
+  }
+
+  /* ====== 响应式 ====== */
+  @media (max-width: 640px) {
+    .cfg-row { flex-direction: column; align-items: flex-start; gap: var(--space-md); }
+    .scene-grid { grid-template-columns: 1fr; }
+    .cfg-section { padding: var(--space-lg); }
+    .au-header h2 { font-size: 22px; }
+    .save-bar { flex-direction: column; gap: var(--space-md); padding: var(--space-md); }
+    .save-bar .unsaved-hint { width: 100%; justify-content: center; }
+  }
+  .scene-icon {
+    width: 36px; height: 36px; border-radius: var(--radius-md);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+    transition: transform 0.2s;
+  }
+  .scene-card:hover .scene-icon { transform: scale(1.1); }
+
+  .cfg-section {
+    counter-increment: section;
+  }
+  .cfg-section-header .cfg-section-title::before {
+    content: counter(section, decimal-leading-zero);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    background: var(--bg);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    margin-right: 10px;
+    font-family: var(--font-mono);
+    border: 1px solid var(--border-light);
+    opacity: 0.7;
+  }
+
+  .cfg-row:focus-within .cfg-label {
+    color: var(--accent);
+  }
+  .cfg-row:focus-within {
+    background: rgba(0,0,0,0.02);
+  }
+</style>
+<style>
+html[data-auth-state="checking"] body>*{visibility:hidden}
+html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9998;background:var(--bg,#f8f9fa)}
+html[data-auth-state="checking"] body::before{content:"加载中...";position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--fg-secondary,#888);font-family:system-ui,sans-serif}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="admin-ai-config" data-route-title="AI 配置管理" data-route-source="screens/admin-ai-config.html" data-route-path="/admin/ai/config" data-route-current-path="/admin/ai/config" data-route-surface="admin" data-route-layout="adminShell">
+
+<div class="admin-page">
+
+  <aside class="admin-sidebar">
+    <div class="sb-brand"><div class="shield">⏂</div>邻帮·管理后台</div>
+    <nav>
+      <a href="/admin/dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>仪表盘</a>
+      <a href="/admin/users"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>用户管理</a>
+      <a href="/admin/disputes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>争议处理</a>
+      <a href="/admin/ai/logs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>AI 日志</a>
+      <a href="/admin/ai/config" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>AI 配置</a>
+      	      <a href="/admin/categories"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>标签/类别</a>
+	      <a href="/admin/sensitive-words"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>敏感词管理</a>
+	      <a href="/admin/stats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>平台统计</a>
+	      <a href="/admin/audit-log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>审计日志</a>
+
+    </nav>
+    <div class="sb-footer"><a class="sb-back" href="/feed">← 返回社区首页</a></div>
+  </aside>
+
+  <main class="admin-main">
+
+    <div class="au-header">
+      <div>
+        <h2>AI 配置管理</h2>
+        <p style="font-size:13px;color:var(--muted);margin-top:4px;">控制 AI 助手的运行时行为、频率限制、内容安全和日志策略</p>
+      </div>
+      <div class="super-admin-badge">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        超级管理员权限
+      </div>
+    </div>
+
+    <!-- ====== Section 1: Service Switch ====== -->
+    <div class="cfg-section">
+      <div class="cfg-section-header">
+        <div>
+          <div class="cfg-section-title"><span style="margin-right:6px;">🔌</span>服务开关</div>
+          <div class="cfg-section-desc">控制 AI 助手整体服务的启用状态。关闭后所有 AI 功能暂停，但不影响核心业务。</div>
+        </div>
+        <label class="toggle-switch" id="masterSwitchLabel">
+          <input type="checkbox" id="masterSwitch" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div style="display:flex;align-items:center;gap:var(--space-sm);font-size:13px;">
+        <span class="status-dot on" id="statusDot"></span>
+        <span id="statusText">🟢 AI 服务运行中</span>
+      </div>
+    </div>
+
+    <!-- ====== Section 2: Frequency & Rate Limits ====== -->
+    <div class="cfg-section">
+      <div class="cfg-section-header">
+        <div>
+          <div class="cfg-section-title"><span style="margin-right:6px;">⚡</span>调用频率限制</div>
+          <div class="cfg-section-desc">防止滥用和资源过载。超出限制的请求返回 429 状态码。</div>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <div>
+          <div class="cfg-label">单用户每分钟最大请求数</div>
+          <div class="cfg-hint">超出后该用户需要等待下一分钟窗口</div>
+        </div>
+        <div class="cfg-control">
+          <input type="number" class="cfg-input" id="ratePerMin" value="20" min="1" max="200">
+          <span class="cfg-input-unit">次/分钟</span>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <div>
+          <div class="cfg-label">单用户每日最大请求数</div>
+          <div class="cfg-hint">达到上限后该用户当日不可再调用 AI</div>
+        </div>
+        <div class="cfg-control">
+          <input type="number" class="cfg-input" id="ratePerDay" value="200" min="1" max="2000">
+          <span class="cfg-input-unit">次/天</span>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <div>
+          <div class="cfg-label">全局并发上限</div>
+          <div class="cfg-hint">同时处理的 AI 请求数量上限</div>
+        </div>
+        <div class="cfg-control">
+          <input type="number" class="cfg-input" id="concurrency" value="30" min="1" max="200">
+          <span class="cfg-input-unit">并发</span>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <div>
+          <div class="cfg-label">单次调用超时时间</div>
+          <div class="cfg-hint">超过此时限自动中断并记录超时日志</div>
+        </div>
+        <div class="cfg-control">
+          <input type="number" class="cfg-input" id="timeout" value="15" min="3" max="60">
+          <span class="cfg-input-unit">秒</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== Section 3: Model & Context ====== -->
+    <div class="cfg-section">
+      <div class="cfg-section-header">
+        <div>
+          <div class="cfg-section-title"><span style="margin-right:6px;">🧠</span>模型与上下文</div>
+          <div class="cfg-section-desc">控制 AI 模型的行为参数和上下文窗口大小。</div>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <div>
+          <div class="cfg-label">最大上下文长度</div>
+          <div class="cfg-hint">对话历史 + 系统提示词 + 用户消息的总 token 上限</div>
+        </div>
+        <div class="cfg-control">
+          <select class="cfg-select" id="contextLength">
+            <option value="4096">4,096 tokens</option>
+            <option value="8192" selected>8,192 tokens</option>
+            <option value="16384">16,384 tokens</option>
+            <option value="32768">32,768 tokens</option>
+          </select>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <div>
+          <div class="cfg-label">回复最大长度</div>
+          <div class="cfg-hint">单次 AI 回复的 token 上限，防止过长回复</div>
+        </div>
+        <div class="cfg-control">
+          <select class="cfg-select" id="maxTokens">
+            <option value="512">512 tokens</option>
+            <option value="1024" selected>1,024 tokens</option>
+            <option value="2048">2,048 tokens</option>
+            <option value="4096">4,096 tokens</option>
+          </select>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <div>
+          <div class="cfg-label">温度参数 (Temperature)</div>
+          <div class="cfg-hint">越高越有创造性，越低越确定。0.3-0.7 适合客服场景。</div>
+        </div>
+        <div class="cfg-control">
+          <div class="range-group">
+            <input type="range" id="temperature" min="0" max="1" step="0.05" value="0.5">
+            <span class="range-val" id="tempVal">0.50</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== Section 4: Scene Configuration ====== -->
+    <div class="cfg-section">
+      <div class="cfg-section-header">
+        <div>
+          <div class="cfg-section-title"><span style="margin-right:6px;">🎭</span>场景开关</div>
+          <div class="cfg-section-desc">按场景独立启用或关闭 AI 功能。关闭的场景在用户端不可见。</div>
+        </div>
+      </div>
+      <div class="scene-grid">
+        <label class="scene-card">
+          <input type="checkbox" checked data-scene="help">
+          <div class="scene-icon" style="background:oklch(92% 0.08 85)">💡</div>
+          <div class="sc-info">
+            <div class="sc-name">💡 智能问答</div>
+            <div class="sc-desc">回答平台规则、操作指南、常见问题</div>
+          </div>
+        </label>
+        <label class="scene-card">
+          <input type="checkbox" checked data-scene="filter">
+          <div class="scene-icon" style="background:oklch(92% 0.08 200)">🔍</div>
+          <div class="sc-info">
+            <div class="sc-name">🔍 需求筛选</div>
+            <div class="sc-desc">自然语言解析为筛选条件，推荐匹配需求</div>
+          </div>
+        </label>
+        <label class="scene-card">
+          <input type="checkbox" checked data-scene="guide">
+          <div class="scene-icon" style="background:oklch(92% 0.08 145)">🧭</div>
+          <div class="sc-info">
+            <div class="sc-name">🧭 操作引导</div>
+            <div class="sc-desc">根据当前上下文提示下一步操作入口</div>
+          </div>
+        </label>
+        <label class="scene-card">
+          <input type="checkbox" checked data-scene="draft">
+          <div class="scene-icon" style="background:oklch(92% 0.08 280)">✏️</div>
+          <div class="sc-info">
+            <div class="sc-name">✏️ 内容辅助生成</div>
+            <div class="sc-desc">辅助生成需求标题、描述、标签、沟通文本</div>
+          </div>
+        </label>
+        <label class="scene-card">
+          <input type="checkbox" checked data-scene="summary">
+          <div class="scene-icon" style="background:oklch(92% 0.08 55)">📋</div>
+          <div class="sc-info">
+            <div class="sc-name">📋 订单/纠纷摘要</div>
+            <div class="sc-desc">对订单消息、纠纷证据、投票结果生成摘要</div>
+          </div>
+        </label>
+        <label class="scene-card">
+          <input type="checkbox" data-scene="admin">
+          <div class="scene-icon" style="background:oklch(92% 0.08 25)">🛡</div>
+          <div class="sc-info">
+            <div class="sc-name">🛡 管理端运营问答</div>
+            <div class="sc-desc">管理员专属的统计查询与异常分析</div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- ====== Section 5: Content Safety ====== -->
+    <div class="cfg-section">
+      <div class="cfg-section-header">
+        <div>
+          <div class="cfg-section-title"><span style="margin-right:6px;">🛡️</span>内容安全</div>
+          <div class="cfg-section-desc">敏感词检测和内容过滤策略。</div>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <div>
+          <div class="cfg-label">敏感词检测</div>
+          <div class="cfg-hint">对用户输入和 AI 生成内容进行敏感词过滤</div>
+        </div>
+        <div class="cfg-control">
+          <label class="toggle-switch">
+            <input type="checkbox" id="sensitiveFilter" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <div>
+          <div class="cfg-label">检测模式</div>
+          <div class="cfg-hint">严格模式：命中即拦截；宽松模式：仅标记提醒</div>
+        </div>
+        <div class="cfg-control">
+          <select class="cfg-select" id="filterMode">
+            <option value="strict" selected>严格模式 — 命中拦截</option>
+            <option value="loose">宽松模式 — 仅标记</option>
+          </select>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <div>
+          <div class="cfg-label">AI 生成内容人工确认</div>
+          <div class="cfg-hint">需求描述、沟通文本等 AI 生成内容提交前须用户确认</div>
+        </div>
+        <div class="cfg-control">
+          <label class="toggle-switch">
+            <input type="checkbox" id="requireConfirm" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== Section 6: Log Retention ====== -->
+    <div class="cfg-section">
+      <div class="cfg-section-header">
+        <div>
+          <div class="cfg-section-title"><span style="margin-right:6px;">📊</span>日志与审计</div>
+          <div class="cfg-section-desc">控制 AI 调用日志和审计记录的保留策略。</div>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <div>
+          <div class="cfg-label">AI 调用日志保留天数</div>
+          <div class="cfg-hint">超过保留期的日志将被自动清理</div>
+        </div>
+        <div class="cfg-control">
+          <input type="number" class="cfg-input" id="logRetention" value="90" min="7" max="365">
+          <span class="cfg-input-unit">天</span>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <div>
+          <div class="cfg-label">AI 会话保留天数</div>
+          <div class="cfg-hint">关闭或过期的会话在保留期后自动归档</div>
+        </div>
+        <div class="cfg-control">
+          <input type="number" class="cfg-input" id="conversationRetention" value="30" min="7" max="180">
+          <span class="cfg-input-unit">天</span>
+        </div>
+      </div>
+      <div class="cfg-row">
+        <div>
+          <div class="cfg-label">异常调用告警阈值</div>
+          <div class="cfg-hint">单用户连续失败次数达到阈值时触发管理端告警</div>
+        </div>
+        <div class="cfg-control">
+          <input type="number" class="cfg-input" id="alertThreshold" value="10" min="3" max="50">
+          <span class="cfg-input-unit">次</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== Audit Preview ====== -->
+    <div class="cfg-section" style="counter-increment:none;">
+      <div class="cfg-section-title" style="margin-bottom:var(--space-lg);counter-increment:none;"><span style="margin-right:6px;">📜</span>最近配置变更记录</div>
+      <div class="audit-preview">
+<div class="ap-label">📜 审计日志（最近 5 条）</div><div class="audit-entry" data-runtime-placeholder><span class="ae-time">--</span><span class="ae-action">LOAD</span><span class="ae-detail">正在加载真实配置变更记录</span></div>
+</div>
+    </div>
+
+    <!-- ====== Save Bar ====== -->
+    <div class="save-bar" id="saveBar">
+      <div class="unsaved-hint" id="unsavedHint" style="display:none;">
+        <span class="dot"></span> 存在未保存的更改
+      </div>
+      <div style="flex:1;"></div>
+      <button class="btn btn--ghost"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>恢复默认</button>
+      <button class="btn btn--primary btn--lg" id="saveBtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>保存配置</button>
+    </div>
+
+  </main>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+
+
+<script type="module" src="/assets/app/main.mjs?v=1781616991944"></script>
+</body>
+</html>

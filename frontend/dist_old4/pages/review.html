@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN" data-auth-state="checking">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>评价 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.bc017e3cf60e.css">
+<style>
+  .review-header {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--surface); border-bottom: 1px solid var(--border-light);
+    padding: var(--space-lg); display: flex; align-items: center; gap: var(--space-md);
+  }
+  .review-back {
+    width: 36px; height: 36px; border-radius: var(--radius-full);
+    background: var(--border-light); display: flex; align-items: center;
+    justify-content: center; transition: background 0.15s; flex-shrink: 0;
+  }
+  .review-back:hover { background: var(--border); }
+  .review-title { flex: 1; font-family: var(--font-display); font-size: 18px; font-weight: 700; }
+
+  .review-body {
+    padding: var(--space-lg); padding-bottom: calc(var(--bottom-nav-height) + var(--space-2xl));
+    max-width: 520px; margin: 0 auto;
+  }
+  @media (min-width: 1024px) { .review-body { padding-bottom: var(--space-4xl); } }
+
+  /* Target card */
+  .target-card {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+    text-align: center; margin-bottom: var(--space-xl);
+  }
+  .target-card .target-label {
+    font-size: 12px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.05em; margin-bottom: var(--space-lg);
+  }
+  .target-card .target-order {
+    font-size: 13px; color: var(--muted); margin-top: var(--space-sm);
+    font-family: var(--font-mono);
+  }
+
+  /* Star rating */
+  .star-section {
+    text-align: center; margin: var(--space-2xl) 0;
+  }
+  .star-section .star-label {
+    font-size: 14px; font-weight: 600; margin-bottom: var(--space-lg);
+  }
+  .star-rating {
+    display: flex; justify-content: center; gap: 8px;
+  }
+  .star-rating button {
+    width: 48px; height: 48px; display: flex; align-items: center;
+    justify-content: center; transition: transform 0.15s, color 0.15s;
+    cursor: pointer;
+  }
+  .star-rating button svg { width: 40px; height: 40px; }
+  .star-rating button:hover { transform: scale(1.15); }
+  .star-rating button.empty svg { color: var(--border); }
+  .star-rating button.filled svg { color: var(--reward-gold); }
+  .star-rating button:active { transform: scale(0.92); }
+
+  .star-hint {
+    font-size: 15px; font-weight: 700; margin-top: var(--space-md);
+    min-height: 24px; transition: color 0.2s;
+  }
+  .star-hint.c1 { color: var(--danger); }
+  .star-hint.c2 { color: var(--warning); }
+  .star-hint.c3 { color: var(--warning); }
+  .star-hint.c4 { color: var(--success); }
+  .star-hint.c5 { color: var(--reward-gold); }
+
+  /* Review form */
+  .review-form {
+    background: var(--surface); border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light); padding: var(--space-xl);
+    margin: var(--space-lg) 0;
+  }
+  .review-form label {
+    display: block; font-size: 14px; font-weight: 600; margin-bottom: var(--space-md);
+  }
+  .review-form textarea {
+    width: 100%; padding: 12px 16px; border-radius: var(--radius-md);
+    border: 1.5px solid var(--border); background: var(--bg);
+    font-size: 14px; line-height: 1.6; resize: vertical; min-height: 120px;
+    outline: none; transition: border-color 0.15s;
+    font-family: var(--font-body);
+  }
+  .review-form textarea:focus { border-color: var(--accent); }
+  .review-form .char-count {
+    text-align: right; font-size: 12px; color: var(--muted); margin-top: 6px;
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  }
+  .review-form .char-count.warn { color: var(--warning); }
+
+  /* Quick tags */
+  .quick-tags { margin: var(--space-lg) 0; }
+  .quick-tags .qt-label {
+    font-size: 13px; font-weight: 600; margin-bottom: var(--space-md);
+  }
+  .quick-tags .qt-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  /* Submit */
+  .submit-section { margin: var(--space-xl) 0; }
+  .submit-section .note {
+    font-size: 12px; color: var(--muted); text-align: center;
+    margin-top: var(--space-md); line-height: 1.6;
+  }
+
+  /* Success state */
+  .success-card {
+    background: var(--success-light); border-radius: var(--radius-lg);
+    padding: var(--space-3xl) var(--space-xl); text-align: center;
+    margin: var(--space-2xl) 0;
+  }
+  .success-card svg { width: 56px; height: 56px; color: var(--success); margin-bottom: var(--space-lg); }
+  .success-card h3 { font-size: 20px; font-weight: 700; margin-bottom: var(--space-sm); }
+  .success-card p { font-size: 14px; color: var(--muted); }
+
+  @media (max-width: 480px) {
+    .star-rating button { width: 40px; height: 40px; }
+    .star-rating button svg { width: 34px; height: 34px; }
+    .star-rating { gap: 4px; }
+  }
+</style>
+<style>
+html[data-auth-state="checking"] body>*{visibility:hidden}
+html[data-auth-state="checking"] body::after{content:"";position:fixed;inset:0;z-index:9998;background:var(--bg,#f8f9fa)}
+html[data-auth-state="checking"] body::before{content:"加载中...";position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--fg-secondary,#888);font-family:system-ui,sans-serif}
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="review" data-route-title="订单评价" data-route-source="screens/review.html" data-route-path="/reviews/new" data-route-current-path="/reviews/new" data-route-surface="user" data-route-layout="userShell">
+
+<div class="review-header">
+  <button class="review-back" aria-label="返回">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
+  <div class="review-title">发表评价</div>
+</div>
+
+<div class="review-body">
+<div data-runtime-placeholder class="runtime-placeholder">正在加载真实评价对象。</div>
+</div>
+
+
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav">
+  <a href="/feed">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    首页
+  </a>
+  <a href="/tasks">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    任务
+  </a>
+  <a href="/post" class="publish-btn" aria-label="发布">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </a>
+  <a href="/messages">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    消息
+  </a>
+  <a href="/profile">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    我的
+  </a>
+</nav>
+
+<script type="module" src="/assets/app/main.mjs?v=1781617182438"></script>
+</body>
+</html>

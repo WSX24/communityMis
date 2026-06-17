@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>管理员登录 — 邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<link rel="stylesheet" href="/css/common.3cf7927f18de.css">
+<style>
+  body {
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    padding: var(--space-xl);
+    background:
+      radial-gradient(circle at 78% 18%, color-mix(in oklch, var(--danger) 12%, transparent), transparent 30%),
+      radial-gradient(circle at 18% 18%, var(--accent-subtle), transparent 34%),
+      var(--fg);
+    color: var(--surface);
+  }
+
+  .login-shell {
+    width: min(100%, 1040px);
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(360px, 1fr);
+    gap: var(--space-3xl);
+    align-items: center;
+  }
+
+  .security-copy {
+    display: grid;
+    gap: var(--space-2xl);
+  }
+
+  .brand-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+  }
+
+  .shield {
+    width: 46px;
+    height: 46px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-md);
+    background: var(--accent);
+    color: var(--surface);
+    font-family: var(--font-mono);
+    font-weight: 900;
+  }
+
+  .brand-row strong {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 22px;
+    line-height: 1.1;
+  }
+
+  .brand-row span {
+    color: color-mix(in oklch, var(--surface), var(--fg) 34%);
+    font-size: 13px;
+  }
+
+  .security-copy h1 {
+    font-family: var(--font-display);
+    font-size: clamp(38px, 6vw, 64px);
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+  }
+
+  .security-copy p {
+    max-width: 46ch;
+    color: color-mix(in oklch, var(--surface), var(--fg) 30%);
+    font-size: 16px;
+    line-height: 1.75;
+  }
+
+  .security-grid {
+    display: grid;
+    gap: var(--space-md);
+  }
+
+  .security-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-md);
+    padding: var(--space-lg);
+    border: 1px solid color-mix(in oklch, var(--surface) 13%, transparent);
+    border-radius: var(--radius-lg);
+    background: color-mix(in oklch, var(--surface) 7%, transparent);
+  }
+
+  .security-row svg {
+    width: 21px;
+    height: 21px;
+    flex-shrink: 0;
+    color: var(--accent-light);
+  }
+
+  .security-row strong {
+    display: block;
+    margin-bottom: 2px;
+    font-size: 14px;
+  }
+
+  .security-row span {
+    color: color-mix(in oklch, var(--surface), var(--fg) 38%);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .login-card {
+    overflow: hidden;
+    border: 1px solid color-mix(in oklch, var(--surface) 14%, transparent);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+    color: var(--fg);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.22);
+  }
+
+  .card-head {
+    padding: var(--space-2xl) var(--space-2xl) var(--space-lg);
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .card-head h2 {
+    margin-bottom: 4px;
+    font-family: var(--font-display);
+    font-size: 28px;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+
+  .card-head p {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .login-form {
+    padding: var(--space-2xl);
+    display: grid;
+    gap: var(--space-lg);
+  }
+
+  .field-group {
+    display: grid;
+    gap: 7px;
+  }
+
+  .field-group label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+  }
+
+  .input-wrap {
+    position: relative;
+  }
+
+  .input-wrap svg {
+    position: absolute;
+    top: 50%;
+    left: 14px;
+    width: 18px;
+    height: 18px;
+    transform: translateY(-50%);
+    color: var(--muted);
+    pointer-events: none;
+  }
+
+  .input.with-icon {
+    padding-left: 42px;
+  }
+
+  .role-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-sm);
+  }
+
+  .role-option {
+    min-height: 68px;
+    display: grid;
+    place-items: center;
+    gap: 3px;
+    padding: var(--space-sm);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--muted);
+    background: var(--bg);
+    font-size: 12px;
+    font-weight: 800;
+    text-align: center;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+
+  .role-option svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .role-option.active,
+  .role-option:hover {
+    color: var(--accent);
+    border-color: var(--accent-light);
+    background: var(--accent-subtle);
+  }
+
+  .risk-panel {
+    display: grid;
+    gap: var(--space-sm);
+    padding: var(--space-lg);
+    border: 1px solid var(--warning-light);
+    border-radius: var(--radius-lg);
+    background: color-mix(in oklch, var(--warning-light), transparent 16%);
+  }
+
+  .risk-panel strong {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--warning);
+    font-size: 13px;
+  }
+
+  .risk-panel p {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .form-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .form-row label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .form-row input {
+    width: 17px;
+    height: 17px;
+    accent-color: var(--accent);
+  }
+
+  .login-submit {
+    min-height: 50px;
+    border-radius: var(--radius-md);
+    background: var(--fg);
+    color: var(--surface);
+    font-size: 16px;
+    font-weight: 900;
+    transition: transform 0.1s, background 0.15s;
+  }
+
+  .login-submit:hover {
+    background: color-mix(in oklch, var(--fg), var(--accent) 18%);
+  }
+
+  .login-submit:active {
+    transform: scale(0.98);
+  }
+
+  .login-submit:disabled {
+    cursor: wait;
+    opacity: 0.72;
+  }
+
+  .secondary-links {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .secondary-links a,
+  .secondary-links button {
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .mfa-panel {
+    display: none;
+    padding: var(--space-lg);
+    border: 1px solid var(--secondary-light);
+    border-radius: var(--radius-lg);
+    background: var(--bg);
+  }
+
+  .mfa-panel.open {
+    display: grid;
+    gap: var(--space-md);
+  }
+
+  .mfa-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+  }
+
+  .mfa-head strong {
+    font-size: 14px;
+  }
+
+  .mfa-head span {
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .mfa-code {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: var(--space-sm);
+  }
+
+  .mfa-code input {
+    width: 100%;
+    height: 44px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 900;
+    outline: none;
+  }
+
+  .mfa-code input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+  }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: var(--space-3xl);
+    z-index: 500;
+    transform: translateX(-50%);
+    padding: 12px 18px;
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--fg);
+    box-shadow: var(--shadow-lg);
+    font-size: 14px;
+    font-weight: 900;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+
+  .toast.show {
+    opacity: 1;
+  }
+
+  @media (max-width: 880px) {
+    body {
+      display: block;
+      padding: var(--space-lg);
+    }
+
+    .login-shell {
+      grid-template-columns: 1fr;
+      gap: var(--space-xl);
+    }
+
+    .security-copy h1 {
+      max-width: 12ch;
+    }
+  }
+
+  @media (max-width: 520px) {
+    body {
+      padding: var(--space-md);
+    }
+
+    .security-grid {
+      display: none;
+    }
+
+    .card-head,
+    .login-form {
+      padding: var(--space-xl);
+    }
+
+    .role-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="admin-login" data-route-title="管理员登录" data-route-source="screens/admin-login.html" data-route-path="/admin/login" data-route-current-path="/admin/login" data-route-surface="adminAuth" data-route-layout="adminAuth">
+
+<main class="login-shell">
+  <section class="security-copy" aria-label="后台安全说明">
+    <div class="brand-row">
+      <div class="shield">⏂</div>
+      <div>
+        <strong>邻帮·管理后台</strong>
+        <span>用户、交易、AI 与纠纷治理入口</span>
+      </div>
+    </div>
+
+    <div>
+      <h1>高风险操作，需要清晰边界。</h1>
+      <p>管理员登录后可处理用户状态、交易流水、纠纷裁决、AI 配置和系统配置快照。所有关键动作都会写入审计日志。</p>
+    </div>
+
+    <div class="security-grid">
+      <div class="security-row">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <div><strong>角色权限隔离</strong><span>运营、仲裁、系统管理员拥有不同操作范围。</span></div>
+      </div>
+      <div class="security-row">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <div><strong>二次验证</strong><span>进入系统参数、配置快照恢复、终审裁决前再次确认身份。</span></div>
+      </div>
+      <div class="security-row">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+        <div><strong>完整审计</strong><span>登录、失败、越权尝试、参数修改均保留操作轨迹。</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="login-card" aria-label="管理员登录表单">
+    <div class="card-head">
+      <h2>管理员登录</h2>
+      <p>请输入已授权的管理员账号。登录后进入管理仪表盘。</p>
+    </div>
+
+    <form class="login-form" id="admin-login-form" novalidate>
+      <div class="field-group">
+        <label for="admin-account">账号</label>
+        <div class="input-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>
+          <input class="input with-icon" id="admin-account" type="text" placeholder="管理员账号" autocomplete="username">
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="admin-password">密码</label>
+        <div class="input-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <input class="input with-icon" id="admin-password" type="password" placeholder="请输入后台密码" autocomplete="current-password">
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label>登录角色</label>
+        <div class="role-grid" id="role-grid">
+          <button type="button" class="role-option active" data-role="operator">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            运营
+          </button>
+          <button type="button" class="role-option" data-role="arbiter">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20"/><path d="M5 7h14"/><path d="m7 7-4 8h8l-4-8z"/><path d="m17 7-4 8h8l-4-8z"/></svg>
+            仲裁
+          </button>
+          <button type="button" class="role-option" data-role="system">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82"/></svg>
+            系统
+          </button>
+        </div>
+      </div>
+
+      <div class="risk-panel">
+        <strong>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+          安全提示
+        </strong>
+        <p>AI 不会自动执行封禁、转账、裁决、配置快照恢复等高风险动作。管理员必须在对应页面手动确认。</p>
+      </div>
+
+      <div class="mfa-panel" id="mfa-panel">
+        <div class="mfa-head">
+          <strong>二次验证码</strong>
+          <span>请输入动态验证码</span>
+        </div>
+        <div class="mfa-code" id="mfa-code" aria-label="六位验证码">
+          <input inputmode="numeric" maxlength="1" aria-label="验证码第 1 位">
+          <input inputmode="numeric" maxlength="1" aria-label="验证码第 2 位">
+          <input inputmode="numeric" maxlength="1" aria-label="验证码第 3 位">
+          <input inputmode="numeric" maxlength="1" aria-label="验证码第 4 位">
+          <input inputmode="numeric" maxlength="1" aria-label="验证码第 5 位">
+          <input inputmode="numeric" maxlength="1" aria-label="验证码第 6 位">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label><input type="checkbox" id="remember-device"> 记住此设备 7 天</label>
+        <button type="button" id="show-mfa">使用验证码</button>
+      </div>
+
+      <button class="login-submit" id="login-submit" type="submit">进入管理后台</button>
+
+      <div class="secondary-links">
+        <a href="/">返回入口</a>
+        <span>·</span>
+        <a href="/feed">社区首页</a>
+        <span>·</span>
+        <button type="button" id="audit-preview">查看最近登录记录</button>
+      </div>
+    </form>
+  </section>
+</main>
+
+<div class="toast" id="toast">正在校验管理员身份…</div>
+
+
+<script type="module" src="/assets/app/main.mjs?v=1781616461012"></script>
+</body>
+</html>

@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>邻帮</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/tokens.9237d5c336cf.css">
+<style>
+  body {
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    padding: var(--space-2xl);
+    background:
+      radial-gradient(circle at 50% 32%, var(--accent-subtle), transparent 34%),
+      var(--bg);
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  .ambient-glow {
+    position: fixed;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 0;
+    filter: blur(80px);
+    opacity: 0.5;
+  }
+  .ambient-glow-1 {
+    width: 500px; height: 500px;
+    top: -10%; right: -5%;
+    background: var(--accent-subtle);
+    animation: drift 12s ease-in-out infinite;
+  }
+  .ambient-glow-2 {
+    width: 400px; height: 400px;
+    bottom: -10%; left: -5%;
+    background: var(--accent-subtle);
+    animation: drift 15s ease-in-out infinite reverse;
+  }
+
+  @keyframes drift {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-20px, 20px) scale(1.05); }
+  }
+
+  .entry {
+    position: relative;
+    z-index: 1;
+    width: min(100%, 440px);
+    display: grid;
+    gap: var(--space-2xl);
+    justify-items: center;
+    text-align: center;
+    animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .brand {
+    display: grid;
+    gap: var(--space-md);
+    justify-items: center;
+  }
+
+  .brand-mark-wrapper {
+    position: relative;
+    margin-bottom: var(--space-sm);
+  }
+
+  .brand-mark {
+    width: 80px;
+    height: 80px;
+    margin-inline: auto;
+    border-radius: var(--radius-xl);
+    display: grid;
+    place-items: center;
+    color: white;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    box-shadow: var(--shadow-md), 0 0 0 1px rgba(255,255,255,0.15) inset;
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .brand-mark::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.25) 0%, transparent 50%);
+  }
+
+  .brand-mark:hover {
+    transform: scale(1.08) rotate(-3deg);
+    box-shadow: var(--shadow-lg), 0 0 40px var(--accent-subtle);
+  }
+
+  .brand-mark svg {
+    width: 36px;
+    height: 36px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .status-badge {
+    position: absolute;
+    bottom: -4px;
+    right: -4px;
+    width: 20px;
+    height: 20px;
+    background: var(--bg);
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+  }
+  .status-badge::after {
+    content: '';
+    width: 10px;
+    height: 10px;
+    background: #22c55e;
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+    50% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: clamp(36px, 10vw, 56px);
+    line-height: 1.05;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--fg);
+  }
+
+  .subtitle {
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1.6;
+    max-width: 280px;
+  }
+
+  .features {
+    display: flex;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: var(--space-xs);
+  }
+
+  .feature-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    box-shadow: var(--shadow-sm);
+    transition: all 0.2s ease;
+  }
+
+  .feature-tag:hover {
+    border-color: var(--accent-light);
+    color: var(--accent);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+
+  .feature-tag svg {
+    width: 14px;
+    height: 14px;
+    stroke-width: 2.5;
+  }
+
+  .actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+    align-items: center;
+    width: 100%;
+  }
+
+  .home-button {
+    min-width: 200px;
+    min-height: 56px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    padding: 0 var(--space-xl);
+    border-radius: var(--radius-full);
+    color: white;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    font-size: 16px;
+    font-weight: 700;
+    text-decoration: none;
+    box-shadow: var(--shadow-md), 0 0 0 1px rgba(255,255,255,0.1) inset;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .home-button::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, transparent 60%);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .home-button:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg), 0 0 30px var(--accent-subtle);
+  }
+
+  .home-button:hover::before {
+    opacity: 1;
+  }
+
+  .home-button:active {
+    transform: translateY(-1px);
+  }
+
+  .home-button:focus-visible {
+    outline: 3px solid var(--accent-light);
+    outline-offset: 4px;
+  }
+
+  .home-button svg {
+    width: 20px;
+    height: 20px;
+    transition: transform 0.3s ease;
+  }
+
+  .home-button:hover svg {
+    transform: translateX(2px);
+  }
+
+  .guest-hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: calc(-1 * var(--space-sm));
+  }
+
+  .auth-links {
+    display: flex;
+    gap: var(--space-lg);
+    align-items: center;
+  }
+
+  .auth-links a {
+    position: relative;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 4px 2px;
+    transition: color 0.2s ease;
+  }
+
+  .auth-links a::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-light));
+    border-radius: 2px;
+    transition: width 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .auth-links a:hover {
+    color: var(--accent);
+  }
+
+  .auth-links a:hover::after {
+    width: 100%;
+  }
+
+  .divider-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--border);
+  }
+
+  .admin-section {
+    margin-top: var(--space-sm);
+    padding-top: var(--space-md);
+    border-top: 1px dashed var(--border);
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+
+  .admin-link {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    text-decoration: none;
+    transition: all 0.2s ease;
+    padding: 4px 12px;
+    border-radius: var(--radius-full);
+    border: 1px solid transparent;
+    opacity: 0.7;
+  }
+
+  .admin-link:hover {
+    color: var(--accent);
+    border-color: var(--border);
+    background: var(--accent-subtle);
+    opacity: 1;
+  }
+
+  @media (max-width: 480px) {
+    body {
+      padding: var(--space-xl);
+    }
+    .entry {
+      gap: var(--space-xl);
+    }
+    .brand-mark {
+      width: 72px;
+      height: 72px;
+    }
+    .brand-mark svg {
+      width: 32px;
+      height: 32px;
+    }
+  }
+</style>
+<link rel="stylesheet" href="/assets/styles/theme.c8369c3e6906.css">
+<link rel="stylesheet" href="/assets/styles/shell.7f7535f9d74b.css">
+</head>
+<body data-route-id="entry" data-route-title="邻帮入口" data-route-source="index.html" data-route-path="/" data-route-current-path="/" data-route-surface="launcher" data-route-layout="entry">
+
+  <div class="ambient-glow ambient-glow-1" aria-hidden="true"></div>
+  <div class="ambient-glow ambient-glow-2" aria-hidden="true"></div>
+
+  
+
+  <main class="entry" aria-label="邻帮入口">
+    <div class="brand">
+      <div class="brand-mark-wrapper">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 11.5 12 4l9 7.5"/>
+            <path d="M5 10.5V20h14v-9.5"/>
+            <path d="M9 20v-5.5h6V20"/>
+          </svg>
+        </div>
+        <span class="status-badge" aria-hidden="true"></span>
+      </div>
+      <h1>邻帮</h1>
+      <p class="subtitle">邻里互助时间银行<br>存储时间 · 交换温暖</p>
+      
+      <div class="features" aria-label="平台特性">
+        <span class="feature-tag">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          时间存取
+        </span>
+        <span class="feature-tag">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          双向互助
+        </span>
+        <span class="feature-tag">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          信用闭环
+        </span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <a class="home-button" href="/feed" aria-label="进入首页">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 11.5 12 4l9 7.5"/>
+          <path d="M5 10.5V20h14v-9.5"/>
+        </svg>
+        首页
+      </a>
+      <p class="guest-hint">未登录时点击首页将以游客身份浏览</p>
+      
+      <div class="auth-links">
+        <a href="/login">登录</a>
+        <span class="divider-dot" aria-hidden="true"></span>
+        <a href="/register">注册</a>
+      </div>
+      
+      <div class="admin-section">
+        <a href="/admin/login" class="admin-link" title="管理后台入口">管理员入口</a>
+      </div>
+    </div>
+  </main>
+
+<script type="module" src="/assets/app/main.mjs?v=1781616460923"></script>
+</body>
+</html>
