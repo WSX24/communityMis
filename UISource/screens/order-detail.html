@@ -250,7 +250,7 @@
         <div class="tl-line"></div>
       </div>
       <div class="tl-content">
-        <div class="tl-step-title">双方确认完成</div>
+        <div class="tl-step-title">服务方确认完成后需求方确认</div>
         <div class="tl-step-desc">需求方刘奶奶确认服务完成，服务方张叔确认完成</div>
         <div class="tl-step-time">需求方: 2024-06-03 14:10 · 服务方: 2024-06-03 14:15</div>
       </div>
@@ -360,5 +360,9 @@
   </a>
 </nav>
 
+<script src="/assets/app/jury-nav.js"></script>
+<script>
+(function(){"use strict";function t(){var u=window.__API_BASE_URL__||"";if(!u){if(!t._r)t._r=0;if(t._r++<20)setTimeout(t,500);return}fetch(u+"/api/auth/me",{credentials:"include"}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.user&&d.user.isJury)n()}).catch(function(){})}function n(){var v=document.querySelector(".bottom-nav");if(!v||document.querySelector(".jlink"))return;var a=document.createElement("a");a.href="/jury";a.className="jlink";a.innerHTML="<svg width=22 height=22 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>陪审";v.insertBefore(a,v.lastElementChild)}setTimeout(t,800)})();
+</script>
 </body>
 </html>

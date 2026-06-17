@@ -1,5 +1,6 @@
 import { createApiClient } from "/assets/app/api-client.mjs";
 import { createAuthController } from "/assets/app/auth.mjs";
+import { showToast } from "/assets/app/modules/shared-ui.mjs";
 
 const route = window.__NEIGHBOR_ROUTE__ ?? {
   id: "unknown",
@@ -46,6 +47,7 @@ const REQUEST_STATUS_TEXT = new Map([
 ]);
 const ORDER_STATUS_TEXT = new Map([
   ["accepted", "已接单"],
+  ["provider_confirmed", "服务方已确认"],
   ["payer_confirmed", "需求方已确认"],
   ["both_confirmed", "双方已确认"],
   ["completed", "已完成"],
@@ -53,6 +55,7 @@ const ORDER_STATUS_TEXT = new Map([
 ]);
 const ORDER_STATUS_CLASS = new Map([
   ["accepted", "status-accepted"],
+  ["provider_confirmed", "status-settling"],
   ["payer_confirmed", "status-settling"],
   ["both_confirmed", "status-settling"],
   ["completed", "status-done"],
@@ -1227,7 +1230,12 @@ async function submitRequestPublish(userSession) {
       navigateTo(`/login?redirect=${encodeURIComponent("/post")}`);
       return;
     }
-    showInlineMessage(button, publishErrorMessage(error), "error");
+    var pubErrMsg = publishErrorMessage(error);
+    if (error && error.payload && error.payload.error && error.payload.error.code === "INSUFFICIENT_BALANCE") {
+      showPopupMessage(pubErrMsg);
+    } else {
+      showInlineMessage(button, pubErrMsg, "error");
+    }
   } finally {
     restore();
   }
@@ -1861,10 +1869,48 @@ function bindFeedAcceptButtons(userSession) {
   document.querySelectorAll(".feed-content .task-card .accept-btn").forEach((button) => {
     button.replaceWith(button.cloneNode(true));
   });
-  document.querySelectorAll(".feed-content .task-card .accept-btn").forEach((button) => {
+
+  // First pass: update button state based on card data
+  document.querySelectorAll(".feed-content .task-card").forEach((card) => {
+    const btn = card.querySelector(".accept-btn");
+    if (!btn) return;
+
+    const publisherEl = card.querySelector(".publisher");
+    const publisherHref = publisherEl?.getAttribute("href") || "";
+    const publisherIdFromHref = publisherHref.split("/").pop();
+    const currentUserId = String(userSession?.user?.userId ?? "");
+
+    // Disable button for own requests
+    if (currentUserId && publisherIdFromHref && publisherIdFromHref === currentUserId) {
+      btn.textContent = "我的需求";
+      btn.disabled = true;
+      btn.classList.add("btn--applied");
+      btn.title = "不能申请自己的需求";
+      return;
+    }
+
+    // Check if the card shows status indicators
+    const statusBadge = card.querySelector(".badge--success, .task-status");
+    if (statusBadge) {
+      const statusText = statusBadge.textContent.trim();
+      if (statusText.includes("已接") || statusText.includes("完成")) {
+        btn.textContent = statusText;
+        btn.disabled = true;
+        btn.classList.add("btn--applied");
+        return;
+      }
+    }
+  });
+
+  // Second pass: bind click handlers for active buttons
+  document.querySelectorAll(".feed-content .task-card .accept-btn:not([disabled])").forEach((button) => {
+    if (button.dataset.bound === "1") return;
+    button.dataset.bound = "1";
     button.addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
+      event.stopImmediatePropagation();
+      if (button.disabled) return;
       const card = button.closest(".task-card[data-request-id]");
       const requestId = card?.dataset.requestId;
       if (!requestId) {
@@ -1875,16 +1921,21 @@ function bindFeedAcceptButtons(userSession) {
         return;
       }
       const title = card.querySelector(".task-title")?.textContent?.trim() || "这条需求";
-      if (!window.confirm(`确认接单「${title}」？接单后会创建订单并通知发布者。`)) {
+      const message = prompt(`申请接单「${title}」\n\n请输入申请理由（可选）：`, "我对这个需求很感兴趣，希望能为您服务。");
+      if (message === null) {
         return;
       }
-      const restore = setLoading(button, "接单中...");
+      button.disabled = true;
+      const restore = setLoading(button, "提交中...");
       try {
-        const result = await api.requests.accept(userSession.token, requestId);
-        navigateTo(`/orders/${encodeURIComponent(result.order.orderId)}`);
+        await api.requests.apply(userSession.token, requestId, message || undefined);
+        button.textContent = "已申请";
+        button.classList.add("btn--applied");
+        showToast("申请已提交，等待发布者确认。", "success");
       } catch (error) {
+        button.disabled = false;
         restore();
-        showGlobalMessage(acceptErrorMessage(error), "error");
+        showToast(acceptErrorMessage(error), "error");
       }
     });
   });
@@ -1916,7 +1967,12 @@ function renderFeedState(kind, message, options = {}) {
   if (!content) {
     return;
   }
-  const title = kind === "loading" ? "加载中" : kind === "error" ? "加载失败" : "暂无动态";
+  // 加载中不替换静态 HTML，保留已有内容避免闪烁
+  if (kind === "loading") {
+    content.setAttribute("data-state", "loading");
+    return;
+  }
+  const title = kind === "error" ? "加载失败" : "暂无动态";
   content.innerHTML = `
     <div class="task-runtime-state feed-runtime-state" data-state="${escapeHtml(kind)}">
       <strong>${escapeHtml(title)}</strong>
@@ -2145,6 +2201,11 @@ function renderTaskState(kind, message, options = {}) {
   }
   const title = kind === "loading" ? "加载中" : kind === "error" ? "加载失败" : "空结果";
   grid.classList.add("task-grid--state");
+  // load static HTML
+  if (kind === "loading") {
+    grid.setAttribute("data-state", "loading");
+    return;
+  }
   grid.innerHTML = `
     <div class="task-runtime-state" data-state="${escapeHtml(kind)}">
       <strong>${title}</strong>
@@ -2266,9 +2327,86 @@ async function hydratePostDetailRoute(session) {
       api.requestComments.list(requestId, userSession?.token ?? null)
     ]);
     applyRequestDetail(payload.request, userSession, commentPayload.comments ?? []);
+
+    // If viewer is the publisher, load and display applications
+    const viewerId = Number(userSession?.user?.userId);
+    if (viewerId && Number(payload.request.publisher?.userId) === viewerId) {
+      try {
+        const appsResult = await api.requests.applications(userSession.token, requestId);
+        renderApplicationsPanel(appsResult.applications ?? [], userSession.token);
+      } catch (e) {
+        // Silently ignore - applications display is optional
+      }
+    }
   } catch (error) {
     renderRequestDetailError(taskErrorMessage(error));
   }
+}
+
+function renderApplicationsPanel(applications, token) {
+  const container = document.querySelector(".detail-content");
+  if (!container || applications.length === 0) return;
+
+  const panel = document.createElement("div");
+  panel.className = "applications-panel";
+  panel.innerHTML = `<div class="applications-header"><h3>接单申请 (${applications.length})</h3></div><div class="applications-list"></div>`;
+
+  const list = panel.querySelector(".applications-list");
+  for (const app of applications) {
+    const item = document.createElement("div");
+    item.className = "application-item";
+    item.dataset.appId = app.application_id;
+    const name = app.applicant_display || app.applicant_name || "匿名用户";
+    const statusText = app.status === "pending" ? "待审核" : app.status === "approved" ? "已通过" : "已拒绝";
+    item.innerHTML = `
+      <div class="app-info">
+        <strong>${escapeHtml(name)}</strong>
+        <span class="app-status app-status--${app.status}">${statusText}</span>
+        ${app.message ? `<p class="app-message">${escapeHtml(app.message)}</p>` : ""}
+      </div>
+      ${app.status === "pending" ? `
+        <div class="app-actions">
+          <button class="btn btn--primary btn--sm app-approve-btn" data-app-id="${app.application_id}">通过</button>
+          <button class="btn btn--outline btn--sm app-reject-btn" data-app-id="${app.application_id}">拒绝</button>
+        </div>
+      ` : ""}
+    `;
+    list.appendChild(item);
+  }
+
+  container.appendChild(panel);
+
+  // Bind approve/reject buttons
+  panel.querySelectorAll(".app-approve-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const appId = btn.dataset.appId;
+      const restore = setLoading(btn, "处理中...");
+      try {
+        const result = await api.requests.approveApplication(token, appId);
+        showToast("申请已通过，订单已生成。", "success");
+        setTimeout(() => navigateTo(`/orders/${result.order.orderId}`), 1000);
+      } catch (error) {
+        restore();
+        showToast(acceptErrorMessage(error), "error");
+      }
+    });
+  });
+
+  panel.querySelectorAll(".app-reject-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      if (!window.confirm("确定拒绝这个申请吗？")) return;
+      const appId = btn.dataset.appId;
+      const restore = setLoading(btn, "处理中...");
+      try {
+        await api.requests.rejectApplication(token, appId);
+        btn.closest(".application-item")?.remove();
+        showToast("申请已拒绝。", "info");
+      } catch (error) {
+        restore();
+        showToast(acceptErrorMessage(error), "error");
+      }
+    });
+  });
 }
 
 async function hydrateCommunityPostDetailRoute(session) {
@@ -2460,17 +2598,20 @@ function applyRequestDetail(item, userSession = null, comments = []) {
       navigateTo(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
-    if (!window.confirm(`确认接单「${item.title}」？接单后会创建订单并通知发布者。`)) {
+    const message = prompt(`申请接单「${item.title}」\n\n请输入申请理由（可选）：`, "我对这个需求很感兴趣，希望能为您服务。");
+    if (message === null) {
       return;
     }
     const button = document.getElementById("accept-request");
-    const restore = setLoading(button, "接单中...");
+    const restore = setLoading(button, "提交中...");
     try {
-      const result = await api.requests.accept(userSession.token, item.requestId);
-      navigateTo(`/orders/${encodeURIComponent(result.order.orderId)}`);
+      await api.requests.apply(userSession.token, item.requestId, message || undefined);
+      button.textContent = "已申请";
+      button.disabled = true;
+      showToast("申请已提交，等待发布者确认。", "success");
     } catch (error) {
       restore();
-      showGlobalMessage(acceptErrorMessage(error), "error");
+      showToast(acceptErrorMessage(error), "error");
     }
   });
   if (new URLSearchParams(window.location.search).get("intent") === "accept") {
@@ -2809,7 +2950,7 @@ function renderOrdersList(payload, state, userSession) {
 }
 
 function renderOrderStats(orders, total) {
-  const activeCount = orders.filter((order) => ["accepted", "payer_confirmed"].includes(order.status)).length;
+  const activeCount = orders.filter((order) => ["accepted", "provider_confirmed", "payer_confirmed"].includes(order.status)).length;
   const doneCount = orders.filter((order) => order.status === "completed").length;
   const disputedCount = orders.filter((order) => order.status === "disputed").length;
   setElementText("#stat-pending", String(activeCount));
@@ -2863,6 +3004,11 @@ function renderOrdersState(kind, message, options = {}) {
     .filter(Boolean);
   const title = kind === "loading" ? "加载中" : kind === "error" ? "加载失败" : "空结果";
   for (const panel of panels) {
+    // load static HTML
+    if (kind === "loading") {
+      panel.setAttribute("data-state", "loading");
+      return;
+    }
     panel.innerHTML = `
       <div class="orders-empty" data-state="${escapeHtml(kind)}">
         <p><strong>${title}</strong></p>
@@ -3100,8 +3246,8 @@ function orderTimelineHtml(order, request, publisher, provider) {
   return `
     ${timelineStepHtml("done", "需求发布", `${displayName(publisher)} 发布了「${request.title || "邻里互助需求"}」`, formatDateTime(request.createdAt), true)}
     ${timelineStepHtml("done", "服务接单", `${displayName(provider)} 已接单，订单金额为 ⏂${formatAmount(order.coinAmount)}`, formatDateTime(order.createdAt), true)}
-    ${timelineStepHtml(payerDone ? "done" : "active", "需求方确认", payerDone ? `${displayName(publisher)} 已确认服务完成` : "等待需求方确认服务完成", payerDone ? formatDateTime(order.updatedAt) : "待确认", true)}
-    ${timelineStepHtml(providerDone ? "done" : (payerDone ? "active" : "pending"), "服务方确认", providerDone ? `${displayName(provider)} 已确认服务完成` : "等待服务方确认履约完成", providerDone ? formatDateTime(order.updatedAt) : "待确认", true)}
+    ${timelineStepHtml(providerDone ? "done" : "active", "服务方确认", providerDone ? `${displayName(provider)} 已确认服务完成` : "等待服务方确认履约完成", providerDone ? formatDateTime(order.updatedAt) : "待确认", true)}
+    ${timelineStepHtml(payerDone ? "done" : (providerDone ? "active" : "pending"), "需求方确认", payerDone ? `${displayName(publisher)} 已确认服务完成` : "等待需求方确认服务完成", payerDone ? formatDateTime(order.updatedAt) : "待确认", true)}
     ${timelineStepHtml(bothDone ? "active" : "pending", "结算入口", bothDone ? "双方已确认，阶段 11 将在此执行扣币、入账和流水写入" : "双方确认后进入结算", bothDone ? "待结算" : "未开放", false)}
   `;
 }
@@ -3138,7 +3284,7 @@ function orderDetailConfirmActionHtml(order) {
   if (order.status === "completed" && order.reviewState?.hasReviewed) {
     return `<button class="btn btn--outline" type="button" disabled>已评价</button>`;
   }
-  if (order.myRole && ["accepted", "payer_confirmed", "both_confirmed"].includes(order.status)) {
+  if (order.myRole && ["accepted", "provider_confirmed", "payer_confirmed", "both_confirmed"].includes(order.status)) {
     return `<button class="btn btn--outline" type="button" disabled>已确认完成</button>`;
   }
   return "";
@@ -3154,7 +3300,12 @@ async function confirmOrderFromButton(button, userSession, onConfirmed) {
     const result = await api.orders.confirm(userSession.token, orderId);
     await onConfirmed?.(result.order);
   } catch (error) {
-    showGlobalMessage(orderErrorMessage(error), "error");
+    var oem = orderErrorMessage(error);
+    if (error && error.payload && error.payload.error && error.payload.error.code === "INSUFFICIENT_BALANCE") {
+      showPopupMessage(oem);
+    } else {
+      showGlobalMessage(oem, "error");
+    }
   } finally {
     restore();
   }
@@ -3382,6 +3533,11 @@ async function hydrateJuryVotingRoute(session) {
 function renderJuryVotingState(kind, message) {
   const page = document.querySelector(".jury-page");
   if (!page) {
+    return;
+  }
+  // load static HTML
+  if (kind === "loading") {
+    page.setAttribute("data-state", "loading");
     return;
   }
   page.innerHTML = `
@@ -4063,6 +4219,11 @@ function renderReviewState(kind, message) {
     return;
   }
   const title = kind === "loading" ? "加载中" : "无法评价";
+  // 加载中不替换静态 HTML
+  if (kind === "loading") {
+    body.setAttribute("data-state", "loading");
+    return;
+  }
   body.innerHTML = `
     <div class="success-card" data-state="${escapeHtml(kind)}">
       <h3>${escapeHtml(title)}</h3>
@@ -4239,6 +4400,11 @@ function renderWalletTransactionsState(kind, message, options = {}) {
     return;
   }
   const title = kind === "loading" ? "加载中" : kind === "error" ? "加载失败" : "空结果";
+  // load static HTML
+  if (kind === "loading") {
+    list.setAttribute("data-state", "loading");
+    return;
+  }
   list.innerHTML = `
     <div class="tx-empty" data-state="${escapeHtml(kind)}">
       <p><strong>${escapeHtml(title)}</strong></p>
@@ -6342,6 +6508,11 @@ function renderAdminUsersState(kind, message, options = {}) {
     return;
   }
   const title = kind === "loading" ? "加载中" : kind === "error" ? "加载失败" : "空结果";
+  // load static HTML
+  if (kind === "loading") {
+    tbody.setAttribute("data-state", "loading");
+    return;
+  }
   tbody.innerHTML = `
     <tr>
       <td colspan="9">
@@ -6610,6 +6781,11 @@ function renderAdminTransactionsState(kind, message, options = {}) {
     return;
   }
   const title = kind === "loading" ? "加载中" : kind === "error" ? "加载失败" : "空结果";
+  // load static HTML
+  if (kind === "loading") {
+    tbody.setAttribute("data-state", "loading");
+    return;
+  }
   tbody.innerHTML = `
     <tr>
       <td colspan="8">
@@ -6973,6 +7149,11 @@ function renderAdminDisputesState(kind, message, options = {}) {
     return;
   }
   const title = kind === "loading" ? "加载中" : kind === "error" ? "加载失败" : "空结果";
+  // 加载中不替换静态 HTML
+  if (kind === "loading") {
+    list.setAttribute("data-state", "loading");
+    return;
+  }
   list.innerHTML = `
     <div class="dispute-card expanded" data-runtime-state="${escapeHtml(kind)}">
       <div class="dc-header"><span class="dc-id">${escapeHtml(title)}</span></div>
@@ -7612,6 +7793,11 @@ function renderWalletFreezeState(kind, message, options = {}) {
   }
   empty?.classList.remove("show");
   const title = kind === "loading" ? "加载中" : kind === "error" ? "加载失败" : "空结果";
+  // load static HTML
+  if (kind === "loading") {
+    list.setAttribute("data-state", "loading");
+    return;
+  }
   list.innerHTML = `
     <article class="freeze-card" data-state="${escapeHtml(kind)}">
       <div class="freeze-card-top">
@@ -8004,6 +8190,11 @@ function renderNotificationState(kind, message, options = {}) {
   }
   empty?.classList.remove("show");
   const title = kind === "loading" ? "加载中" : kind === "error" ? "加载失败" : "暂无通知";
+  // load static HTML
+  if (kind === "loading") {
+    list.setAttribute("data-state", "loading");
+    return;
+  }
   list.innerHTML = `
     <article class="notif-card read" data-state="${escapeHtml(kind)}">
       <div class="notif-icon" style="background:var(--border-light);color:var(--muted);">${notificationIconHtml("system")}</div>
@@ -8025,13 +8216,18 @@ function notificationCardHtml(item) {
   const href = item.href || notificationFallbackHref(type, item.businessId);
   const label = NOTIFICATION_TYPE_LABEL.get(type) ?? NOTIFICATION_TYPE_LABEL.get(item.type) ?? "通知";
   const isRead = Boolean(item.isRead);
+  const isApplication = item.title === "新的接单申请";
   return `
-    <article class="notif-card ${isRead ? "read" : "unread"}" data-notification-id="${escapeHtml(item.notificationId)}" data-type="${escapeHtml(type)}" ${href ? `data-href="${escapeHtml(href)}" role="link" tabindex="0"` : ""}>
+    <article class="notif-card ${isRead ? "read" : "unread"}" data-notification-id="${escapeHtml(item.notificationId)}" data-type="${escapeHtml(type)}" data-business-type="${escapeHtml(item.businessType ?? "")}" data-business-id="${escapeHtml(item.businessId ?? "")}" ${href ? `data-href="${escapeHtml(href)}" role="link" tabindex="0"` : ""}>
       <div class="notif-icon" style="${escapeHtml(notificationIconStyle(type))}">${notificationIconHtml(type)}</div>
       <div class="notif-main">
         <h2 class="notif-title">${escapeHtml(item.title || "邻帮通知")}</h2>
         <p class="notif-desc">${escapeHtml(item.content || "")}</p>
         <div class="notif-meta"><span class="badge ${escapeHtml(notificationBadgeClass(type))}">${escapeHtml(label)}</span><span class="time">${escapeHtml(formatDateTime(item.createdAt))}</span></div>
+        ${isApplication ? `<div class="notif-app-actions" data-app-id="${escapeHtml(item.businessId ?? "")}">
+          <button class="btn btn--primary btn--xs notif-approve-btn">通过</button>
+          <button class="btn btn--outline btn--xs notif-reject-btn">拒绝</button>
+        </div>` : ""}
       </div>
       <div class="notif-actions">
         ${href ? `<a class="small-action" href="${escapeHtml(href)}" data-notification-action>${escapeHtml(notificationActionText(type))}</a>` : ""}
@@ -8053,6 +8249,58 @@ function bindNotificationCard(card, userSession) {
     event.stopPropagation();
     await markNotificationRead(notificationId, userSession, card);
     navigateTo(event.currentTarget.getAttribute("href"));
+  });
+  // Approve button in notification card
+  card.querySelector(".notif-approve-btn")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const appId = card.querySelector(".notif-app-actions")?.dataset.appId;
+    if (!appId || !userSession?.token) return;
+    const btn = event.currentTarget;
+    const restore = setLoading(btn, "处理中...");
+    try {
+      const result = await api.requests.approveApplication(userSession.token, appId);
+      card.querySelector(".notif-app-actions")?.remove();
+      markNotificationCardRead(card);
+      showToast("申请已通过，订单已生成。", "success");
+      setTimeout(() => navigateTo(`/orders/${result.order.orderId}`), 1000);
+    } catch (error) {
+      restore();
+      const msg = acceptErrorMessage(error);
+      if (msg.includes("processed") || msg.includes("已处理") || msg.includes("NOT_PENDING")) {
+        card.querySelector(".notif-app-actions")?.remove();
+        markNotificationCardRead(card);
+        showToast("该申请已被处理。", "info");
+      } else {
+        showToast(msg, "error");
+      }
+    }
+  });
+  // Reject button in notification card
+  card.querySelector(".notif-reject-btn")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const appId = card.querySelector(".notif-app-actions")?.dataset.appId;
+    if (!appId || !userSession?.token) return;
+    if (!window.confirm("确定拒绝这个申请吗？")) return;
+    const btn = event.currentTarget;
+    const restore = setLoading(btn, "处理中...");
+    try {
+      await api.requests.rejectApplication(userSession.token, appId);
+      card.querySelector(".notif-app-actions")?.remove();
+      markNotificationCardRead(card);
+      showToast("申请已拒绝。", "info");
+    } catch (error) {
+      restore();
+      const msg = acceptErrorMessage(error);
+      if (msg.includes("processed") || msg.includes("已处理") || msg.includes("NOT_PENDING")) {
+        card.querySelector(".notif-app-actions")?.remove();
+        markNotificationCardRead(card);
+        showToast("该申请已被处理。", "info");
+      } else {
+        showToast(msg, "error");
+      }
+    }
   });
   card.addEventListener("click", async (event) => {
     if (event.target.closest("a, button")) {
@@ -8186,6 +8434,11 @@ function renderMessageListState(kind, message, options = {}) {
   if (!list) {
     return;
   }
+  // load static HTML
+  if (kind === "loading") {
+    list.setAttribute("data-state", "loading");
+    return;
+  }
   list.innerHTML = messageStateHtml(kind, message, options.actionText);
   list.querySelector("[data-runtime-action]")?.addEventListener("click", options.onAction);
 }
@@ -8193,6 +8446,11 @@ function renderMessageListState(kind, message, options = {}) {
 function renderMessageNotificationState(kind, message, options = {}) {
   const list = document.querySelector("#tab-system .msg-list");
   if (!list) {
+    return;
+  }
+  // load static HTML
+  if (kind === "loading") {
+    list.setAttribute("data-state", "loading");
     return;
   }
   list.innerHTML = messageStateHtml(kind, message, options.actionText);
@@ -8739,6 +8997,11 @@ function renderAiResults(result) {
 function renderAiResultsState(kind, message) {
   const list = document.querySelector(".result-list");
   if (list) {
+    // load static HTML
+    if (kind === "loading") {
+      list.setAttribute("data-state", "loading");
+      return;
+    }
     list.innerHTML = `
       <div class="no-results" data-state="${escapeHtml(kind)}">
         <p>${escapeHtml(message)}</p>
@@ -9754,6 +10017,12 @@ function routeRequestId() {
   return raw && /^\d+$/.test(raw) ? raw : null;
 }
 
+function routeCommunityPostId() {
+  const match = window.location.pathname.match(/^\/community-posts\/([^/]+)$/);
+  const raw = match?.[1];
+  return raw && /^\d+$/.test(raw) ? raw : null;
+}
+
 function routeOrderId() {
   const match = window.location.pathname.match(/^\/orders\/([^/]+)$/);
   const raw = match?.[1];
@@ -9827,6 +10096,9 @@ function orderErrorMessage(error) {
   }
   if (code === "ORDER_FORBIDDEN") {
     return "只有订单相关的需求方和服务方可以查看订单详情。";
+  }
+  if (code === "INSUFFICIENT_BALANCE") {
+    return "余额不足，发单时悬赏金额不能超过钱包余额。请先充值或减少悬赏金额。";
   }
   if (code === "ORDER_STATUS_NOT_CONFIRMABLE") {
     return "当前订单状态不能确认完成。";
@@ -9974,6 +10246,9 @@ function publishErrorMessage(error, context = "") {
   }
   if (code?.startsWith("INVALID_REQUEST_")) {
     return "请检查标题、描述、地点和标签长度。";
+  }
+  if (code === "INSUFFICIENT_BALANCE") {
+    return "余额不足，发单时悬赏金额不能超过钱包余额。请先充值或减少悬赏金额。";
   }
   if (code === "FORBIDDEN") {
     return "当前账号不能发布服务需求。";
@@ -10297,6 +10572,36 @@ function setLoading(button, text) {
     button.disabled = false;
     button.textContent = originalText;
   };
+}
+
+function showPopupMessage(text) {
+  var ex = document.getElementById("balance-popup");
+  if (ex) ex.remove();
+  var ov = document.createElement("div");
+  ov.id = "balance-popup";
+  ov.setAttribute("style", "position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:10000;");
+  ov.addEventListener("click", function(e) { if (e.target === ov) ov.remove(); });
+  var card = document.createElement("div");
+  card.setAttribute("style", "background:#fff;border-radius:12px;padding:28px 24px 20px;max-width:360px;width:90%;box-shadow:0 8px 40px rgba(0,0,0,.25);text-align:center;font-family:system-ui,sans-serif;");
+  var icon = document.createElement("div");
+  icon.textContent = String.fromCodePoint(0x1F4B0);
+  icon.setAttribute("style", "font-size:40px;margin-bottom:12px;");
+  card.appendChild(icon);
+  var msg = document.createElement("p");
+  msg.textContent = text;
+  msg.setAttribute("style", "font-size:16px;font-weight:600;color:#1e293b;margin:0 0 8px;line-height:1.5;");
+  card.appendChild(msg);
+  var tip = document.createElement("p");
+  tip.textContent = "请先充值时间币或减少悬赏金额";
+  tip.setAttribute("style", "font-size:13px;color:#94a3b8;margin:0 0 20px;");
+  card.appendChild(tip);
+  var btn = document.createElement("button");
+  btn.textContent = "知道了";
+  btn.setAttribute("style", "background:#ef4444;color:#fff;border:none;border-radius:8px;padding:10px 36px;font-size:14px;font-weight:600;cursor:pointer;");
+  btn.addEventListener("click", function() { ov.remove(); });
+  card.appendChild(btn);
+  ov.appendChild(card);
+  document.body.appendChild(ov);
 }
 
 function showInlineMessage(anchor, text, state = "info") {

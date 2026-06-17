@@ -7,7 +7,7 @@ const ORDER_SUMMARY_RE = /^\/api\/ai\/orders\/([^/]+)\/summary$/;
 const DISPUTE_SUMMARY_RE = /^\/api\/ai\/disputes\/([^/]+)\/summary$/;
 const AI_BODY_MAX_BYTES = 64 * 1024;
 const PUBLIC_REQUEST_STATUSES = new Set(["open", "accepted", "completed"]);
-const ORDER_STATUSES = new Set(["accepted", "payer_confirmed", "both_confirmed", "completed", "disputed"]);
+const ORDER_STATUSES = new Set(["accepted", "provider_confirmed", "payer_confirmed", "both_confirmed", "completed", "disputed"]);
 const HIGH_RISK_PATTERNS = [
   { intent: "accept_request", label: "接单", pattern: /(帮我|替我|自动)?(接单|接受需求|抢单)/i, guide: "请进入需求详情页，确认服务内容、时间币和地点后手动点击接单。" },
   { intent: "confirm_order", label: "确认完成", pattern: /(确认完成|帮我确认|自动确认|确认订单)/i, guide: "请进入订单详情页，由订单参与方核对履约情况后手动确认。" },
@@ -810,7 +810,7 @@ function orderSuggestions(order, dispute) {
   if (order.status === "both_confirmed") {
     return ["双方已确认，等待系统结算；AI 不会手动放款。"];
   }
-  if (["accepted", "payer_confirmed"].includes(order.status)) {
+  if (["accepted", "provider_confirmed", "payer_confirmed"].includes(order.status)) {
     return ["核对服务是否完成，再由对应参与方在订单页手动确认。", "如服务存在争议，可从订单详情发起纠纷。"];
   }
   if (order.status === "completed") {

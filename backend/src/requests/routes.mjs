@@ -1,8 +1,27 @@
 import { ACTIVE_STATUS } from "../auth/store.mjs";
 import { HttpError, methodNotAllowed, readJsonBody, sendJson } from "../http.mjs";
+import { createMysqlPool } from "../mysql/pool.mjs";
+
+let appPool = null;
+async function getAppPool() {
+  if (!appPool) {
+    appPool = await createMysqlPool({
+      host: process.env.DB_HOST ?? "127.0.0.1",
+      port: Number(process.env.DB_PORT) || 3306,
+      user: process.env.DB_USER ?? "community_mis",
+      password: process.env.DB_PASSWORD ?? "",
+      database: process.env.DB_NAME ?? "community_mis"
+    });
+  }
+  return appPool;
+}
 
 const REQUEST_DETAIL_RE = /^\/api\/requests\/([^/]+)$/;
 const REQUEST_ACCEPT_RE = /^\/api\/requests\/([^/]+)\/accept$/;
+const REQUEST_APPLY_RE = /^\/api\/requests\/([^/]+)\/apply$/;
+const REQUEST_APPLICATIONS_RE = /^\/api\/requests\/([^/]+)\/applications$/;
+const APPLICATION_APPROVE_RE = /^\/api\/applications\/([^/]+)\/approve$/;
+const APPLICATION_REJECT_RE = /^\/api\/applications\/([^/]+)\/reject$/;
 const ORDER_DETAIL_RE = /^\/api\/orders\/([^/]+)$/;
 const ORDER_CONFIRM_RE = /^\/api\/orders\/([^/]+)\/confirm$/;
 const ORDER_DISPUTES_RE = /^\/api\/orders\/([^/]+)\/disputes$/;
@@ -14,10 +33,10 @@ const JURY_DISPUTE_VOTES_RE = /^\/api\/jury\/disputes\/([^/]+)\/votes$/;
 const ORDER_REVIEWS_RE = /^\/api\/orders\/([^/]+)\/reviews$/;
 const NOTIFICATION_READ_RE = /^\/api\/notifications\/([^/]+)\/read$/;
 const PUBLIC_REQUEST_STATUSES = new Set(["open", "accepted", "completed"]);
-const ORDER_STATUSES = new Set(["accepted", "payer_confirmed", "both_confirmed", "completed", "disputed"]);
-const ORDER_CONFIRMABLE_STATUSES = new Set(["accepted", "payer_confirmed", "both_confirmed"]);
+const ORDER_STATUSES = new Set(["accepted", "provider_confirmed", "payer_confirmed", "both_confirmed", "completed", "disputed"]);
+const ORDER_CONFIRMABLE_STATUSES = new Set(["accepted", "provider_confirmed", "payer_confirmed", "both_confirmed"]);
 const STATUS_FILTERS = new Set(["open", "accepted", "completed", "cancelled", "all"]);
-const ORDER_STATUS_FILTERS = new Set(["accepted", "payer_confirmed", "both_confirmed", "completed", "disputed", "active", "settlement_ready", "all"]);
+const ORDER_STATUS_FILTERS = new Set(["accepted", "provider_confirmed", "payer_confirmed", "both_confirmed", "completed", "disputed", "active", "settlement_ready", "all"]);
 const DISPUTE_STATUS_FILTERS = new Set(["pending", "evidence_collecting", "jury_voting", "admin_review", "resolved", "cancelled", "all"]);
 const DISPUTE_ROLE_FILTERS = new Set(["all", "initiator", "respondent"]);
 const ORDER_ROLE_FILTERS = new Set(["all", "posted", "accepted", "publisher", "provider"]);
@@ -91,6 +110,13 @@ export async function handleRequestRoutes({ request, response, url, authService 
         sourceType: "request",
         title: input.title
       });
+      // Check wallet balance before creating request
+      if (typeof authService.store.getWalletSummary === "function") {
+        const wallet = await authService.store.getWalletSummary(context.user.userId);
+        if (wallet?.wallet && Number(wallet.wallet.balance) < Number(input.coinAmount)) {
+          throw new HttpError(409, "INSUFFICIENT_BALANCE", "余额不足（发单时悬赏金额不能超过钱包余额）");
+        }
+      }
       let created;
       try {
         created = await authService.store.createServiceRequest({
@@ -272,6 +298,77 @@ export async function handleRequestRoutes({ request, response, url, authService 
         juryResult
       }
     });
+    return true;
+  }
+
+  // --- Application flow ---
+
+  const applyMatch = url.pathname.match(REQUEST_APPLY_RE);
+  if (applyMatch) {
+    allowOnly(request, response, ["POST"]);
+    const context = await authService.authenticateRequest(request);
+    authService.requireRole(context, ["user"]);
+    const requestId = parseRequestId(applyMatch[1]);
+
+    const body = await readJsonBody(request, { maxBytes: 2048 });
+    const message = String(body?.message ?? "").slice(0, 500).trim() || "我对这个需求很感兴趣，希望能为您服务。";
+
+    let application;
+    try {
+      application = await createApplication(authService.store, {
+        requestId,
+        applicantId: context.user.userId,
+        message
+      });
+    } catch (error) {
+      throw applicationError(error);
+    }
+
+    sendJson(response, 201, { application });
+    return true;
+  }
+
+  const applicationsMatch = url.pathname.match(REQUEST_APPLICATIONS_RE);
+  if (applicationsMatch) {
+    allowOnly(request, response, ["GET"]);
+    const context = await authService.authenticateRequest(request);
+    authService.requireRole(context, ["user"]);
+    const requestId = parseRequestId(applicationsMatch[1]);
+
+    const applications = await listApplications(authService.store, requestId, context.user.userId);
+    sendJson(response, 200, { applications });
+    return true;
+  }
+
+  const approveMatch = url.pathname.match(APPLICATION_APPROVE_RE);
+  if (approveMatch) {
+    allowOnly(request, response, ["POST"]);
+    const context = await authService.authenticateRequest(request);
+    authService.requireRole(context, ["user"]);
+    const applicationId = parsePositiveInt(approveMatch[1], "INVALID_APPLICATION_ID");
+
+    let order;
+    try {
+      order = await approveApplication(authService.store, applicationId, context.user.userId);
+    } catch (error) {
+      throw applicationError(error);
+    }
+
+    sendJson(response, 200, await orderDetailPayload(authService.store, order.orderId, {
+      viewerId: context.user.userId
+    }));
+    return true;
+  }
+
+  const rejectMatch = url.pathname.match(APPLICATION_REJECT_RE);
+  if (rejectMatch) {
+    allowOnly(request, response, ["POST"]);
+    const context = await authService.authenticateRequest(request);
+    authService.requireRole(context, ["user"]);
+    const applicationId = parsePositiveInt(rejectMatch[1], "INVALID_APPLICATION_ID");
+
+    await rejectApplication(authService.store, applicationId, context.user.userId);
+    sendJson(response, 200, { status: "rejected" });
     return true;
   }
 
@@ -1392,7 +1489,7 @@ function matchesOrderQuery(item, query) {
   }
   if (query.status !== "all") {
     if (query.status === "active") {
-      if (!["accepted", "payer_confirmed"].includes(item.status)) {
+      if (!["accepted", "provider_confirmed", "payer_confirmed"].includes(item.status)) {
         return false;
       }
     } else if (query.status === "settlement_ready") {
@@ -1521,7 +1618,7 @@ function serviceOrderDto(item) {
     confirmation,
     myRole,
     canConfirm: Boolean(myRole) && ORDER_CONFIRMABLE_STATUSES.has(order.status) && !confirmation[myRole === "posted" ? "payerConfirmed" : "providerConfirmed"],
-    canDispute: Boolean(myRole) && !dispute && ["accepted", "payer_confirmed", "both_confirmed"].includes(order.status),
+    canDispute: Boolean(myRole) && !dispute && ["accepted", "provider_confirmed", "payer_confirmed", "both_confirmed"].includes(order.status),
     disputeId: dispute?.disputeId ?? null,
     disputeStatus: dispute?.status ?? null,
     canReview: reviewState.canReview,
@@ -2409,7 +2506,7 @@ function confirmError(error) {
     return new HttpError(409, "ORDER_STATUS_NOT_CONFIRMABLE", "Only accepted orders can be confirmed.");
   }
   if (error?.code === "INSUFFICIENT_BALANCE") {
-    return new HttpError(409, "INSUFFICIENT_BALANCE", "Payer wallet balance is insufficient.");
+    return new HttpError(409, "INSUFFICIENT_BALANCE", "余额不足（发单时悬赏金额不能超过钱包余额）");
   }
   if (error?.code === "ORDER_WALLET_NOT_FOUND") {
     return new HttpError(409, "ORDER_WALLET_NOT_FOUND", "Order wallet was not found.");
@@ -2482,4 +2579,195 @@ function allowOnly(request, response, methods) {
     methodNotAllowed(response, methods);
     throw new HttpError(0, "HANDLED", "Response was already handled.");
   }
+}
+
+// --- Application system helpers ---
+
+async function createApplication(store, { requestId, applicantId, message }) {
+  const pool = await getAppPool();
+  if (!pool) {
+    throw new HttpError(500, "DB_UNAVAILABLE", "Database connection is not available.");
+  }
+
+  // Check request status directly
+  const [reqRows] = await pool.execute(
+    `SELECT request_id, status, publisher_id, title FROM service_request WHERE request_id = ?`,
+    [requestId]
+  );
+  const req = reqRows?.[0];
+  if (!req) {
+    throw new HttpError(404, "REQUEST_NOT_FOUND", "The request does not exist.");
+  }
+  if (req.status !== "open") {
+    throw new HttpError(409, "REQUEST_NOT_OPEN", "This request is no longer accepting applications.");
+  }
+  if (Number(req.publisher_id) === applicantId) {
+    throw new HttpError(409, "SELF_APPLY_NOT_ALLOWED", "You cannot apply to your own request.");
+  }
+
+  // Check for existing application: block if pending, allow if rejected/cancelled
+  const [existingRows] = await pool.execute(
+    `SELECT application_id, status FROM service_application WHERE request_id = ? AND applicant_id = ?`,
+    [requestId, applicantId]
+  );
+  if (existingRows?.length > 0) {
+    const existing = existingRows[0];
+    if (existing.status === 'pending') {
+      throw new HttpError(409, "APPLICATION_EXISTS", "你已提交过申请，等待发布者审核中。");
+    }
+    // Mark old notification as processed so the publisher won't see it as new
+    await pool.execute(
+      `UPDATE notification SET title = '已失效的申请', read_at = NOW() WHERE title = '新的接单申请' AND business_id = ?`,
+      [existing.application_id]
+    );
+  }
+
+  const [result] = await pool.execute(
+    `INSERT INTO service_application (request_id, applicant_id, publisher_id, message) VALUES (?, ?, ?, ?)`,
+    [requestId, applicantId, req.publisher_id, message]
+  );
+
+  // Send notification to publisher
+  await pool.execute(
+    `INSERT INTO notification (user_id, type, title, content, business_type, business_id)
+     VALUES (?, 'order', '新的接单申请', ?, 'application', ?)`,
+    [req.publisher_id, `有人想接你的需求「${req.title ?? ""}」: ${message}`, result.insertId]
+  );
+
+  const [rows] = await pool.execute(
+    `SELECT * FROM service_application WHERE application_id = ?`,
+    [result.insertId]
+  );
+  return rows[0];
+}
+
+async function listApplications(store, requestId, viewerId) {
+  const pool = await getAppPool();
+  if (!pool) {
+    throw new HttpError(500, "DB_UNAVAILABLE", "Database connection is not available.");
+  }
+  const [rows] = await pool.execute(
+    `SELECT sa.*, u.username as applicant_name, u.username as applicant_display
+     FROM service_application sa
+     JOIN user u ON u.user_id = sa.applicant_id
+     WHERE sa.request_id = ? AND sa.status = 'pending'
+     ORDER BY sa.created_at DESC`,
+    [requestId]
+  );
+  return rows;
+}
+
+async function approveApplication(store, applicationId, userId) {
+  const pool = await getAppPool();
+  if (!pool) {
+    throw new HttpError(500, "DB_UNAVAILABLE", "Database connection is not available.");
+  }
+
+  const [apps] = await pool.execute(
+    `SELECT * FROM service_application WHERE application_id = ?`,
+    [applicationId]
+  );
+  const app = apps?.[0];
+  if (!app) {
+    throw new HttpError(404, "APPLICATION_NOT_FOUND", "Application not found.");
+  }
+  if (Number(app.publisher_id) !== userId) {
+    throw new HttpError(403, "APPROVE_FORBIDDEN", "Only the request publisher can approve applications.");
+  }
+  if (app.status !== "pending") {
+    throw new HttpError(409, "APPLICATION_NOT_PENDING", "This application has already been processed.");
+  }
+
+  await pool.execute(
+    `UPDATE service_application SET status = 'approved' WHERE application_id = ?`,
+    [applicationId]
+  );
+
+  // Mark the notification as processed so it won't show approve/reject buttons
+  await pool.execute(
+    `UPDATE notification SET title = '已通过的申请', read_at = NOW() WHERE title = '新的接单申请' AND business_id = ?`,
+    [applicationId]
+  );
+
+  // Reject all other pending applications for this request
+  await pool.execute(
+    `UPDATE service_application SET status = 'rejected' WHERE request_id = ? AND application_id != ? AND status = 'pending'`,
+    [app.request_id, applicationId]
+  );
+
+  // Create the order
+  if (typeof store.acceptServiceRequest !== "function") {
+    throw new HttpError(500, "REQUEST_STORE_UNAVAILABLE", "Order creation is not available.");
+  }
+
+  const order = await store.acceptServiceRequest({
+    requestId: app.request_id,
+    providerId: app.applicant_id
+  });
+
+  // Notify the approved applicant
+  await pool.execute(
+    `INSERT INTO notification (user_id, type, title, content, business_type, business_id)
+     VALUES (?, 'order', '接单申请已通过', '你的接单申请已被发布者通过，订单已生成。', 'order', ?)`,
+    [app.applicant_id, order.orderId]
+  );
+
+  return order;
+}
+
+async function rejectApplication(store, applicationId, userId) {
+  const pool = await getAppPool();
+  if (!pool) {
+    throw new HttpError(500, "DB_UNAVAILABLE", "Database connection is not available.");
+  }
+
+  const [apps] = await pool.execute(
+    `SELECT * FROM service_application WHERE application_id = ?`,
+    [applicationId]
+  );
+  const app = apps?.[0];
+  if (!app) {
+    throw new HttpError(404, "APPLICATION_NOT_FOUND", "Application not found.");
+  }
+  if (Number(app.publisher_id) !== userId) {
+    throw new HttpError(403, "REJECT_FORBIDDEN", "Only the request publisher can reject applications.");
+  }
+  if (app.status !== "pending") {
+    throw new HttpError(409, "APPLICATION_NOT_PENDING", "This application has already been processed.");
+  }
+
+  await pool.execute(
+    `UPDATE service_application SET status = 'rejected' WHERE application_id = ?`,
+    [applicationId]
+  );
+
+  // Mark the notification as processed
+  await pool.execute(
+    `UPDATE notification SET title = '已拒绝的申请', read_at = NOW() WHERE title = '新的接单申请' AND business_id = ?`,
+    [applicationId]
+  );
+
+  // Notify the rejected applicant
+  await pool.execute(
+    `INSERT INTO notification (user_id, type, title, content, business_type, business_id)
+     VALUES (?, 'order', '接单申请未通过', '很遗憾，你的接单申请未被发布者通过。', 'application', ?)`,
+    [app.applicant_id, applicationId]
+  );
+}
+
+function applicationError(error) {
+  const code = error?.code ?? error?.payload?.error?.code;
+  if (code === "REQUEST_NOT_FOUND") {
+    throw new HttpError(404, "REQUEST_NOT_FOUND", "The request does not exist.");
+  }
+  if (code === "REQUEST_NOT_OPEN") {
+    throw new HttpError(409, "REQUEST_NOT_OPEN", "This request is no longer accepting applications.");
+  }
+  if (code === "SELF_APPLY_NOT_ALLOWED" || code === "SELF_ACCEPT_NOT_ALLOWED") {
+    throw new HttpError(409, "SELF_APPLY_NOT_ALLOWED", "You cannot apply to your own request.");
+  }
+  if (code === "APPLICATION_EXISTS") {
+    throw new HttpError(409, "APPLICATION_EXISTS", "You have already submitted an application for this request.");
+  }
+  throw error;
 }

@@ -79,6 +79,8 @@ export function createMysqlAuthStore(options = {}) {
     listDisputeEvidence,
     createJuryVote,
     listJuryVotesForDisputeId,
+    listJuryDisputes,
+    updateUserJury,
     findJuryVote,
     listAdminUsers,
     updateUserStatus,
@@ -1111,7 +1113,11 @@ SELECT
     1,
     0
   ),
-  @status_allowed := IF(so.\`status\` IN ('accepted', 'payer_confirmed', 'both_confirmed'), 1, 0)
+  @status_allowed := IF(
+    (@actor_role = 'provider' AND so.\`status\` IN ('accepted', 'payer_confirmed'))
+    OR (@actor_role = 'payer' AND so.\`status\` = 'provider_confirmed'),
+    1, 0
+  )
 FROM \`service_order\` so
 JOIN \`service_request\` sr ON sr.\`request_id\` = so.\`request_id\`
 WHERE so.\`order_id\` = @order_id
@@ -1201,6 +1207,7 @@ SET
   \`provider_confirmed\` = @next_provider_confirmed,
   \`status\` = CASE
     WHEN @settled = 1 THEN 'completed'
+    WHEN @next_provider_confirmed = 1 THEN 'provider_confirmed'
     WHEN @next_payer_confirmed = 1 THEN 'payer_confirmed'
     ELSE 'accepted'
   END,
@@ -5881,6 +5888,60 @@ function normalizeDisputeUser(input) {
     displayName: normalizeOptionalString(input.displayName ?? input.display_name) ?? String(input.username ?? "")
   };
 }
+
+  async function updateUserJury(userId, enable) {
+    const uid = Number(userId);
+    const en = enable ? 1 : 0;
+    const pool = await mysqlPool();
+    // Update user_profile.is_jury
+    await pool.query(
+      "INSERT INTO user_profile (user_id, service_categories, is_jury) VALUES (?, CAST('[]' AS JSON), ?) ON DUPLICATE KEY UPDATE is_jury = ?",
+      [uid, en, en]
+    );
+    // Update user.skill_tags
+    const [rows] = await pool.query("SELECT skill_tags FROM user WHERE user_id = ?", [uid]);
+    let tags = [];
+    try { tags = JSON.parse(rows[0]?.skill_tags || "[]"); } catch(e) {}
+    if (enable) {
+      if (!tags.includes("陪审")) tags.push("陪审");
+    } else {
+      tags = tags.filter(function(t) { return t !== "陪审" && t !== "jury"; });
+    }
+    await pool.query("UPDATE user SET skill_tags = ? WHERE user_id = ?", [JSON.stringify(tags), uid]);
+    return { isJury: enable };
+  }
+
+  async function listJuryDisputes(userId, query = {}) {
+    const page = Math.max(1, Number(query.page || 1));
+    const pageSize = Math.min(50, Math.max(1, Number(query.pageSize || 20)));
+    const offset = (page - 1) * pageSize;
+    const uid = Number(userId);
+    const sql = "SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(" +
+      "'disputeId', d.`dispute_id`," +
+      "'orderId', d.`order_id`," +
+      "'initiatorId', d.`initiator_id`," +
+      "'respondentId', d.`respondent_id`," +
+      "'type', d.`type`," +
+      "'reason', d.`reason`," +
+      "'status', d.`status`," +
+      "'finalResult', d.`final_result`," +
+      "'refundAmount', d.`refund_amount`," +
+      "'createdAt', DATE_FORMAT(d.`created_at`, '%Y-%m-%dT%H:%i:%s.000Z')," +
+      "'updatedAt', DATE_FORMAT(d.`updated_at`, '%Y-%m-%dT%H:%i:%s.000Z')," +
+      "'resolvedAt', DATE_FORMAT(d.`resolved_at`, '%Y-%m-%dT%H:%i:%s.000Z')" +
+    ")), JSON_ARRAY()) FROM `dispute` d WHERE d.`status` = 'jury_voting' AND d.`initiator_id` <> " + uid + " AND d.`respondent_id` <> " + uid + " ORDER BY d.`created_at` DESC LIMIT " + pageSize + " OFFSET " + offset;
+    const countSql = "SELECT COUNT(*) AS total FROM `dispute` WHERE `status` = 'jury_voting' AND `initiator_id` <> " + uid + " AND `respondent_id` <> " + uid;
+    const rows = await mysqlJson(sql, { optional: true });
+    const disputes = Array.isArray(rows) ? rows.map(normalizeDispute) : [];
+    const [countRows] = await (await mysqlPool()).query(countSql);
+    const total = countRows[0]?.total || 0;
+    return {
+      disputes: disputes,
+      pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize), hasNext: offset + pageSize < total, hasPrev: page > 1 }
+    };
+  }
+
+
 
 function normalizeNotification(input) {
   if (!input) {

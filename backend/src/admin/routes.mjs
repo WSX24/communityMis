@@ -2929,7 +2929,7 @@ function finalizeDisputeError(error) {
     return new HttpError(409, "DISPUTE_CLOSED", "Closed disputes cannot be finalized.");
   }
   if (error?.code === "INSUFFICIENT_BALANCE") {
-    return new HttpError(409, "INSUFFICIENT_BALANCE", "Payer wallet balance is insufficient.");
+    return new HttpError(409, "INSUFFICIENT_BALANCE", "余额不足（发单时悬赏金额不能超过钱包余额）");
   }
   if (error?.code === "ORDER_WALLET_NOT_FOUND") {
     return new HttpError(409, "ORDER_WALLET_NOT_FOUND", "Order wallet was not found.");

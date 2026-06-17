@@ -828,7 +828,7 @@ export function createMemoryAuthStore(options = {}) {
     if (!["payer", "provider"].includes(actorRole)) {
       throw storeError("ORDER_FORBIDDEN", "Actor is not part of this order.");
     }
-    if (!["accepted", "payer_confirmed", "both_confirmed"].includes(order.status)) {
+    if (!["accepted", "payer_confirmed", "both_confirmed", "provider_confirmed"].includes(order.status)) {
       throw storeError("ORDER_STATUS_NOT_CONFIRMABLE", "Only accepted orders can be confirmed.");
     }
 
@@ -866,6 +866,8 @@ export function createMemoryAuthStore(options = {}) {
         order.completedAt = now;
         request.status = "completed";
         request.updatedAt = now;
+      } else if (order.providerConfirmed && !order.payerConfirmed) {
+        order.status = "provider_confirmed";
       } else if (order.payerConfirmed) {
         order.status = "payer_confirmed";
       } else {
@@ -1750,7 +1752,7 @@ export function createMemoryAuthStore(options = {}) {
     if (request.publisherId !== initiatorId && order.providerId !== initiatorId) {
       throw storeError("DISPUTE_FORBIDDEN", "Only order participants can create a dispute.");
     }
-    if (!["accepted", "payer_confirmed", "both_confirmed", "disputed"].includes(order.status)) {
+    if (!["accepted", "provider_confirmed", "payer_confirmed", "both_confirmed", "disputed"].includes(order.status)) {
       throw storeError("DISPUTE_ORDER_STATUS_INVALID", "This order status cannot enter dispute.");
     }
     const existing = Array.from(disputes.values()).find((dispute) => dispute.orderId === orderId && !["cancelled"].includes(dispute.status));
