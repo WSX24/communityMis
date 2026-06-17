@@ -130,7 +130,7 @@ export function asArray<T = Record<string, unknown>>(value: unknown, key: string
   return [];
 }
 
-export function text(value: unknown, fallback = "-") {
+export function text(value: unknown, fallback = "-"): React.ReactNode {
   if (value === undefined || value === null || value === "") return fallback;
   return String(value);
 }
